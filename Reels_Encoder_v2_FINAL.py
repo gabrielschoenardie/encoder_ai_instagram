@@ -607,7 +607,7 @@ def build_hdr_to_sdr_filter(hdr_info: dict, tonemap: str = "mobius") -> Optional
     console.print(f"[cyan]🎨 Gerando filtro HDR→SDR (tonemap={tonemap})...[/cyan]")
 
     hdr_filter = (
-        "zscale=t=linear:npl=100,"
+        "zscale=t=linear:npl=200,"
         "format=gbrpf32le,"
         "zscale=p=bt709,"
         f"tonemap={tonemap}:desat=2,"
@@ -2237,10 +2237,6 @@ def run_ffmpeg(
             console.print("[yellow]⚠ Loudnorm desativado (falha na análise)[/yellow]")
     else:
         console.print("[dim]○ Loudnorm desativado (--loudnorm off)[/dim]")
-
-    # Log do filtro final para diagnóstico de rotação
-    console.print(f"[dim]🔍 Video filter ({mode}): {video_filter[:120]}{'...' if len(video_filter) > 120 else ''}[/dim]")
-    console.print(f"[dim]📐 Target resolution: {target_resolution}[/dim]")
 
     # CRF MODE
     if mode == "crf":
