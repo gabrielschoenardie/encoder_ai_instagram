@@ -931,6 +931,18 @@ def build_scale_filter(
     return scale_filter
 
 
+def _rotation_to_vf_filter(rotation: int) -> Optional[str]:
+    """Converte graus de rotação (metadata) para filtro FFmpeg transpose."""
+    r = rotation % 360
+    if r == 90:
+        return "transpose=1"   # 90° clockwise
+    elif r == 270:
+        return "transpose=2"   # 90° counter-clockwise
+    elif r == 180:
+        return "hflip,vflip"
+    return None
+
+
 # =============================================================================
 # AUDIO LOUDNESS NORMALIZATION (EBU R128)
 # =============================================================================
@@ -1651,9 +1663,7 @@ def build_scene_referred_hdr_pipeline(
     parts.append("cas=strength=0.35")
     console.print("[green]✓ Sharpen:[/green] CAS 0.35 em SDR space (após tonemap)")
 
-    # STAGE 5: Grain anti-banding + dither opcional
-    parts.append("noise=c0s=2:c0f=t+u")
-    console.print("[green]✓ Grain:[/green] Anti-banding (c0s=2, temporal+uniforme)")
+    # STAGE 5: Dither opcional
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
         parts.append(_build_dither(0.5))
@@ -2093,6 +2103,16 @@ def run_ffmpeg(
     # Downscale automático
     scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
 
+    # Rotação iPhone/mobile — detecta antes de construir o filtro
+    _rotation_degrees = detect_rotation_metadata_pyav(input_file)
+    _rotation_vf = _rotation_to_vf_filter(_rotation_degrees)
+    if _rotation_vf:
+        console.print(
+            f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° → aplicando {_rotation_vf}[/bold yellow]"
+        )
+    else:
+        console.print("[dim]📱 Sem rotação de metadados detectada[/dim]")
+
     # HDR detection & conversion
     hdr_filter = None
     if hdr_mode == "auto":
@@ -2137,6 +2157,10 @@ def run_ffmpeg(
         dither_enabled=dither_enabled,
         max_luminance=hdr_info.get("max_luminance") if hdr_info else None,
     )
+
+    # Prepend transpose de rotação (deve vir antes de qualquer zscale/filtro)
+    if _rotation_vf:
+        video_filter = _rotation_vf + "," + video_filter
 
     # ── ENHANCE ENGINE — seletivo (filter_complex) ou global (-vf) ──────────
     if ENHANCE_AVAILABLE and enhance_enabled and _enh_profile is not None:
@@ -2210,6 +2234,7 @@ def run_ffmpeg(
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             "-filter_complex_threads", str(filter_threads),
+            "-noautorotate",
             "-i", input_file,
             *_extra_inputs,
         ]
@@ -2277,6 +2302,7 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
+        "-noautorotate",
         "-i", input_file,
         *_extra_inputs,
     ]
@@ -2334,6 +2360,7 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
+        "-noautorotate",
         "-i", input_file,
         *_extra_inputs,
     ]
