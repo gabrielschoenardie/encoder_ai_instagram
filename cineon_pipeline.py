@@ -509,23 +509,14 @@ def node2_primary(
 
 def node3_cst_out(frame_dwg_intermediate: np.ndarray) -> np.ndarray:
     """
-    Node 3: CST OUT (DWG → Rec.709/Cineon Log) - BYPASS MODE.
+    Node 3: CST OUT (DWG → Rec.709/Cineon Log).
 
-    BYPASS: Tone Mapping and Gamut Mapping DISABLED.
-    Only matrix conversion (DWG→Rec.709) and Cineon Log encoding remain.
-
-    Pipeline (current):
-        DWG Intermediate → DWG Linear → DWG→Rec.709 Matrix →
-        Clamp negatives → Cineon Log
-
-    DISABLED:
-    - Tone Mapping: OFF (was DaVinci 100 nits, Adaptation 9.0)
-    - Gamut Mapping: OFF (was Saturation Compression, Knee 0.900)
-
-    Rationale:
-    - For SDR Rec.709 input, the DWG roundtrip is near-identity
-    - Tone/gamut mapping was causing ~0.15 stops loss + desaturation
-    - LUT now handles all display transforms (Cineon → display)
+    Pipeline:
+        DWG Intermediate → DWG Linear
+        → Tone Mapping (DaVinci 100 nits, Adaptation 9.0)
+        → DWG→Rec.709 Matrix
+        → Gamut Mapping (Saturation Compression, Knee 0.900)
+        → Cineon Log
 
     Args:
         frame_dwg_intermediate: Frame em DWG/Intermediate (float32)
@@ -536,19 +527,20 @@ def node3_cst_out(frame_dwg_intermediate: np.ndarray) -> np.ndarray:
     # 1. Transfer Function: DWG Intermediate → DWG Linear
     frame_dwg_linear = eotf_davinci_intermediate(frame_dwg_intermediate)
 
-    # 2. TONE MAPPING: BYPASSED
-    #    (was: apply_tone_mapping_davinci, 100 nits, adaptation 9.0)
-    frame_after_tone = frame_dwg_linear  # passthrough
+    # 2. TONE MAPPING: DaVinci SDR (100 nits, adaptation 9.0)
+    # Comprime highlights acima de 1.0 em DWG linear para range SDR display.
+    # Sem tone mapping, valores > 1.0 seriam clipados duramente na conversão de gamut.
+    frame_after_tone = apply_tone_mapping_davinci(frame_dwg_linear, max_output_nits=100.0, adaptation=9.0)
 
     # 3. Gamut Conversion: DWG Linear → Rec.709 Linear (matrix only)
     H, W, C = frame_after_tone.shape
     frame_flat = frame_after_tone.reshape(-1, 3)
     frame_709_linear = (MATRIX_DWG_TO_REC709 @ frame_flat.T).T.reshape(H, W, 3)
 
-    # 4. GAMUT MAPPING: BYPASSED
-    #    (was: apply_gamut_mapping_saturation_compression, knee 0.9)
-    #    Defensive clamp only: prevent negative values from matrix
-    frame_709_clamped = np.maximum(frame_709_linear, 0.0)
+    # 4. GAMUT MAPPING: Saturation Compression (knee 0.9)
+    # Comprime cores fora do gamut Rec.709 preservando hue — evita posterização
+    # em vermelho/azul saturado que fica fora do triângulo Rec.709.
+    frame_709_clamped = apply_gamut_mapping_saturation_compression(frame_709_linear, knee=0.900)
 
     # 5. Transfer Function: Rec.709 Linear → Cineon Log
     frame_cineon = log_encoding_cineon(frame_709_clamped)
@@ -807,6 +799,8 @@ class LUT3D:
         b_idx = np.floor(coords[:, :, 2]).astype(np.int32)
 
         # Clamping de índices (proteção contra out-of-bounds)
+        # idx clampeado a lut_size-2: quando frac=1.0 (borda branca), a interpolação
+        # naturalmente acessa lut[idx+1] = lut[lut_size-1] — último entry correto.
         r_idx = np.clip(r_idx, 0, self.lut_size - 2)
         g_idx = np.clip(g_idx, 0, self.lut_size - 2)
         b_idx = np.clip(b_idx, 0, self.lut_size - 2)
