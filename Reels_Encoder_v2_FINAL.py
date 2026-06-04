@@ -2116,7 +2116,7 @@ def run_ffmpeg(
         except Exception:
             _phys_w, _phys_h = 3840, 2160
         _eff_w, _eff_h = _phys_h, _phys_w  # swap após rotação 90°/270°
-        console.print(f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° → {_rotation_vf}[/bold yellow]")
+        console.print(f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° (auto-rotate ativo)[/bold yellow]")
         console.print(f"[dim]📐 Físico: {_phys_w}×{_phys_h} → Efetivo: {_eff_w}×{_eff_h}[/dim]")
         if scale_mode == "auto":
             scale_filter = build_scale_filter(_eff_w, _eff_h, 1080, 1920)
@@ -2174,9 +2174,6 @@ def run_ffmpeg(
         max_luminance=hdr_info.get("max_luminance") if hdr_info else None,
     )
 
-    # Prepend transpose de rotação (deve vir antes de qualquer zscale/filtro)
-    if _rotation_vf:
-        video_filter = _rotation_vf + "," + video_filter
 
     # ── ENHANCE ENGINE — seletivo (filter_complex) ou global (-vf) ──────────
     if ENHANCE_AVAILABLE and enhance_enabled and _enh_profile is not None:
@@ -2250,7 +2247,6 @@ def run_ffmpeg(
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             "-filter_complex_threads", str(filter_threads),
-            "-noautorotate",
             "-i", input_file,
             *_extra_inputs,
         ]
@@ -2281,8 +2277,6 @@ def run_ffmpeg(
         if audio_filter:
             ffmpeg_cmd.extend(["-af", audio_filter])
 
-        if _rotation_vf:
-            ffmpeg_cmd.extend(["-metadata:s:v:0", "rotate=0"])
         ffmpeg_cmd.extend([
             "-c:a", "aac",
             "-b:a", "192k",
@@ -2320,7 +2314,6 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
-        "-noautorotate",
         "-i", input_file,
         *_extra_inputs,
     ]
@@ -2378,7 +2371,6 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
-        "-noautorotate",
         "-i", input_file,
         *_extra_inputs,
     ]
@@ -2412,8 +2404,6 @@ def run_ffmpeg(
     if audio_filter:
         pass2_cmd.extend(["-af", audio_filter])
 
-    if _rotation_vf:
-        pass2_cmd.extend(["-metadata:s:v:0", "rotate=0"])
     pass2_cmd.extend([
         "-c:a", "aac",
         "-b:a", "192k",
