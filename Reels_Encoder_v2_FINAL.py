@@ -1492,7 +1492,7 @@ def _build_metadata_args(
         pipeline_tag = "HollywoodLUT_v6.7"
 
     if mode == "crf":
-        comment = f"{pipeline_tag} VBV:{vbv_preset_name} crf:15 max:{vbv_maxrate}k buf:{vbv_bufsize}k"
+        comment = f"{pipeline_tag} VBV:{vbv_preset_name} crf:18 max:{vbv_maxrate}k buf:{vbv_bufsize}k"
     else:
         comment = f"{pipeline_tag} VBV:{vbv_preset_name} target:{video_bitrate}k max:{vbv_maxrate}k buf:{vbv_bufsize}k"
 
@@ -2012,7 +2012,7 @@ def run_ffmpeg(
     NOVO v1.4: Suporta 32-bit float processing (DaVinci Intermediate simulado)
     """
     if mode == "crf":
-        console.rule("[bold yellow]🎬 Encode CRF 15 - Hollywood LUT Transport")
+        console.rule("[bold yellow]🎬 Encode CRF 18 - Hollywood LUT Transport")
     else:
         console.rule("[bold yellow]🎬 Encode 2-Pass - Hollywood LUT Transport")
 
@@ -2239,9 +2239,9 @@ def run_ffmpeg(
         console.print("[green]✓ Render finalizado![/green]")
 
         if audio_filter:
-            console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 15 | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]")
+            console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 18 | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]")
         else:
-            console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 15 | VBV {vbv_description}[/dim]")
+            console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 18 | VBV {vbv_description}[/dim]")
 
         console.print("[cyan]🔍 Validando MediaInfo (Studio Delivery)...[/cyan]")
         validate_media_info(output_file)
@@ -2954,7 +2954,7 @@ def run_ffmpeg_with_cineon(
     # ═══════════════════════════════════════════════════════════════
 
     if mode == "crf":
-        console.print(f"[yellow]📊 Modo: CRF 15 | VBV: {vbv_description}[/yellow]")
+        console.print(f"[yellow]📊 Modo: CRF 18 | VBV: {vbv_description}[/yellow]")
     else:
         console.print(
             f"[yellow]📊 Modo: 2-Pass Inteligente | Bitrate base: {video_bitrate}k | VBV: {vbv_description}[/yellow]"
@@ -3096,7 +3096,7 @@ def run_ffmpeg_with_cineon(
         ffmpeg_cmd.extend(
             [
                 "-crf",
-                "15",
+                "18",
             ]
         )
     else:
@@ -3617,7 +3617,7 @@ _VIDEO_EXTENSIONS = {
 }
 _OUTPUT_SUFFIXES = (
     "_Cineon_Film.mp4",
-    "_Hollywood_CRF15.mp4",
+    "_Hollywood_CRF18.mp4",
     "_Hollywood_2Pass.mp4",
     "_temp.mp4",
 )
@@ -4011,7 +4011,7 @@ COMPARAÇÃO:
             if args.cineon_pipeline == "on":
                 out_name = f"{base_name}_Cineon_Film.mp4"
             elif args.mode == "crf":
-                out_name = f"{base_name}_Hollywood_CRF15.mp4"
+                out_name = f"{base_name}_Hollywood_CRF18.mp4"
             else:
                 out_name = f"{base_name}_Hollywood_2Pass.mp4"
             output_file = os.path.join(output_folder, out_name)
@@ -4072,7 +4072,7 @@ COMPARAÇÃO:
     if args.cineon_pipeline == "on":
         output_file = f"{base}_Cineon_Film.mp4"
     elif args.mode == "crf":
-        output_file = f"{base}_Hollywood_CRF15.mp4"
+        output_file = f"{base}_Hollywood_CRF18.mp4"
     else:
         output_file = f"{base}_Hollywood_2Pass.mp4"
 

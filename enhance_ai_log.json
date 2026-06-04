@@ -183,5 +183,42 @@
       "content_type": "mixed",
       "quality_score": 0.9102913907363589
     }
+  },
+  {
+    "timestamp": "2026-06-04T01:17:08.378254",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "Timebanding.mp4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0008145821047946811,
+      0.9829345345497131,
+      0.028428055346012115,
+      0.28446340560913086,
+      0.13545599579811096,
+      0.8127553462982178,
+      0.0617382638156414,
+      0.11698230355978012,
+      0.2360435128211975,
+      0.9349015355110168,
+      0.016939112916588783,
+      0.011725207790732384,
+      0.13060304522514343
+    ],
+    "ai_weights": {
+      "denoise": 0.14291083812713623,
+      "sharpen": 0.9153686761856079,
+      "deband": 0.3085421621799469
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14291083812713623,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45768433809280396,
+      "deband_enabled": true,
+      "deband_strength": 0.3085421621799469,
+      "content_type": "mixed",
+      "quality_score": 0.9102913907363589
+    }
   }
 ]
