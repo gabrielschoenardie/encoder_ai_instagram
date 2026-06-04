@@ -935,9 +935,9 @@ def _rotation_to_vf_filter(rotation: int) -> Optional[str]:
     """Converte graus de rotação (metadata) para filtro FFmpeg transpose."""
     r = rotation % 360
     if r == 90:
-        return "transpose=1"   # 90° clockwise
+        return "transpose=2"   # 90° counter-clockwise (iPhone rotate=90 convention)
     elif r == 270:
-        return "transpose=2"   # 90° counter-clockwise
+        return "transpose=1"   # 90° clockwise
     elif r == 180:
         return "hflip,vflip"
     return None
