@@ -2281,6 +2281,8 @@ def run_ffmpeg(
         if audio_filter:
             ffmpeg_cmd.extend(["-af", audio_filter])
 
+        if _rotation_vf:
+            ffmpeg_cmd.extend(["-metadata:s:v:0", "rotate=0"])
         ffmpeg_cmd.extend([
             "-c:a", "aac",
             "-b:a", "192k",
@@ -2410,6 +2412,8 @@ def run_ffmpeg(
     if audio_filter:
         pass2_cmd.extend(["-af", audio_filter])
 
+    if _rotation_vf:
+        pass2_cmd.extend(["-metadata:s:v:0", "rotate=0"])
     pass2_cmd.extend([
         "-c:a", "aac",
         "-b:a", "192k",
