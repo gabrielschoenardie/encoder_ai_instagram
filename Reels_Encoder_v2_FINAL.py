@@ -1621,7 +1621,7 @@ def build_scene_referred_hdr_pipeline(
     # Conteúdo masterizado a 1000 nits com peak=100 comprime tudo acima de 100 nits
     # — resultado: highlights esmagados. O peak correto preserva a curva de compressão.
     # Fallback: 1000 nits (padrão HDR10; HDR10+ e Dolby Vision tipicamente 4000 nits).
-    scene_peak = int(max_luminance) if max_luminance and max_luminance > 100 else 1000
+    scene_peak = round(max_luminance) if max_luminance and max_luminance > 100 else 1000
     console.print(f"[dim]   Peak luminance: {scene_peak} nits (fonte: {'metadados' if max_luminance and max_luminance > 100 else 'fallback HDR10 padrão'})[/dim]")
 
     # Parâmetros otimizados por algoritmo PRESERVANDO CORES
