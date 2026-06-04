@@ -907,33 +907,25 @@ def build_scale_filter(
     target_width: int = 1080,
     target_height: int = 1920,
 ) -> Optional[str]:
-    """Gera filtro de downscale de alta qualidade para Instagram Reels."""
-    needs_width_scale = input_width > target_width
-    needs_height_scale = input_height > target_height
+    """Gera filtro de scale de alta qualidade para Instagram Reels (up e downscale)."""
+    if input_height > input_width:  # portrait
+        scale_factor = target_height / input_height
+        final_width = int(input_width * scale_factor)
+        final_height = target_height
+        final_width = final_width - (final_width % 2)
+    else:  # landscape
+        scale_factor = target_width / input_width
+        final_width = target_width
+        final_height = int(input_height * scale_factor)
+        final_height = final_height - (final_height % 2)
 
-    if not needs_width_scale and not needs_height_scale:
-        return None
+    if final_width == input_width and final_height == input_height:
+        return None  # já na resolução alvo
 
-    if input_height > input_width:
-        if input_height > target_height:
-            scale_factor = target_height / input_height
-            final_width = int(input_width * scale_factor)
-            final_height = target_height
-            final_width = final_width - (final_width % 2)
-        else:
-            return None
-    else:
-        if input_width > target_width:
-            scale_factor = target_width / input_width
-            final_width = target_width
-            final_height = int(input_height * scale_factor)
-            final_height = final_height - (final_height % 2)
-        else:
-            return None
+    direction = "up" if (final_width > input_width or final_height > input_height) else "down"
+    scale_filter = f"zscale=w={final_width}:h={final_height}:filter=lanczos"
 
-    scale_filter = (f"zscale=w={final_width}:h={final_height}:filter=lanczos")
-
-    console.print(f"[cyan]📐 Downscale: {input_width}x{input_height} → {final_width}x{final_height}[/cyan]")
+    console.print(f"[cyan]📐 Scale ({direction}): {input_width}x{input_height} → {final_width}x{final_height}[/cyan]")
     console.print(f"[dim]   Filtro: zscale + Lanczos[/dim]")
 
     return scale_filter
@@ -1978,7 +1970,7 @@ def _resolve_output_size(input_file: str, scale_mode: str):
                 target_resolution = (1920, 1080)
             if not scale_filter:
                 console.print(
-                    f"[green]✓ Resolução: {input_width}×{input_height} (sem downscale)[/green]"
+                    f"[green]✓ Resolução: {input_width}×{input_height} (já no alvo)[/green]"
                 )
                 target_resolution = (input_width, input_height)
     else:

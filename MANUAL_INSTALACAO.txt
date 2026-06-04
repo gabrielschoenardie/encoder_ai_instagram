@@ -1,0 +1,361 @@
+================================================================================
+                    INSTAGRAM REELS ENCODER v2.0.0
+         MANUAL DE INSTALAÇÃO COMPLETO PARA PRIMEIRO USO
+================================================================================
+
+Data: 2025
+Compatibilidade: Windows, macOS, Linux
+Versão Python: 3.8+
+Tempo de Instalação: ~10-15 minutos
+
+================================================================================
+PARTE 1: VERIFICAÇÃO DE PRÉ-REQUISITOS
+================================================================================
+
+Antes de começar, verifique:
+✓ Você tem acesso de administrador no seu PC
+✓ Conexão com a internet (para baixar dependências)
+✓ Espaço em disco: mínimo 2GB disponível
+✓ RAM: mínimo 4GB (recomendado 8GB+)
+
+================================================================================
+PARTE 2: INSTALAÇÃO DO PYTHON (WINDOWS)
+================================================================================
+
+Se você AINDA NÃO TEM Python instalado:
+
+1. Visite: https://www.python.org/downloads/
+2. Clique em "Download Python 3.13" (ou versão mais recente)
+3. Execute o arquivo baixado
+4. ⚠️ IMPORTANTE: Marque a caixa "Add Python to PATH"
+5. Clique em "Install Now"
+6. Aguarde a instalação terminar
+
+VERIFICAR INSTALAÇÃO:
+- Abra PowerShell ou Prompt de Comando
+- Digite: python --version
+- Você deve ver algo como: Python 3.13.x
+
+Se não funcionar, reinicie seu PC e tente novamente.
+
+================================================================================
+PARTE 3: INSTALAÇÃO DO FFMPEG (WINDOWS) - OBRIGATÓRIO!
+================================================================================
+
+⚠️ FFMPEG é ESSENCIAL para o encoder funcionar!
+
+OPÇÃO A: Instalação Manual Recomendada
+────────────────────────────────────────
+1. Visite: https://ffmpeg.org/download.html
+2. Clique em "Windows builds by BtbN"
+3. Escolha: ffmpeg-master-latest-win64-gpl.zip
+4. Descompacte em uma pasta, exemplo: C:\ffmpeg
+5. Abra PowerShell como Administrador
+6. Digite: $env:Path -split ';'
+7. Se C:\ffmpeg\bin não aparecer, continue...
+8. Clique em: Editar as variáveis de ambiente do sistema
+9. Clique em "Variáveis de Ambiente"
+10. Em "Variáveis do sistema", procure por "Path"
+11. Clique em "Editar"
+12. Clique em "Novo" e adicione: C:\ffmpeg\bin
+13. Clique em "OK" para todas as janelas
+14. Reinicie seu PC
+
+VERIFICAR INSTALAÇÃO DO FFMPEG:
+- Abra PowerShell ou Prompt de Comando (novo, após reiniciar)
+- Digite: ffmpeg -version
+- Você deve ver informações do FFmpeg
+
+Se não funcionar, repita os passos acima ou tente a Opção B.
+
+OPÇÃO B: Instalação via Chocolatey (mais fácil)
+────────────────────────────────────────────────
+1. Abra PowerShell como Administrador
+2. Cole este comando:
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+3. Digite: Y e pressione Enter
+4. Digite: choco install ffmpeg
+5. Depois de terminar, reinicie seu PC
+
+================================================================================
+PARTE 4: DOWNLOAD OU CLONE DO PROJETO
+================================================================================
+
+OPÇÃO A: Via Git (recomendado)
+───────────────────────────────
+1. Abra PowerShell
+2. Vá para uma pasta onde quer guardar o projeto:
+   cd C:\Users\SeuUsuario\Documents
+3. Digite:
+   git clone https://github.com/usuario/encoder_ai_instagram.git
+4. Entre na pasta:
+   cd encoder_ai_instagram
+
+OPÇÃO B: Download Manual
+────────────────────────
+1. Visite: https://github.com/usuario/encoder_ai_instagram
+2. Clique em "Code" > "Download ZIP"
+3. Descompacte em uma pasta
+4. Abra PowerShell e navegue até lá:
+   cd C:\caminho\para\encoder_ai_instagram
+
+================================================================================
+PARTE 5: INSTALAÇÃO DE DEPENDÊNCIAS PYTHON
+================================================================================
+
+PASSO 1: Verificar se requirements.txt existe
+───────────────────────────────────────────────
+Na pasta do projeto, deve haver um arquivo chamado "requirements.txt"
+Se não existir, crie um com este conteúdo (veja APÊNDICE A)
+
+PASSO 2: Abrir PowerShell na pasta do projeto
+──────────────────────────────────────────────
+- Segure Shift e clique com botão direito na pasta
+- Escolha "Abrir PowerShell aqui" (ou "Open PowerShell window here")
+
+PASSO 3: Instalar todas as dependências
+────────────────────────────────────────
+Digite este comando:
+    pip install -r requirements.txt
+
+Isso vai instalar:
+  ✓ pymediainfo (ler informações de vídeo)
+  ✓ av (PyAV - decodificar vídeos)
+  ✓ numpy (cálculos numéricos)
+  ✓ Pillow (processar imagens)
+  ✓ rich (interface colorida)
+  ✓ psutil (monitorar sistema)
+  ✓ colour-science (Cineon pipeline)
+  ✓ opencv-python (análise de qualidade)
+
+⏱️ Isso pode levar 5-10 minutos dependendo da sua internet
+
+Aguarde até ver: "Successfully installed..."
+
+================================================================================
+PARTE 6: VERIFICAÇÃO DA INSTALAÇÃO
+================================================================================
+
+Após instalar, teste cada módulo individualmente:
+
+1. Teste pymediainfo:
+   python -c "from pymediainfo import MediaInfo; print('✓ pymediainfo OK')"
+
+2. Teste PyAV:
+   python -c "import av; print('✓ PyAV OK')"
+
+3. Teste numpy:
+   python -c "import numpy; print('✓ numpy OK')"
+
+4. Teste rich:
+   python -c "import rich; print('✓ rich OK')"
+
+5. Teste colour-science:
+   python -c "import colour; print('✓ colour-science OK')"
+
+6. Teste FFmpeg:
+   ffmpeg -version
+
+Se todos os testes retornarem "✓ OK" e FFmpeg mostrar versão, você está pronto!
+
+Se algum falhar, consulte a seção TROUBLESHOOTING no final.
+
+================================================================================
+PARTE 7: PREPARAR UM VÍDEO DE TESTE
+================================================================================
+
+1. Copie um arquivo de vídeo (.mp4, .avi, .mov) para a pasta do projeto
+   Exemplo: meu_video.mp4
+
+2. Tamanho recomendado: 10-30 segundos para teste rápido
+
+================================================================================
+PARTE 8: EXECUTAR O PROGRAMA - PRIMEIRO USO
+================================================================================
+
+MODO SIMPLES (FFmpeg rápido):
+──────────────────────────────
+1. Abra PowerShell na pasta do projeto
+2. Digite:
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4
+3. Aguarde o processamento
+4. Arquivo de saída: meu_video_encoded.mp4
+
+MODO CINEON (Film Emulation Premium):
+──────────────────────────────────────
+1. Abra PowerShell na pasta do projeto
+2. Digite:
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4 --cineon-pipeline on
+3. Aguarde o processamento
+4. Arquivo de saída: meu_video_encoded_cineon.mp4
+
+MODO CINEON COM AJUSTES:
+────────────────────────
+python Reels_Encoder_v2_FINAL.py meu_video.mp4 --cineon-pipeline on --exposure +0.5 --saturation 1.1
+
+VERIFICAR PROGRESSO:
+- A tela mostrará uma barra de progresso colorida
+- Não feche a janela durante o processamento
+- Tempo varia de 1 minuto a 1 hora dependendo do vídeo
+
+================================================================================
+PARTE 9: VER O ARQUIVO GERADO
+================================================================================
+
+Após o programa terminar:
+1. Abra a pasta do projeto
+2. Procure por: meu_video_encoded.mp4
+3. Reproduza com seu player de vídeo favorito (VLC, Windows Media Player, etc)
+
+Se o arquivo não aparecer ou tiver erro, verifique a seção TROUBLESHOOTING.
+
+================================================================================
+PARTE 10: OPÇÕES AVANÇADAS
+================================================================================
+
+Ver todas as opções disponíveis:
+    python Reels_Encoder_v2_FINAL.py --help
+
+Exemplos de uso avançado:
+
+1. Especificar qualidade:
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4 --crf 20
+
+2. Especificar preset de velocidade (fast/medium/slow/veryslow):
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4 --preset slow
+
+3. Ativar normalização de áudio:
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4 --loudnorm on
+
+4. Combinar várias opções:
+   python Reels_Encoder_v2_FINAL.py meu_video.mp4 --cineon-pipeline on --crf 20 --preset slow
+
+================================================================================
+TROUBLESHOOTING - ERROS COMUNS E SOLUÇÕES
+================================================================================
+
+ERRO 1: "python is not recognized"
+──────────────────────────────────
+Causa: Python não está instalado ou não está no PATH
+Solução:
+  1. Instale Python do https://www.python.org/downloads/
+  2. ⚠️ Marque "Add Python to PATH" durante instalação
+  3. Reinicie seu PC
+  4. Tente novamente
+
+ERRO 2: "No module named 'pymediainfo'"
+────────────────────────────────────────
+Causa: Dependência não instalada
+Solução:
+  1. Execute: pip install -r requirements.txt
+  2. Se ainda falhar, tente: pip install pymediainfo
+
+ERRO 3: "ffmpeg is not recognized"
+──────────────────────────────────
+Causa: FFmpeg não está instalado ou não está no PATH
+Solução:
+  1. Reinstale FFmpeg seguindo PARTE 3
+  2. Reinicie seu PC completamente
+  3. Teste: ffmpeg -version
+
+ERRO 4: "ModuleNotFoundError"
+──────────────────────────────
+Causa: Dependência Python faltando
+Solução:
+  1. Abra PowerShell na pasta do projeto
+  2. Execute: pip install -r requirements.txt
+  3. Aguarde até terminar completamente
+
+ERRO 5: "File not found" ou vídeo não carrega
+──────────────────────────────────────────────
+Causa: Caminho do vídeo incorreto
+Solução:
+  1. Coloque o vídeo NA MESMA PASTA do script
+  2. Use o nome EXATO do arquivo
+  3. Exemplo correto: python Reels_Encoder_v2_FINAL.py meu_video.mp4
+
+ERRO 6: "Permission denied" ao instalar
+────────────────────────────────────────
+Causa: Sem permissões de administrador
+Solução:
+  1. Abra PowerShell como Administrador
+  2. Digite: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned
+  3. Tente a instalação novamente
+
+ERRO 7: Processamento muito lento ou trava
+───────────────────────────────────────────
+Causa: Hardware insuficiente ou vídeo muito pesado
+Solução:
+  1. Use um vídeo menor para teste
+  2. Aumente RAM disponível (feche outros programas)
+  3. Use --preset fast: python Reels_Encoder_v2_FINAL.py video.mp4 --preset fast
+  4. Desative o modo Cineon (use o padrão FFmpeg)
+
+================================================================================
+APÊNDICE A: CONTEÚDO DE requirements.txt
+================================================================================
+
+Se você não tem requirements.txt, crie um arquivo com este conteúdo:
+
+────────────────────────────────────────────────────────────────────────────
+pymediainfo>=1.0.0
+av>=11.0.0
+numpy>=1.24.0
+Pillow>=10.0.0
+rich>=13.0.0
+psutil>=5.9.0
+colour-science>=0.4.7
+opencv-python>=4.8.0
+────────────────────────────────────────────────────────────────────────────
+
+1. Abra um editor de texto (Bloco de Notas)
+2. Cole o conteúdo acima
+3. Salve como: requirements.txt (IMPORTANTE: .txt, não .docx)
+4. Coloque na mesma pasta do Reels_Encoder_v2_FINAL.py
+
+================================================================================
+APÊNDICE B: GUIA RÁPIDO DE COMANDOS
+================================================================================
+
+# Instalar dependências
+pip install -r requirements.txt
+
+# Testar instalação
+python -c "from pymediainfo import MediaInfo; print('OK')"
+
+# Versão do Python
+python --version
+
+# Versão do FFmpeg
+ffmpeg -version
+
+# Modo simples (FFmpeg rápido)
+python Reels_Encoder_v2_FINAL.py video.mp4
+
+# Modo Cineon (film emulation)
+python Reels_Encoder_v2_FINAL.py video.mp4 --cineon-pipeline on
+
+# Ver opções disponíveis
+python Reels_Encoder_v2_FINAL.py --help
+
+================================================================================
+SUPORTE E PRÓXIMOS PASSOS
+================================================================================
+
+Se você chegou até aqui com sucesso, parabéns! 🎉
+
+Próximas recomendações:
+1. Teste com um vídeo curto primeiro (10-30 segundos)
+2. Experimente os diferentes modos (simples e Cineon)
+3. Leia --help para entender todas as opções
+4. Consulte o README.md do projeto para documentação completa
+
+Para problemas persistentes:
+- Verifique internet durante instalação
+- Tente em PowerShell como Administrador
+- Reinicie seu PC completamente
+- Reinstale Python ou FFmpeg se necessário
+
+================================================================================
+FIM DO MANUAL DE INSTALAÇÃO
+================================================================================

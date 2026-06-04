@@ -16,6 +16,81 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    _PILLOW = True
+except ImportError:
+    _PILLOW = False
+
+
+def add_label_bar(img_path: str, label: str, color: tuple) -> None:
+    """Sobrepõe um badge semitransparente no canto inferior-esquerdo da imagem."""
+    if not _PILLOW:
+        return
+
+    img = Image.open(img_path).convert("RGBA")
+    w, h = img.size
+
+    font_size = max(16, h // 30)
+    font = None
+    for font_path in [
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/consola.ttf",
+    ]:
+        if os.path.exists(font_path):
+            try:
+                font = ImageFont.truetype(font_path, font_size)
+                break
+            except Exception:
+                pass
+
+    # Medir texto
+    dummy = ImageDraw.Draw(img)
+    if font:
+        bbox = dummy.textbbox((0, 0), label, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    else:
+        tw, th = len(label) * 7, 12
+
+    pad = int(font_size * 0.55)
+    accent = 5                          # largura da barra colorida à esquerda
+    badge_w = tw + pad * 2 + accent
+    badge_h = th + pad * 2
+    margin = int(h * 0.025)            # distância da borda
+
+    bx = margin
+    by = h - badge_h - margin
+
+    # Camada do badge (fundo escuro semitransparente)
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+
+    # Fundo arredondado escuro
+    od.rounded_rectangle(
+        [bx, by, bx + badge_w, by + badge_h],
+        radius=6,
+        fill=(10, 10, 10, 175),
+    )
+    # Acento colorido à esquerda
+    od.rounded_rectangle(
+        [bx, by, bx + accent, by + badge_h],
+        radius=4,
+        fill=(*color, 230),
+    )
+
+    img = Image.alpha_composite(img, overlay)
+    td = ImageDraw.Draw(img)
+
+    # Sombra sutil do texto
+    td.text((bx + accent + pad + 1, by + pad + 1), label,
+            fill=(0, 0, 0, 120), font=font)
+    # Texto branco
+    td.text((bx + accent + pad, by + pad), label,
+            fill=(255, 255, 255, 245), font=font)
+
+    img.convert("RGB").save(img_path)
+
 
 def run_ffmpeg(cmd: list, description: str = "") -> bool:
     """Executa comando FFmpeg com tratamento de erro."""
@@ -69,12 +144,25 @@ def extract_frame_by_timestamp(video_path: str, timestamp: float, output_path: s
 
 
 def create_hstack(img1: str, img2: str, output: str) -> bool:
-    """Cria imagem side-by-side horizontal."""
+    """Cria imagem side-by-side horizontal, normalizando alturas se necessário."""
+    filter_str = "[0:v][1:v]hstack=inputs=2"
+    if _PILLOW:
+        try:
+            with Image.open(img1) as a, Image.open(img2) as b:
+                if a.height != b.height:
+                    h = max(a.height, b.height)
+                    filter_str = (
+                        f"[0:v]scale=-2:{h}[v0];"
+                        f"[1:v]scale=-2:{h}[v1];"
+                        f"[v0][v1]hstack=inputs=2"
+                    )
+        except Exception:
+            pass
     cmd = [
         "ffmpeg", "-y",
         "-i", img1,
         "-i", img2,
-        "-filter_complex", "[0:v][1:v]hstack=inputs=2",
+        "-filter_complex", filter_str,
         "-q:v", "1",
         output
     ]
@@ -95,13 +183,26 @@ def create_vstack(img1: str, img2: str, output: str) -> bool:
 
 
 def create_difference(img1: str, img2: str, output: str) -> bool:
-    """Cria mapa de diferenças."""
+    """Cria mapa de diferenças, normalizando dimensões se necessário."""
+    blend = "blend=all_mode=difference,eq=brightness=0.15:contrast=2.5"
+    filter_str = f"[0:v][1:v]{blend}"
+    if _PILLOW:
+        try:
+            with Image.open(img1) as a, Image.open(img2) as b:
+                if a.size != b.size:
+                    w, h = max(a.width, b.width), max(a.height, b.height)
+                    filter_str = (
+                        f"[0:v]scale={w}:{h}[v0];"
+                        f"[1:v]scale={w}:{h}[v1];"
+                        f"[v0][v1]{blend}"
+                    )
+        except Exception:
+            pass
     cmd = [
         "ffmpeg", "-y",
         "-i", img1,
         "-i", img2,
-        "-filter_complex",
-        "[0:v][1:v]blend=all_mode=difference,eq=brightness=0.15:contrast=2.5",
+        "-filter_complex", filter_str,
         "-q:v", "1",
         output
     ]
@@ -207,8 +308,8 @@ Exemplos:
     group.add_argument("--timestamps", "-t", nargs="+", type=float,
                        help="Timestamps em segundos (ex: 4.0 8.68)")
 
-    parser.add_argument("-o", "--output-dir", default="comparisons",
-                        help="Diretório de saída (default: comparisons)")
+    parser.add_argument("-o", "--output-dir", default="compare_encodes",
+                        help="Diretório de saída (default: compare_encodes)")
     parser.add_argument("--layout", choices=["horizontal", "vertical"],
                         default="horizontal", help="Layout da comparação")
     parser.add_argument("--diff", action="store_true",
@@ -282,8 +383,16 @@ Exemplos:
             print(f"  ❌ Falha ao extrair frames, pulando...")
             continue
 
+        # Adicionar labels ANTES / DEPOIS
+        if _PILLOW:
+            print(f"  🏷️  Adicionando labels...")
+            add_label_bar(orig_png, "ANTES",  color=(34, 139, 60))
+            add_label_bar(enc_png,  "DEPOIS", color=(210, 90, 20))
+        else:
+            print(f"  ⚠️  Pillow não instalado — labels ignorados (pip install pillow)")
+
         # Comparação básica
-        output_compare = os.path.join(args.output_dir, f"compare_{prefix}.jpg")
+        output_compare = os.path.join(args.output_dir, f"compare_{prefix}.png")
         print(f"  🖼️  Criando comparação...")
         if args.layout == "horizontal":
             create_hstack(orig_png, enc_png, output_compare)
@@ -297,7 +406,7 @@ Exemplos:
         # Mapa de diferenças
         if args.diff or args.triple or args.all:
             diff_png = os.path.join(args.output_dir, f"_diff_{prefix}.png")
-            output_diff = os.path.join(args.output_dir, f"diff_{prefix}.jpg")
+            output_diff = os.path.join(args.output_dir, f"diff_{prefix}.png")
             print(f"  🔍 Criando mapa de diferenças...")
             create_difference(orig_png, enc_png, diff_png)
 
@@ -314,7 +423,7 @@ Exemplos:
             if not os.path.exists(diff_png):
                 create_difference(orig_png, enc_png, diff_png)
 
-            output_triple = os.path.join(args.output_dir, f"triple_{prefix}.jpg")
+            output_triple = os.path.join(args.output_dir, f"triple_{prefix}.png")
             print(f"  🔎 Criando comparação tripla...")
             create_triple(orig_png, enc_png, diff_png, output_triple)
 
@@ -336,7 +445,7 @@ Exemplos:
 
             zoom_orig = os.path.join(args.output_dir, f"_zoom_orig_{prefix}.png")
             zoom_enc = os.path.join(args.output_dir, f"_zoom_enc_{prefix}.png")
-            output_zoom = os.path.join(args.output_dir, f"zoom_{prefix}.jpg")
+            output_zoom = os.path.join(args.output_dir, f"zoom_{prefix}.png")
 
             print(f"  🔎 Criando zoom (região {cx},{cy},{cw},{ch})...")
             create_zoom_crop(args.original, frame_num, zoom_orig, cx, cy, cw, ch, 2)
@@ -367,7 +476,7 @@ Exemplos:
     print(f"✅ Comparações geradas em: {args.output_dir}/")
 
     # Listar arquivos gerados
-    generated = [f for f in os.listdir(args.output_dir) if f.endswith('.jpg')]
+    generated = [f for f in os.listdir(args.output_dir) if f.endswith('.png') and not f.startswith('_')]
     if generated:
         print(f"📊 Arquivos gerados ({len(generated)}):")
         for f in sorted(generated):

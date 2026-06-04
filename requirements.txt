@@ -1,0 +1,29 @@
+# ============================================================================
+# Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.0.0
+# Requirements.txt - Dependências Completas
+# ============================================================================
+
+# ─── DEPENDÊNCIAS OBRIGATÓRIAS ──────────────────────────────────────────────
+
+# Processamento de Mídia
+pymediainfo>=1.0.0              # Detecção de informações de vídeo/áudio
+av>=11.0.0                      # PyAV - Decodificação/Codificação de vídeo
+
+# Processamento de Imagens e Dados
+numpy>=1.24.0                   # Cálculos numéricos
+Pillow>=10.0.0                  # Processamento de imagens (PIL)
+
+# Interface de Usuário e Logging
+rich>=13.0.0                    # Terminal UI com cores, tabelas e painéis
+
+# Monitoramento de Sistema (recomendado, mas opcional)
+psutil>=5.9.0                   # Detecção de Hardware (CPU, RAM, etc)
+
+# ─── DEPENDÊNCIAS DO PIPELINE CINEON (Modo Premium) ────────────────────────
+
+colour-science>=0.4.7           # Ciência de cor avançada (DWG, Cineon, Portra 400)
+
+# ─── DEPENDÊNCIAS OPCIONAIS ────────────────────────────────────────────────
+
+# Processamento de Imagens (opcional - recomendado para análise de qualidade)
+opencv-python>=4.8.0            # OpenCV - Análise de banding, ruído, detalhes
