@@ -2100,18 +2100,34 @@ def run_ffmpeg(
         else:
             console.print(f"[cyan]🎞️ Frame Rate: {output_fps} fps (CFR fixo)[/cyan]")
 
-    # Downscale automático
-    scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
-
-    # Rotação iPhone/mobile — detecta antes de construir o filtro
+    # Rotação iPhone/mobile — detecta ANTES de construir o scale
     _rotation_degrees = detect_rotation_metadata_pyav(input_file)
     _rotation_vf = _rotation_to_vf_filter(_rotation_degrees)
+
     if _rotation_vf:
-        console.print(
-            f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° → aplicando {_rotation_vf}[/bold yellow]"
-        )
+        # Usa dimensões físicas brutas via PyAV (igual run_ffmpeg_with_cineon)
+        # get_input_resolution já faz swap, então não é confiável aqui
+        try:
+            import av as _av_rot
+            _tmp_c = _av_rot.open(input_file)
+            _phys_w = _tmp_c.streams.video[0].width
+            _phys_h = _tmp_c.streams.video[0].height
+            _tmp_c.close()
+        except Exception:
+            _phys_w, _phys_h = 3840, 2160
+        _eff_w, _eff_h = _phys_h, _phys_w  # swap após rotação 90°/270°
+        console.print(f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° → {_rotation_vf}[/bold yellow]")
+        console.print(f"[dim]📐 Físico: {_phys_w}×{_phys_h} → Efetivo: {_eff_w}×{_eff_h}[/dim]")
+        if scale_mode == "auto":
+            scale_filter = build_scale_filter(_eff_w, _eff_h, 1080, 1920)
+            target_resolution = (1080, 1920)
+        else:
+            scale_filter = None
+            target_resolution = (_eff_w, _eff_h)
     else:
         console.print("[dim]📱 Sem rotação de metadados detectada[/dim]")
+        # Downscale automático (caminho normal sem rotação)
+        scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
 
     # HDR detection & conversion
     hdr_filter = None
