@@ -1075,11 +1075,11 @@ def _x264_params_string(duration_seconds: float = 30, threads: int = 0, lookahea
         "direct=auto",
         "me=umh",
         "subme=9",
-        "me-range=32",   # baseline elevado: captura deslocamentos maiores sem análise de pass1
+        "me-range=48",   # 32→48: captura motion vectors em conteúdo de ação/60fps sem perder referências
         "trellis=2",
         "psy-rd=1.10,0.15",   # +0.10 luma: preserva pontos isolados de alta frequência
         "aq-mode=3",           # dark-scene bias: blocos escuros recebem mais bits
-        "aq-strength=0.55",    # -0.05: modo 3 já adiciona bias escuro; evitar sobre-redistribuição
+        "aq-strength=0.80",    # 0.55→0.80: Instagram re-encoda; AQ agressivo preserva bits em skin tones e texturas
         f"rc-lookahead={lookahead}",
         "mbtree=1",
         "qcomp=0.60",
@@ -1088,8 +1088,8 @@ def _x264_params_string(duration_seconds: float = 30, threads: int = 0, lookahea
         "deadzone-inter=16",  # (padrão: 21) — dead zone inter-frame; preserva textura em P/B frames
         "deadzone-intra=6",   # (padrão: 11) — dead zone intra-frame; preserva textura em I-frames
         "qpmax=51",           # (padrão: 69)    — cap no máximo padrão H.264; garante qualidade mínima
-        "qpmin=10",           # (padrão: 0)     — evita QP≈0 em frames triviais; redistribui bits
-        "ipratio=1.60",       # (padrão: 1.40)  — 60% mais bits para I-frames; cascateia qualidade no GOP
+        "qpmin=6",            # 10→6: permite frames triviais usarem QP menor; não desperdiça bits reservados
+        "ipratio=1.40",       # 1.60→1.40: padrão H.264; 60% extra causava picos de bits a cada 2s em Reels
         f"keyint={_p1_keyint}",
         f"min-keyint={_p1_min_keyint}",
         "scenecut=40",
@@ -1455,8 +1455,8 @@ def _adaptive_2pass_x264_params(
         "deadzone-inter=16",  # (padrão: 21) — dead zone inter-frame; preserva textura em P/B frames
         "deadzone-intra=6",   # (padrão: 11) — dead zone intra-frame; preserva textura em I-frames
         "qpmax=51",           # (padrão: 69)    — cap no máximo padrão H.264; garante qualidade mínima
-        "qpmin=10",           # (padrão: 0)     — evita QP≈0 em frames triviais; redistribui bits
-        "ipratio=1.60",       # (padrão: 1.40)  — 60% mais bits para I-frames; cascateia qualidade no GOP
+        "qpmin=6",            # 10→6: permite frames triviais usarem QP menor; não desperdiça bits reservados
+        "ipratio=1.40",       # 1.60→1.40: padrão H.264; 60% extra causava picos de bits a cada 2s em Reels
         f"keyint={keyint}",
         f"min-keyint={min_keyint}",
         "scenecut=40",
@@ -2209,7 +2209,7 @@ def run_ffmpeg(
             "-async", "1",
             "-c:v", "libx264",
             "-preset", hw_profile.recommended_preset,
-            "-crf", "15",
+            "-crf", "18",
             "-profile:v", "high",
             "-level:v", "4.1",
             "-pix_fmt", "yuv420p",
@@ -2334,6 +2334,7 @@ def run_ffmpeg(
         "-c:v", "libx264",
         "-preset", hw_profile.recommended_preset,
         "-b:v", f"{video_bitrate}k",
+        "-crf", "18",
         "-profile:v", "high",
         "-level:v", "4.1",
         "-pix_fmt", "yuv420p",
