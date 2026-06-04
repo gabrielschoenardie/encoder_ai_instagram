@@ -1582,8 +1582,8 @@ def build_scene_referred_hdr_pipeline(
     - Para HDR: TONEMAP apenas (sem LUT)
 
     Pipeline HDR (CORRETO):
-        [SCALE] → LINEAR → CAS 0.35 → [TONEMAP] → CROP
-                                                  (SEM LUT!)
+        [SCALE] → LINEAR → [TONEMAP] → BT.709 → CAS 0.35 → GRAIN → CROP
+                                                                    (SEM LUT!)
 
     IMPORTANTE:
     - 🚫 LUT NÃO aplicada em HDR sources (seria coordenadas erradas)
@@ -1607,16 +1607,11 @@ def build_scene_referred_hdr_pipeline(
         console.print("[green]✓ Scale:[/green] Lanczos downscale aplicado")
 
     # STAGE 2: Convert to LINEAR (scene-referred space)
-    linear_conversion = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709"
+    linear_conversion = "zscale=t=linear:npl=100,format=gbrpf32le"
     parts.append(linear_conversion)
     console.print("[green]✓ Linear:[/green] Convertido para scene-referred space (linear light)")
 
-    # STAGE 3: Sharpen em LINEAR SPACE (conservador para HDR)
-    # CAS 0.35 é mais conservador que 0.45 - HDR tem mais detalhes intrínsecos
-    parts.append("cas=strength=0.35")
-    console.print("[green]✓ Sharpen:[/green] CAS 0.35 em linear space (preserva highlights)")
-
-    # STAGE 4: Tone Mapping (linear → display-referred SDR)
+    # STAGE 3: Tone Mapping (linear → display-referred SDR)
     # scene_peak: usa max_luminance dos metadados HDR10 se disponível.
     # Conteúdo masterizado a 1000 nits com peak=100 comprime tudo acima de 100 nits
     # — resultado: highlights esmagados. O peak correto preserva a curva de compressão.
@@ -1627,8 +1622,8 @@ def build_scene_referred_hdr_pipeline(
     # Parâmetros otimizados por algoritmo PRESERVANDO CORES
     tonemap_configs = {
         "mobius": {
-            "params": f"param=0.5:desat=0:peak={scene_peak}",
-            "description": f"Mobius suave (param=0.5, preserva cores, peak={scene_peak})",
+            "params": f"param=0.4:desat=0:peak={scene_peak}",
+            "description": f"Mobius suave (param=0.4, preserva cores, peak={scene_peak})",
         },
         "hable": {
             "params": f"desat=0:peak={scene_peak}",
@@ -1646,18 +1641,28 @@ def build_scene_referred_hdr_pipeline(
         tonemap_algorithm = "mobius"
 
     config = tonemap_configs[tonemap_algorithm]
-    tonemap_base = f"tonemap={tonemap_algorithm}:{config['params']},zscale=t=bt709:m=bt709:r=tv"
-    if dither_enabled:
-        from enhance.ffmpeg_filters import _build_dither
-        tonemap_base += f",{_build_dither(0.5)}"
-        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização HDR (c0s=4, temporal)")
-    tonemap_stage = tonemap_base + ",format=yuv420p"
+    tonemap_stage = f"tonemap={tonemap_algorithm}:{config['params']},zscale=t=bt709:m=bt709:r=tv:p=bt709"
     parts.append(tonemap_stage)
     console.print(f"[green]✓ Tonemap:[/green] HDR → SDR ({config['description']})")
     console.print("[dim]   Ajustado para evitar highlights estourados[/dim]")
     console.print("[yellow]⚠ LUT v6.6 NÃO aplicada:[/yellow] Construída para SDR inputs apenas")
 
-    # STAGE 5: Crop final (remove macroblock padding)
+    # STAGE 4: Sharpen em SDR SPACE (após tonemap)
+    parts.append("cas=strength=0.35")
+    console.print("[green]✓ Sharpen:[/green] CAS 0.35 em SDR space (após tonemap)")
+
+    # STAGE 5: Grain anti-banding + dither opcional
+    parts.append("noise=c0s=2:c0f=t+u")
+    console.print("[green]✓ Grain:[/green] Anti-banding (c0s=2, temporal+uniforme)")
+    if dither_enabled:
+        from enhance.ffmpeg_filters import _build_dither
+        parts.append(_build_dither(0.5))
+        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização HDR (c0s=4, temporal)")
+
+    parts.append("format=yuv420p")
+    console.print("[green]✓ YUV420P:[/green] Conversão final para entrega")
+
+    # STAGE 6: Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
         parts.append(f"crop={tw}:{th}")
