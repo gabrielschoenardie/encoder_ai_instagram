@@ -1619,7 +1619,7 @@ def build_scene_referred_hdr_pipeline(
         console.print("[green]✓ Scale:[/green] Lanczos downscale aplicado")
 
     # STAGE 2: Convert to LINEAR (scene-referred space)
-    linear_conversion = "zscale=t=linear:npl=100,format=gbrpf32le"
+    linear_conversion = "zscale=t=linear:npl=200,format=gbrpf32le"
     parts.append(linear_conversion)
     console.print("[green]✓ Linear:[/green] Convertido para scene-referred space (linear light)")
 
@@ -1634,15 +1634,15 @@ def build_scene_referred_hdr_pipeline(
     # Parâmetros otimizados por algoritmo PRESERVANDO CORES
     tonemap_configs = {
         "mobius": {
-            "params": f"param=0.4:desat=0:peak={scene_peak}",
+            "params": f"param=0.4:desat=2:peak={scene_peak}",
             "description": f"Mobius suave (param=0.4, preserva cores, peak={scene_peak})",
         },
         "hable": {
-            "params": f"desat=0:peak={scene_peak}",
+            "params": f"desat=2:peak={scene_peak}",
             "description": f"Hable filmico (preserva cores, peak={scene_peak})",
         },
         "reinhard": {
-            "params": f"param=0.6:desat=0:peak={scene_peak}",
+            "params": f"param=0.6:desat=2:peak={scene_peak}",
             "description": f"Reinhard suave (param=0.6, preserva cores, peak={scene_peak})",
         },
     }
