@@ -1571,6 +1571,7 @@ def build_scene_referred_hdr_pipeline(
     target_resolution: Optional[Tuple[int, int]],
     tonemap_algorithm: str = "mobius",
     dither_enabled: bool = False,
+    max_luminance: Optional[float] = None,
 ) -> str:
     """
     Pipeline CORRETO para HDR sources: Scene-Referred Processing SEM LUT.
@@ -1616,19 +1617,26 @@ def build_scene_referred_hdr_pipeline(
     console.print("[green]✓ Sharpen:[/green] CAS 0.35 em linear space (preserva highlights)")
 
     # STAGE 4: Tone Mapping (linear → display-referred SDR)
+    # scene_peak: usa max_luminance dos metadados HDR10 se disponível.
+    # Conteúdo masterizado a 1000 nits com peak=100 comprime tudo acima de 100 nits
+    # — resultado: highlights esmagados. O peak correto preserva a curva de compressão.
+    # Fallback: 1000 nits (padrão HDR10; HDR10+ e Dolby Vision tipicamente 4000 nits).
+    scene_peak = int(max_luminance) if max_luminance and max_luminance > 100 else 1000
+    console.print(f"[dim]   Peak luminance: {scene_peak} nits (fonte: {'metadados' if max_luminance and max_luminance > 100 else 'fallback HDR10 padrão'})[/dim]")
+
     # Parâmetros otimizados por algoritmo PRESERVANDO CORES
     tonemap_configs = {
         "mobius": {
-            "params": "param=0.5:desat=0:peak=100",
-            "description": "Mobius suave (param=0.5, preserva cores)",
+            "params": f"param=0.5:desat=0:peak={scene_peak}",
+            "description": f"Mobius suave (param=0.5, preserva cores, peak={scene_peak})",
         },
         "hable": {
-            "params": "desat=0:peak=100",
-            "description": "Hable filmico (preserva cores)",
+            "params": f"desat=0:peak={scene_peak}",
+            "description": f"Hable filmico (preserva cores, peak={scene_peak})",
         },
         "reinhard": {
-            "params": "param=0.6:desat=0:peak=100",
-            "description": "Reinhard suave (param=0.6, preserva cores)",
+            "params": f"param=0.6:desat=0:peak={scene_peak}",
+            "description": f"Reinhard suave (param=0.6, preserva cores, peak={scene_peak})",
         },
     }
 
@@ -1877,6 +1885,7 @@ def build_video_filter_auto(
     tonemap_algorithm: str = "mobius",
     float_processing: bool = True,
     dither_enabled: bool = False,
+    max_luminance: Optional[float] = None,
 ) -> str:
     """
     Função INTELIGENTE de construção de pipeline com suporte a 32-bit float.
@@ -1916,6 +1925,7 @@ def build_video_filter_auto(
             target_resolution=target_resolution,
             tonemap_algorithm=tonemap_algorithm,
             dither_enabled=dither_enabled,
+            max_luminance=max_luminance,
         )
     else:
         # SDR SOURCE: Escolhe entre float (novo) ou 8-bit (legacy)
@@ -2120,6 +2130,7 @@ def run_ffmpeg(
         tonemap_algorithm=tonemap,
         float_processing=float_processing,
         dither_enabled=dither_enabled,
+        max_luminance=hdr_info.get("max_luminance") if hdr_info else None,
     )
 
     # ── ENHANCE ENGINE — seletivo (filter_complex) ou global (-vf) ──────────
