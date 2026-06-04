@@ -75,15 +75,15 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 # ── Imports ───────────────────────────────────────────────────────────────────
-from enhance.profile import (
+from enhance.profile import (  # noqa: E402
     EnhanceProfile,
     NoiseAgg,
     BandingAgg,
     DetailAgg,
     build_enhance_profile_from_metrics,
 )
-from enhance.processor import get_enhance_fn
-from enhance.ffmpeg_filters import build_pre_lut_filtergraph
+from enhance.processor import get_enhance_fn  # noqa: E402
+from enhance.ffmpeg_filters import build_pre_lut_filtergraph  # noqa: E402
 
 
 # ── Synthetic frame factories ─────────────────────────────────────────────────

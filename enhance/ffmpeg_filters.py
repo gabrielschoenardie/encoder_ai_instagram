@@ -308,10 +308,10 @@ def build_selective_filtergraph(
             chains.append(f"{current} split=2 [orig_db][for_db]")
             chains.append(f"[for_db] {db_frag} [debanded]")
             # alphamerge exige que o primeiro input tenha canal alpha → converter para yuva420p
-            chains.append(f"[debanded] format=yuva420p [debanded_yuva]")
+            chains.append("[debanded] format=yuva420p [debanded_yuva]")
             chains.append(f"[{mask_idx}:v] format=gray [dmask]")
-            chains.append(f"[debanded_yuva][dmask] alphamerge [debanded_alpha]")
-            chains.append(f"[orig_db][debanded_alpha] overlay=format=yuv420 [after_db]")
+            chains.append("[debanded_yuva][dmask] alphamerge [debanded_alpha]")
+            chains.append("[orig_db][debanded_alpha] overlay=format=yuv420 [after_db]")
             current = "[after_db]"
             mask_idx += 1
             logger.debug("selective: deband SELETIVO (mask=%s)", deband_mask_path)
@@ -331,10 +331,10 @@ def build_selective_filtergraph(
             chains.append(f"{current} split=2 [orig_cas][for_cas]")
             chains.append(f"[for_cas] {cas_frag} [sharpened]")
             # alphamerge exige que o primeiro input tenha canal alpha → converter para yuva420p
-            chains.append(f"[sharpened] format=yuva420p [sharpened_yuva]")
+            chains.append("[sharpened] format=yuva420p [sharpened_yuva]")
             chains.append(f"[{mask_idx}:v] format=gray [smask]")
-            chains.append(f"[sharpened_yuva][smask] alphamerge [sharpened_alpha]")
-            chains.append(f"[orig_cas][sharpened_alpha] overlay=format=yuv420 [enhanced]")
+            chains.append("[sharpened_yuva][smask] alphamerge [sharpened_alpha]")
+            chains.append("[orig_cas][sharpened_alpha] overlay=format=yuv420 [enhanced]")
             current = "[enhanced]"
             mask_idx += 1
             logger.debug("selective: CAS SELETIVO (mask=%s)", sharpen_mask_path)
