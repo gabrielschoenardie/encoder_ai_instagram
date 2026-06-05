@@ -160,7 +160,7 @@ VBV_PRESETS = {
         "duration_max": 15,
         "target": 12000,
         "maxrate": 13000,
-        "bufsize": 14000,
+        "bufsize": 17550,  # maxrate × 1.35s
         "vbv_init": 0.9,
         "description": "Ultra Short (≤15s) — Maximum Quality",
     },
@@ -168,7 +168,7 @@ VBV_PRESETS = {
         "duration_max": 30,
         "target": 9800,
         "maxrate": 11000,
-        "bufsize": 12000,
+        "bufsize": 14850,  # maxrate × 1.35s
         "vbv_init": 0.9,
         "description": "Short (15-30s) — High Quality",
     },
@@ -176,7 +176,7 @@ VBV_PRESETS = {
         "duration_max": 45,
         "target": 8500,
         "maxrate": 9500,
-        "bufsize": 10200,
+        "bufsize": 12825,  # maxrate × 1.35s
         "vbv_init": 0.9,
         "description": "Medium (30-45s) — Balanced Quality",
     },
@@ -184,7 +184,7 @@ VBV_PRESETS = {
         "duration_max": 60,
         "target": 8000,
         "maxrate": 9000,
-        "bufsize": 10000,
+        "bufsize": 12150,  # maxrate × 1.35s
         "vbv_init": 0.9,
         "description": "Long (45-60s) — Safe Premium",
     },
@@ -192,7 +192,7 @@ VBV_PRESETS = {
         "duration_max": 90,
         "target": 6500,
         "maxrate": 7500,
-        "bufsize": 8000,
+        "bufsize": 10125,  # maxrate × 1.35s
         "vbv_init": 0.9,
         "description": "Extra Long (60-90s) — Conservative",
     },
@@ -1078,7 +1078,7 @@ def _x264_params_string(duration_seconds: float = 30, threads: int = 0, lookahea
     lookahead = min(lookahead, _p1_keyint + 2)
 
     parts = [
-        "ref=3",
+        "ref=4",  # max para Level 4.0 em 1080p/30fps (MaxDpbMbs=32768)
         "bframes=2",
         "b-adapt=2",
         "b-pyramid=2",
@@ -1342,10 +1342,9 @@ def _adaptive_2pass_x264_params(
 
     # ── ULTRA SAFE VBV LIMITS (Instagram Platform) ──────────────────────────
     # maxrate = bitrate × 1.10  → margem mínima de 10% (picos curtos)
-    # bufsize = maxrate × 1.10  → ~1.21× bitrate, alinhado com VBV_PRESETS originais
-    #   (ultra_short original: bufsize/maxrate = 14000/13000 = 1.077×)
+    # bufsize = maxrate × 1.35  → janela 1.35s, alinhado com VBV_PRESETS (1.2×–1.4×)
     vbv_maxrate = int(adapted_bitrate * 1.10)
-    vbv_bufsize = int(vbv_maxrate    * 1.10)
+    vbv_bufsize = int(vbv_maxrate    * 1.35)
     vbv_init    = 0.90
 
     # ── psy-rd Luma Adaptativo (eixo espacial × eixo temporal) ──────────────
@@ -1445,7 +1444,7 @@ def _adaptive_2pass_x264_params(
 
     # ── Construir string x264-params ────────────────────────────────────────
     parts = [
-        "ref=3",
+        "ref=4",  # max para Level 4.0 em 1080p/30fps (MaxDpbMbs=32768)
         "bframes=2",
         "b-adapt=2",
         "b-pyramid=2",
@@ -3769,7 +3768,10 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
         _dither_arg == "on"
         or (
             _dither_arg == "auto"
-            and getattr(args, "enhance", "off") == "on"
+            and (
+                getattr(args, "enhance", "off") == "on"
+                or getattr(args, "float", "on") == "on"  # float→8-bit requer dither anti-banding
+            )
         )
     )
     if _dither_active:
