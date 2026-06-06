@@ -1486,15 +1486,17 @@ def _adaptive_2pass_x264_params(
 
 
 def _build_metadata_args(
-    duration: float, video_bitrate: int, mode: str, cineon_mode: bool = False
+    duration: float, video_bitrate: int, mode: str, cineon_mode: bool = False,
+    vbv_maxrate_override: Optional[int] = None,
+    vbv_bufsize_override: Optional[int] = None,
 ) -> list:
     """Gera metadados profissionais para o container MP4."""
     creation_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     vbv = get_vbv_preset(duration)
     vbv_preset_name = vbv["description"]
-    vbv_maxrate = vbv["maxrate"]
-    vbv_bufsize = vbv["bufsize"]
+    vbv_maxrate = vbv_maxrate_override if vbv_maxrate_override is not None else vbv["maxrate"]
+    vbv_bufsize = vbv_bufsize_override if vbv_bufsize_override is not None else vbv["bufsize"]
     # Comment personalizado por modo
 
     if cineon_mode:
@@ -2363,7 +2365,11 @@ def run_ffmpeg(
     # Pass 2
     console.print("[cyan]🎬 Pass 2: Encoding final com metadados profissionais...[/cyan]")
 
-    metadata_args = _build_metadata_args(duration, video_bitrate, "2pass")
+    metadata_args = _build_metadata_args(
+        duration, video_bitrate, "2pass",
+        vbv_maxrate_override=_p2_maxrate,
+        vbv_bufsize_override=_p2_bufsize,
+    )
 
     pass2_cmd = [
         "ffmpeg", "-y",
@@ -2386,7 +2392,6 @@ def run_ffmpeg(
         "-c:v", "libx264",
         "-preset", hw_profile.recommended_preset,
         "-b:v", f"{video_bitrate}k",
-        "-crf", "18",
         "-profile:v", "high",
         "-level:v", "4.1",
         "-pix_fmt", "yuv420p",
