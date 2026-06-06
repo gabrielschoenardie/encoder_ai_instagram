@@ -875,6 +875,193 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
         return 0, 0
 
 
+# =============================================================================
+# UNIFIED VIDEO PROBE
+# =============================================================================
+@dataclass
+class VideoProbe:
+    """All video metadata needed for encoding, from a single ffprobe call."""
+    physical_width: int
+    physical_height: int
+    rotation: int           # degrees: 0, 90, 180, 270, -90, -180, -270
+    width: int              # effective width after rotation swap
+    height: int             # effective height after rotation swap
+    fps_rational: str       # "30000/1001" etc.
+    fps_int: int            # standardized: 24, 25, 30, 50, 60
+    duration: float         # seconds
+    nb_frames: int          # from container header; fallback duration×fps
+    is_hdr: bool
+    hdr_type: str
+    color_primaries: str
+    color_transfer: str
+    color_space: str
+    color_range: str
+    max_luminance: Optional[float]
+
+
+def probe_video(input_file: str) -> VideoProbe:
+    """Single ffprobe call replacing get_input_resolution, get_input_fps,
+    get_video_duration, get_total_frames, detect_hdr_metadata, and
+    detect_rotation_metadata_pyav for the main encoding paths."""
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries",
+                "stream=width,height,r_frame_rate,nb_frames,duration,"
+                "color_primaries,color_transfer,color_space,color_range"
+                ":stream_tags=rotate:side_data:format=duration:format_tags=rotate",
+                "-of", "json",
+                input_file,
+            ],
+            stderr=subprocess.PIPE,
+        )
+        data = json.loads(out.decode())
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
+        console.print(f"[yellow]⚠ probe_video falhou ({e}), usando defaults[/yellow]")
+        return VideoProbe(
+            physical_width=0, physical_height=0, rotation=0,
+            width=0, height=0, fps_rational="30/1", fps_int=30,
+            duration=30.0, nb_frames=900,
+            is_hdr=False, hdr_type="SDR",
+            color_primaries="unknown", color_transfer="unknown",
+            color_space="unknown", color_range="unknown", max_luminance=None,
+        )
+
+    stream = data.get("streams", [{}])[0]
+    fmt = data.get("format", {})
+
+    # Dimensions
+    physical_width = int(stream.get("width", 0))
+    physical_height = int(stream.get("height", 0))
+
+    # Rotation — stream tags → Display Matrix side_data → format tags
+    rotation = 0
+    tags = stream.get("tags", {})
+    if "rotate" in tags:
+        try:
+            rotation = int(tags["rotate"])
+        except (ValueError, TypeError):
+            pass
+    for sd in stream.get("side_data_list", []):
+        if sd.get("side_data_type") == "Display Matrix":
+            rot = sd.get("rotation", 0)
+            if rot != 0:
+                try:
+                    rotation = int(rot)
+                except (ValueError, TypeError):
+                    pass
+    if rotation == 0:
+        fmt_tags = fmt.get("tags", {})
+        if "rotate" in fmt_tags:
+            try:
+                rotation = int(fmt_tags["rotate"])
+            except (ValueError, TypeError):
+                pass
+    if rotation not in (0, 90, 180, 270, -90, -180, -270):
+        rotation = 0
+
+    if rotation in (90, -90, 270, -270):
+        width, height = physical_height, physical_width
+    else:
+        width, height = physical_width, physical_height
+
+    # FPS
+    fps_rational = stream.get("r_frame_rate", "30/1")
+    try:
+        if "/" in fps_rational:
+            num, den = fps_rational.split("/")
+            fps_float = float(num) / float(den) if float(den) != 0 else 30.0
+        else:
+            fps_float = float(fps_rational) if fps_rational else 30.0
+    except (ValueError, ZeroDivisionError):
+        fps_float = 30.0
+
+    standard_fps = [24, 25, 30, 50, 60]
+    if 23.5 <= fps_float <= 24.5:
+        fps_int = 24
+    elif 29.5 <= fps_float <= 30.5:
+        fps_int = 30
+    elif 59.5 <= fps_float <= 60.5:
+        fps_int = 60
+    else:
+        fps_int = min(standard_fps, key=lambda x: abs(x - fps_float))
+
+    # Duration
+    duration = 0.0
+    try:
+        if stream.get("duration"):
+            duration = float(stream["duration"])
+        elif fmt.get("duration"):
+            duration = float(fmt["duration"])
+    except (ValueError, TypeError):
+        pass
+    if duration <= 0:
+        duration = 30.0
+
+    # nb_frames from container header; fallback duration×fps
+    nb_frames_raw = stream.get("nb_frames")
+    try:
+        if nb_frames_raw and str(nb_frames_raw).isdigit() and int(nb_frames_raw) > 0:
+            nb_frames = int(nb_frames_raw)
+        else:
+            nb_frames = int(max(1, round(duration * fps_float)))
+    except (ValueError, TypeError):
+        nb_frames = int(max(1, round(duration * fps_float)))
+
+    # HDR metadata
+    color_primaries = stream.get("color_primaries", "unknown")
+    color_transfer = stream.get("color_transfer", "unknown")
+    color_space = stream.get("color_space", "unknown")
+    color_range = stream.get("color_range", "unknown")
+
+    max_luminance = None
+    for sd in stream.get("side_data_list", []):
+        if "max_luminance" in sd:
+            lum = sd.get("max_luminance", "")
+            try:
+                if "/" in str(lum):
+                    n, d = str(lum).split("/")
+                    max_luminance = float(n) / float(d)
+                else:
+                    max_luminance = float(lum) if lum else None
+            except (ValueError, ZeroDivisionError):
+                pass
+            break
+
+    is_hdr = False
+    hdr_type = "SDR"
+    if color_transfer in ("smpte2084", "smpte-st-2084"):
+        is_hdr = True
+        hdr_type = "HDR10 (PQ)"
+    elif color_transfer in ("arib-std-b67",):
+        is_hdr = True
+        hdr_type = "HLG"
+    elif color_primaries in HDR_PRIMARIES and color_transfer in HDR_TRANSFERS:
+        is_hdr = True
+        hdr_type = "HDR (BT.2020)"
+
+    return VideoProbe(
+        physical_width=physical_width,
+        physical_height=physical_height,
+        rotation=rotation,
+        width=width,
+        height=height,
+        fps_rational=fps_rational,
+        fps_int=fps_int,
+        duration=duration,
+        nb_frames=nb_frames,
+        is_hdr=is_hdr,
+        hdr_type=hdr_type,
+        color_primaries=color_primaries,
+        color_transfer=color_transfer,
+        color_space=color_space,
+        color_range=color_range,
+        max_luminance=max_luminance,
+    )
+
+
 def build_scale_filter(
     input_width: int,
     input_height: int,
@@ -1944,7 +2131,7 @@ def build_video_filter_auto(
             )
 
 
-def _resolve_output_size(input_file: str, scale_mode: str):
+def _resolve_output_size(input_file: str, scale_mode: str, *, probe: Optional[VideoProbe] = None):
     """Determina (scale_filter, target_resolution) baseado no input e scale_mode.
 
     Centraliza a lógica de portrait/landscape + build_scale_filter, evitando
@@ -1956,7 +2143,10 @@ def _resolve_output_size(input_file: str, scale_mode: str):
     """
     scale_filter = None
     target_resolution = None
-    input_width, input_height = get_input_resolution(input_file)
+    if probe is not None:
+        input_width, input_height = probe.width, probe.height
+    else:
+        input_width, input_height = get_input_resolution(input_file)
 
     if scale_mode == "auto":
         if input_width > 0 and input_height > 0:
@@ -2057,8 +2247,12 @@ def run_ffmpeg(
     output_file = os.path.abspath(output_file)
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Probe único — 1 ffprobe call substitui get_input_resolution, get_input_fps,
+    # get_video_duration, get_total_frames, detect_hdr_metadata, detect_rotation_metadata_pyav
+    _probe = probe_video(input_file)
+
     # Frame rate (CFR)
-    input_fps = get_input_fps(input_file)
+    input_fps = _probe.fps_int
     if target_fps == "auto":
         output_fps = input_fps
         console.print(
@@ -2073,22 +2267,13 @@ def run_ffmpeg(
         else:
             console.print(f"[cyan]🎞️ Frame Rate: {output_fps} fps (CFR fixo)[/cyan]")
 
-    # Rotação iPhone/mobile — detecta ANTES de construir o scale
-    _rotation_degrees = detect_rotation_metadata_pyav(input_file)
+    # Rotação iPhone/mobile — ffprobe é mais confiável que PyAV para tags de rotação
+    _rotation_degrees = _probe.rotation
     _rotation_vf = _rotation_to_vf_filter(_rotation_degrees)
 
     if _rotation_vf:
-        # Usa dimensões físicas brutas via PyAV (igual run_ffmpeg_with_cineon)
-        # get_input_resolution já faz swap, então não é confiável aqui
-        try:
-            import av as _av_rot
-            _tmp_c = _av_rot.open(input_file)
-            _phys_w = _tmp_c.streams.video[0].width
-            _phys_h = _tmp_c.streams.video[0].height
-            _tmp_c.close()
-        except Exception:
-            _phys_w, _phys_h = 3840, 2160
-        _eff_w, _eff_h = _phys_h, _phys_w  # swap após rotação 90°/270°
+        _phys_w, _phys_h = _probe.physical_width, _probe.physical_height
+        _eff_w, _eff_h = _probe.width, _probe.height
         console.print(f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° (auto-rotate ativo)[/bold yellow]")
         console.print(f"[dim]📐 Físico: {_phys_w}×{_phys_h} → Efetivo: {_eff_w}×{_eff_h}[/dim]")
         if scale_mode == "auto":
@@ -2099,16 +2284,19 @@ def run_ffmpeg(
             target_resolution = (_eff_w, _eff_h)
     else:
         console.print("[dim]📱 Sem rotação de metadados detectada[/dim]")
-        # Downscale automático (caminho normal sem rotação)
-        scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
+        scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe)
 
     # HDR detection
     is_hdr = False
     if hdr_mode == "auto":
-        hdr_info = detect_hdr_metadata(input_file)
-        if hdr_info and hdr_info.get("is_hdr"):
+        if _probe.is_hdr:
             is_hdr = True
-            console.print(f"[cyan]🎨 HDR detectado — tonemap={tonemap}, peak={hdr_info.get('max_luminance', 1000)} nits[/cyan]")
+            console.print(f"[bold yellow]⚠ HDR: {_probe.hdr_type}[/bold yellow] (primaries={_probe.color_primaries}, transfer={_probe.color_transfer})")
+            if _probe.max_luminance:
+                console.print(f"[dim]   Max Luminance: {_probe.max_luminance:.0f} nits[/dim]")
+            console.print(f"[cyan]🎨 HDR detectado — tonemap={tonemap}, peak={_probe.max_luminance or 1000:.0f} nits[/cyan]")
+        else:
+            console.print(f"[green]✓ SDR[/green] (primaries={_probe.color_primaries}, transfer={_probe.color_transfer})")
     else:
         console.print("[dim]○ Detecção HDR desativada (--hdr off)[/dim]")
 
@@ -2185,11 +2373,11 @@ def run_ffmpeg(
             )
 
     # Duração e VBV
-    duration = get_video_duration(input_file)
+    duration = _probe.duration
     x264_params = _x264_params_string(
         duration, threads=encoder_threads, lookahead=_fps_aware_lookahead(hw_profile, output_fps), fps=output_fps
     )
-    total_frames = get_total_frames(input_file)
+    total_frames = _probe.nb_frames
 
     vbv = get_vbv_preset(duration)
     vbv_description = vbv["description"]
@@ -2751,11 +2939,14 @@ def run_ffmpeg_with_cineon(
     """
     console.rule("[bold magenta]🎬 Encode Cineon Film Emulation Pipeline")
 
-    # ═══════════════════════════════════════════════════════════════
-    # IPHONE ROTATION DETECTION (CRITICAL FIX)
-    # ═══════════════════════════════════════════════════════════════
+    input_file = os.path.abspath(input_file)
 
-    rotation_degrees = detect_rotation_metadata_pyav(input_file)
+    # Probe único — 1 ffprobe call para rotation/dimensions/fps/duration/nb_frames
+    _probe = probe_video(input_file)
+
+    rotation_degrees = _probe.rotation
+    physical_width, physical_height = _probe.physical_width, _probe.physical_height
+    effective_width, effective_height = _probe.width, _probe.height
 
     if rotation_degrees != 0:
         console.print(
@@ -2764,47 +2955,16 @@ def run_ffmpeg_with_cineon(
         console.print(
             f"[dim]   Frames will be rotated automatically during processing[/dim]"
         )
+        console.print(
+            f"[dim]📐 Physical dimensions: {physical_width}×{physical_height}[/dim]"
+        )
+        console.print(
+            f"[yellow]📐 Effective dimensions (after {rotation_degrees}° rotation): {effective_width}×{effective_height}[/yellow]"
+        )
     else:
         console.print(
             "[dim]📱 No rotation metadata (landscape or pre-rotated video)[/dim]"
         )
-
-    console.print()
-
-    # ═══════════════════════════════════════════════════════════════
-    # CALCULATE EFFECTIVE DIMENSIONS (AFTER ROTATION)
-    # ═══════════════════════════════════════════════════════════════
-
-    # Detectar dimensões FÍSICAS do vídeo (sem aplicar rotação)
-    # CRÍTICO: Não usar get_input_resolution() porque ela JÁ rotaciona!
-    try:
-        import av
-
-        temp_container = av.open(input_file)
-        temp_stream = temp_container.streams.video[0]
-        physical_width = temp_stream.width
-        physical_height = temp_stream.height
-        temp_container.close()
-    except Exception as e:
-        console.print(f"[red]Erro ao detectar dimensões físicas: {e}[/red]")
-        # Fallback para get_input_resolution (mas terá rotação dupla)
-        physical_width, physical_height = get_input_resolution(input_file)
-
-    # Calcular dimensões efetivas após rotação
-    if rotation_degrees in (90, -90, 270, -270):
-        # Rotação de 90° ou 270° → trocar width e height
-        effective_width = physical_height
-        effective_height = physical_width
-        console.print(
-            f"[dim]📐 Physical dimensions: {physical_width}×{physical_height} (landscape)[/dim]"
-        )
-        console.print(
-            f"[yellow]📐 Effective dimensions (after {rotation_degrees}° rotation): {effective_width}×{effective_height} (portrait)[/yellow]"
-        )
-    else:
-        # Sem rotação ou 180° → manter dimensões
-        effective_width = physical_width
-        effective_height = physical_height
         console.print(
             f"[dim]📐 Dimensions: {effective_width}×{effective_height} (no rotation needed)[/dim]"
         )
@@ -2849,12 +3009,11 @@ def run_ffmpeg_with_cineon(
     # INPUT ANALYSIS
     # ═══════════════════════════════════════════════════════════════
 
-    input_file = os.path.abspath(input_file)
     output_file = os.path.abspath(output_file)
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Frame rate
-    input_fps = get_input_fps(input_file)
+    input_fps = _probe.fps_int
     if target_fps == "auto":
         output_fps = input_fps
         console.print(
@@ -2869,33 +3028,12 @@ def run_ffmpeg_with_cineon(
         else:
             console.print(f"[cyan]🎞️ Frame Rate: {output_fps} fps (CFR fixo)[/cyan]")
 
-    # Resolução e downscale
-    scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
-
-    # ═══════════════════════════════════════════════════════════════
-    # CROSS-CHECK: PyAV vs ffprobe rotation detection
-    # ═══════════════════════════════════════════════════════════════
-    # Alguns MOV (iPhone) têm rotação que PyAV não detecta via side_data
-    # mas ffprobe detecta corretamente pelo tag "rotate".
-    # Se target_resolution indica portrait mas as dimensões físicas são
-    # landscape (ou vice-versa), forçar rotação 90°.
-    if rotation_degrees == 0 and target_resolution is not None:
-        target_is_portrait = target_resolution[1] > target_resolution[0]
-        physical_is_portrait = physical_height > physical_width
-        if target_is_portrait != physical_is_portrait:
-            rotation_degrees = 90
-            effective_width = physical_height
-            effective_height = physical_width
-            console.print(
-                "[yellow]⚠ Rotação não detectada pelo PyAV — corrigido via ffprobe[/yellow]"
-            )
-            console.print(
-                f"[yellow]   Dimensões efetivas corrigidas: {effective_width}×{effective_height}[/yellow]"
-            )
+    # Resolução e downscale (probe já tem as dimensões efetivas pós-rotação)
+    scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe)
 
     # Duração e VBV
-    duration = get_video_duration(input_file)
-    total_frames = get_total_frames(input_file)
+    duration = _probe.duration
+    total_frames = _probe.nb_frames
 
     # ═══════════════════════════════════════════════════════════════
     # FIX 1: x264-params com DEBUG DETALHADO
