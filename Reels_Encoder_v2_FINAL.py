@@ -700,7 +700,8 @@ def get_video_duration(input_file: str) -> float:
 
 
 def get_total_frames(input_file: str) -> int:
-    """Obtém total de frames do vídeo."""
+    """Obtém total de frames do vídeo via nb_frames do container (instantâneo).
+    Fallback: duration × fps_real. Nunca usa -count_frames (decodifica tudo)."""
     try:
         out = subprocess.check_output(
             [
@@ -709,28 +710,43 @@ def get_total_frames(input_file: str) -> int:
                 "error",
                 "-select_streams",
                 "v:0",
-                "-count_frames",
                 "-show_entries",
-                "stream=nb_read_frames",
+                "stream=nb_frames,r_frame_rate,duration",
                 "-of",
-                "default=nokey=1:noprint_wrappers=1",
+                "json",
                 input_file,
             ],
             stderr=subprocess.PIPE,
         )
-        text = out.decode().strip()
-        try:
-            return int(text)
-        except (ValueError, TypeError):
-            duration = get_video_duration(input_file)
-            estimated = int(max(1, round(duration * 24)))
-            console.print(
-                f"[yellow]Aviso:[/yellow] nb_read_frames não disponível, estimando frames = {estimated}"
-            )
-            return estimated
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        data = json.loads(out.decode())
+        stream = data.get("streams", [{}])[0]
+
+        nb_frames = stream.get("nb_frames")
+        if nb_frames and str(nb_frames).isdigit() and int(nb_frames) > 0:
+            return int(nb_frames)
+
+        # Fallback: duration × fps_real (sem subprocess extra, dados já na resposta)
+        fps_str = stream.get("r_frame_rate", "30/1")
+        if "/" in fps_str:
+            num, den = fps_str.split("/")
+            fps = float(num) / float(den) if float(den) != 0 else 30.0
+        else:
+            fps = float(fps_str) if fps_str else 30.0
+
+        duration_s = stream.get("duration")
+        if duration_s:
+            estimated = int(max(1, round(float(duration_s) * fps)))
+        else:
+            estimated = int(max(1, round(get_video_duration(input_file) * fps)))
+
+        console.print(
+            f"[yellow]Aviso:[/yellow] nb_frames não disponível no container, estimando frames = {estimated}"
+        )
+        return estimated
+
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError, ZeroDivisionError):
         duration = get_video_duration(input_file)
-        return int(max(1, round(duration * 24)))
+        return int(max(1, round(duration * 30)))
 
 
 def get_vbv_preset(duration: float) -> dict:
@@ -802,7 +818,7 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height:stream_tags=rotate:side_data",
+                "stream=width,height:stream_tags=rotate:side_data:format_tags=rotate",
                 "-of",
                 "json",
                 input_file,
@@ -833,22 +849,7 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
                         rotation = int(rot)
 
         if rotation == 0:
-            out2 = subprocess.check_output(
-                [
-                    "ffprobe",
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format_tags=rotate",
-                    "-of",
-                    "json",
-                    input_file,
-                ],
-                stderr=subprocess.PIPE,
-            )
-
-            data2 = json.loads(out2.decode())
-            format_tags = data2.get("format", {}).get("tags", {})
+            format_tags = data.get("format", {}).get("tags", {})
             if "rotate" in format_tags:
                 rotation = int(format_tags["rotate"])
 
