@@ -2333,7 +2333,7 @@ def run_ffmpeg(
         tonemap_algorithm=tonemap,
         float_processing=float_processing,
         dither_enabled=dither_enabled,
-        max_luminance=hdr_info.get("max_luminance") if hdr_info else None,
+        max_luminance=_probe.max_luminance,
     )
 
 
