@@ -593,33 +593,6 @@ def detect_hdr_metadata(input_file: str) -> Optional[dict]:
         return None
 
 
-def build_hdr_to_sdr_filter(hdr_info: dict, tonemap: str = "mobius") -> Optional[str]:
-    """Gera filtro FFmpeg para conversão HDR → SDR."""
-    if not hdr_info or not hdr_info.get("is_hdr"):
-        return None
-
-    if tonemap not in TONEMAP_ALGORITHMS:
-        console.print(
-            f"[yellow]⚠ Tonemap '{tonemap}' inválido, usando 'mobius'[/yellow]"
-        )
-        tonemap = "mobius"
-
-    console.print(f"[cyan]🎨 Gerando filtro HDR→SDR (tonemap={tonemap})...[/cyan]")
-
-    hdr_filter = (
-        "zscale=t=linear:npl=200,"
-        "format=gbrpf32le,"
-        "zscale=p=bt709,"
-        f"tonemap={tonemap}:desat=2,"
-        "zscale=t=bt709:m=bt709:r=tv,"
-        "format=yuv420p"
-    )
-
-    console.print(f"[green]✓ Filtro HDR→SDR:[/green]")
-    console.print(f"[dim]   {hdr_filter}[/dim]")
-
-    return hdr_filter
-
 
 # =============================================================================
 # PROGRESS HUD
@@ -1579,7 +1552,6 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
 # BUILD VIDEO FILTER - SCENE-REFERRED HDR PIPELINE
 # =============================================================================
 def build_scene_referred_hdr_pipeline(
-    hdr_filter: str,
     scale_filter: Optional[str],
     target_resolution: Optional[Tuple[int, int]],
     tonemap_algorithm: str = "mobius",
@@ -1894,7 +1866,7 @@ def build_hollywood_lut_filter(
 # BUILD VIDEO FILTER - AUTO DETECTION (HDR vs SDR) + FLOAT SUPPORT
 # =============================================================================
 def build_video_filter_auto(
-    hdr_filter: Optional[str],
+    is_hdr: bool,
     scale_filter: Optional[str],
     target_resolution: Optional[Tuple[int, int]],
     lut_enabled: bool = True,
@@ -1917,7 +1889,7 @@ def build_video_filter_auto(
     - SDR sources: LUT aplicada (pipeline tradicional ou float)
 
     Args:
-        hdr_filter: Filtro HDR→SDR (None = SDR source)
+        is_hdr: True = source HDR (tonemap, sem LUT); False = source SDR
         scale_filter: Filtro de downscale (opcional)
         target_resolution: Resolução alvo para crop (opcional)
         lut_enabled: Aplicar LUT v6.6 (APENAS para SDR sources)
@@ -1927,7 +1899,7 @@ def build_video_filter_auto(
     Returns:
         String completa do filtro FFmpeg
     """
-    if hdr_filter:
+    if is_hdr:
         # HDR SOURCE: Usa pipeline tonemap apenas (SEM LUT)
         console.print(
             f"[bold cyan]🎯 Modo: HDR Source (Tonemap: {tonemap_algorithm.upper()})[/bold cyan]"
@@ -1936,7 +1908,6 @@ def build_video_filter_auto(
             "[yellow]⚠ LUT v6.6 desativada:[/yellow] Construída para SDR inputs apenas"
         )
         return build_scene_referred_hdr_pipeline(
-            hdr_filter=hdr_filter,
             scale_filter=scale_filter,
             target_resolution=target_resolution,
             tonemap_algorithm=tonemap_algorithm,
@@ -2130,12 +2101,13 @@ def run_ffmpeg(
         # Downscale automático (caminho normal sem rotação)
         scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode)
 
-    # HDR detection & conversion
-    hdr_filter = None
+    # HDR detection
+    is_hdr = False
     if hdr_mode == "auto":
         hdr_info = detect_hdr_metadata(input_file)
         if hdr_info and hdr_info.get("is_hdr"):
-            hdr_filter = build_hdr_to_sdr_filter(hdr_info, tonemap=tonemap)
+            is_hdr = True
+            console.print(f"[cyan]🎨 HDR detectado — tonemap={tonemap}, peak={hdr_info.get('max_luminance', 1000)} nits[/cyan]")
     else:
         console.print("[dim]○ Detecção HDR desativada (--hdr off)[/dim]")
 
@@ -2165,7 +2137,7 @@ def run_ffmpeg(
 
     # Build Video Filter (Auto HDR/SDR Detection + Float Support)
     video_filter = build_video_filter_auto(
-        hdr_filter=hdr_filter,
+        is_hdr=is_hdr,
         scale_filter=scale_filter,
         target_resolution=target_resolution,
         lut_enabled=lut_enabled,
