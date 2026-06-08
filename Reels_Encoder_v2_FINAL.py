@@ -1660,12 +1660,8 @@ def build_scene_referred_hdr_pipeline(
     # STAGE 5: Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}")
-        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (remove padding)")
-
-    video_filter = ",".join(parts)
-
-    console.print(
+        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
+        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (centralizado, remove padding)")    console.print(
         Panel(
             f"[bold]Pipeline HDR ({tonemap_algorithm.upper()}):[/bold]\n[magenta]{video_filter}[/magenta]",
             title=f"🌟 HDR Pipeline (SEM LUT) - {tonemap_algorithm.upper()}",
@@ -1766,8 +1762,8 @@ def build_sdr_float_pipeline(
     # STAGE 6: Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}")
-        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (remove padding)")
+        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
+        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (centralizado, remove padding)")
     video_filter = ",".join(p for p in parts if p and p.strip())
 
 
@@ -1850,8 +1846,8 @@ def build_hollywood_lut_filter(
     # Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}")
-        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (remove padding)")
+        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
+        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (centralizado, remove padding)")
 
     video_filter = ",".join(parts)
 
