@@ -1927,7 +1927,7 @@ def build_sdr_float_pipeline(
         console.print(f"[dim]○ LUT desativada (--lut off)[/dim]")
 
     # STAGE 5: ODT - Output Device Transform (32-bit float → 8-bit com dither)
-    parts.append("zscale=t=bt709:m=bt709:r=tv")
+    parts.append("zscale=t=bt709:m=bt709:r=tv:p=bt709")
 
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
