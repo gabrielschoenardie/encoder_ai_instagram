@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 Wrapper interativo para compare_frames.py
 Uso: python compare_frames_interactive.py

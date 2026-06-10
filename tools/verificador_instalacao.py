@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=duplicate-code
 """
 VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.0.0
 Verifica se todas as dependências estão instaladas e o sistema está pronto
 """
 
 import sys
-import os
 import subprocess
 import platform
 from pathlib import Path
-from typing import Tuple, List, Dict
 
 # ============================================================================
 # CORES E SÍMBOLOS PARA TERMINAL (sem dependências externas)
@@ -334,10 +333,10 @@ class VerificadorInstalacao:
                     print(f"  {i}. {aviso}")
 
             print(f"\n{Colors.YELLOW}Ações recomendadas:{Colors.RESET}")
-            print(f"  1. Instale todas as dependências: pip install -r requirements.txt")
-            print(f"  2. Instale FFmpeg: https://ffmpeg.org/download.html")
-            print(f"  3. Reinicie seu PC")
-            print(f"  4. Execute este verificador novamente")
+            print("  1. Instale todas as dependências: pip install -r requirements.txt")
+            print("  2. Instale FFmpeg: https://ffmpeg.org/download.html")
+            print("  3. Reinicie seu PC")
+            print("  4. Execute este verificador novamente")
 
             self.results["summary"]["status_geral"] = "PROBLEMAS"
             return False
@@ -379,7 +378,7 @@ class VerificadorInstalacao:
 
 if __name__ == "__main__":
     verificador = VerificadorInstalacao()
-    sucesso = verificador.executar()
+    SUCESSO = verificador.executar()
 
     # Sair com código apropriado
-    sys.exit(0 if sucesso else 1)
+    sys.exit(0 if SUCESSO else 1)

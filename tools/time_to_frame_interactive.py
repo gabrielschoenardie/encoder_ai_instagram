@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code
 """
 Conversor interativo: Timestamp → Frame Number
 Uso: python time_to_frame_interactive.py
