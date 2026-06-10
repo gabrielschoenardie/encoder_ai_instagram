@@ -1042,6 +1042,16 @@ def probe_video(input_file: str) -> VideoProbe:
         is_hdr = True
         hdr_type = "HDR (BT.2020)"
 
+    # H.264/H.265 de câmeras frequentemente omite color metadata no container.
+    # Para SDR HD (≥720p), BT.709 é o padrão implícito obrigatório (ITU-T H.264 §E.2.1).
+    if not is_hdr:
+        if color_primaries in ("unknown", None, ""):
+            color_primaries = "bt709"
+        if color_transfer in ("unknown", None, ""):
+            color_transfer = "bt709"
+        if color_space in ("unknown", None, ""):
+            color_space = "bt709"
+
     return VideoProbe(
         physical_width=physical_width,
         physical_height=physical_height,
@@ -1069,21 +1079,22 @@ def build_scale_filter(
     target_height: int = 1920,
 ) -> Optional[str]:
     """Gera filtro de scale de alta qualidade para Instagram Reels (up e downscale)."""
-    if input_height > input_width:  # portrait
-        scale_factor = target_height / input_height
-        final_width = int(input_width * scale_factor)
-        final_height = target_height
-        final_width = final_width - (final_width % 2)
-    else:  # landscape
-        scale_factor = target_width / input_width
-        final_width = target_width
-        final_height = int(input_height * scale_factor)
-        final_height = final_height - (final_height % 2)
+    # Contain algorithm: usa o menor scale factor para garantir que nenhuma
+    # dimensão ultrapasse o target (aspect-fit). O anchor single-axis anterior
+    # produzia final_width > 1080 para portraits mais largos que 9:16 (e.g. 3:4).
+    scale_factor = min(target_width / input_width, target_height / input_height)
+
+    final_width  = int(input_width  * scale_factor)
+    final_height = int(input_height * scale_factor)
+    final_width  = final_width  - (final_width  % 2)
+    final_height = final_height - (final_height % 2)
 
     if final_width == input_width and final_height == input_height:
         return None  # já na resolução alvo
 
-    direction = "up" if (final_width > input_width or final_height > input_height) else "down"
+    is_upscale = final_width > input_width or final_height > input_height
+    direction = "up" if is_upscale else "down"
+
     scale_filter = f"zscale=w={final_width}:h={final_height}:filter=lanczos"
 
     console.print(f"[cyan]📐 Scale ({direction}): {input_width}x{input_height} → {final_width}x{final_height}[/cyan]")
@@ -1836,8 +1847,8 @@ def build_scene_referred_hdr_pipeline(
     # STAGE 6: Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
-        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (centralizado, remove padding)")
+        parts.append(f"crop={tw}:{th}:0:0")
+        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (remove padding)")
 
     video_filter = ",".join(parts)
     console.print(
@@ -1941,8 +1952,8 @@ def build_sdr_float_pipeline(
     # STAGE 6: Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
-        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (centralizado, remove padding)")
+        parts.append(f"crop={tw}:{th}:0:0")
+        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (remove padding)")
     video_filter = ",".join(p for p in parts if p and p.strip())
 
 
@@ -2025,8 +2036,8 @@ def build_hollywood_lut_filter(
     # Crop final (remove macroblock padding)
     if target_resolution:
         tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
-        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (centralizado, remove padding)")
+        parts.append(f"crop={tw}:{th}:0:0")
+        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (remove padding)")
 
     video_filter = ",".join(parts)
 

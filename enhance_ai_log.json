@@ -849,5 +849,264 @@
       "content_type": "mixed",
       "quality_score": 0.9095788571189483
     }
+  },
+  {
+    "timestamp": "2026-06-10T18:12:54.565529",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:18:47.908164",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:23:28.057118",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:34:11.380151",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:36:33.599007",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:37:27.388246",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "VideobythecBEFORE.mp4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.00045635405695065856,
+      0.9940824508666992,
+      0.19382604956626892,
+      0.285508930683136,
+      0.1188959851861,
+      0.8328004479408264,
+      0.25871291756629944,
+      0.1439923644065857,
+      0.18112662434577942,
+      0.9613346457481384,
+      0.008830254897475243,
+      0.004100337624549866,
+      0.20102086663246155
+    ],
+    "ai_weights": {
+      "denoise": 0.13356706500053406,
+      "sharpen": 0.8166475892066956,
+      "deband": 0.2934435307979584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.13356706500053406,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.4083237946033478,
+      "deband_enabled": true,
+      "deband_strength": 0.2934435307979584,
+      "content_type": "mixed",
+      "quality_score": 0.9170989272813821
+    }
+  },
+  {
+    "timestamp": "2026-06-10T18:43:55.090872",
+    "model": "MockCNN_v1_sigmoid_2layer",
+    "input_file": "ED92B21131F4.MP4",
+    "n_frames": 5,
+    "feature_vector": [
+      0.0007604497950524092,
+      0.9451900720596313,
+      0.20080684125423431,
+      0.29017162322998047,
+      0.11029673367738724,
+      0.8162673711776733,
+      0.15393781661987305,
+      0.14762504398822784,
+      0.19159813225269318,
+      0.7138264179229736,
+      0.08260958641767502,
+      0.04086945205926895,
+      0.16334208846092224
+    ],
+    "ai_weights": {
+      "denoise": 0.14032325148582458,
+      "sharpen": 0.9049249291419983,
+      "deband": 0.30847012996673584
+    },
+    "decisions": {
+      "denoise_enabled": true,
+      "denoise_method": "gaussian",
+      "denoise_strength": 0.14032325148582458,
+      "sharpen_enabled": true,
+      "sharpen_strength": 0.45246246457099915,
+      "deband_enabled": true,
+      "deband_strength": 0.30847012996673584,
+      "content_type": "mixed",
+      "quality_score": 0.9113663414246087
+    }
   }
 ]
