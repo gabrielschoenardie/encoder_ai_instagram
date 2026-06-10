@@ -1837,7 +1837,10 @@ def build_scene_referred_hdr_pipeline(
     if target_resolution:
         tw, th = target_resolution
         parts.append(f"crop={tw}:{th}:(iw-{tw})/2:(ih-{th})/2")
-        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (centralizado, remove padding)")    console.print(
+        console.print(f"[green]✓ Crop:[/green] {tw}×{th} (centralizado, remove padding)")
+
+    video_filter = ",".join(parts)
+    console.print(
         Panel(
             f"[bold]Pipeline HDR ({tonemap_algorithm.upper()}):[/bold]\n[magenta]{video_filter}[/magenta]",
             title=f"🌟 HDR Pipeline (SEM LUT) - {tonemap_algorithm.upper()}",
