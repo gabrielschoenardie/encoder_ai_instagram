@@ -97,9 +97,12 @@ def main():
     if do_all:
         cmd += ["--all"]
     else:
-        if do_diff:   cmd += ["--diff"]
-        if do_triple: cmd += ["--triple"]
-        if do_zoom:   cmd += ["--zoom", zoom_region]
+        if do_diff:
+            cmd += ["--diff"]
+        if do_triple:
+            cmd += ["--triple"]
+        if do_zoom:
+            cmd += ["--zoom", zoom_region]
 
     # --- Confirmação ---
     print("\n" + "=" * 45)

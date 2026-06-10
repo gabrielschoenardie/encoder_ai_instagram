@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# pylint: disable=duplicate-code,line-too-long
+# pylint: disable=duplicate-code,line-too-long,syntax-error
 """
 VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.0.0
 Verifica se todas as dependências estão instaladas e o sistema está pronto

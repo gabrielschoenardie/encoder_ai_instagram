@@ -1,3 +1,4 @@
+# pylint: disable=invalid-name
 """Busca o frame mais próximo de um timestamp em um vídeo via ffprobe."""
 import subprocess
 import sys

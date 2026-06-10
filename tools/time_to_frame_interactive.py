@@ -4,6 +4,7 @@
 Conversor interativo: Timestamp → Frame Number
 Uso: python time_to_frame_interactive.py
 """
+from __future__ import annotations
 
 import os
 import subprocess
