@@ -113,7 +113,7 @@ def main():
         sys.exit(0)
 
     print()
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, check=False)
     sys.exit(result.returncode)
 
 
