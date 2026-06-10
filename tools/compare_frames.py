@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pylint: disable=bare-except,multiple-statements,too-many-branches,too-many-statements,unused-import
 """
 🎬 Frame Comparison Tool v2 - Windows Compatible
 

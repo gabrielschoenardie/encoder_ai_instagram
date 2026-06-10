@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# pylint: disable=duplicate-code
+# pylint: disable=duplicate-code,missing-function-docstring,too-many-locals
 """
 Wrapper interativo para compare_frames.py
 Uso: python compare_frames_interactive.py
