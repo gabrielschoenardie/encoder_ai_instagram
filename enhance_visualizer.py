@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 """
 enhance_visualizer.py
 =====================

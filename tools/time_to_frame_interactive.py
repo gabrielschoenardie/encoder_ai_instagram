@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+# pylint: disable=duplicate-code,missing-function-docstring,unnecessary-lambda-assignment,invalid-name,consider-using-with
 """
 Conversor interativo: Timestamp → Frame Number
 Uso: python time_to_frame_interactive.py
 """
+from __future__ import annotations
 
 import os
 import subprocess

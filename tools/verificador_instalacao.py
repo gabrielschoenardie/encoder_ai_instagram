@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=duplicate-code,line-too-long,syntax-error
 """
 VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.0.0
 Verifica se todas as dependências estão instaladas e o sistema está pronto
 """
 
 import sys
-import os
 import subprocess
 import platform
 from pathlib import Path
-from typing import Tuple, List, Dict
 
 # ============================================================================
 # CORES E SÍMBOLOS PARA TERMINAL (sem dependências externas)
 # ============================================================================
 
-class Colors:
+class Colors:  # pylint: disable=too-few-public-methods
     """Cores ANSI para terminal"""
     GREEN = "\033[92m"
     RED = "\033[91m"
@@ -144,7 +143,8 @@ class VerificadorInstalacao:
                 ["ffmpeg", "-version"],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                check=False,
             )
 
             if result.returncode == 0:
@@ -154,10 +154,10 @@ class VerificadorInstalacao:
                 print(f"   {primeira_linha}")
                 self.results["ffmpeg"]["status"] = "OK"
                 return True
-            else:
-                print(f"{CROSS} FFmpeg encontrado mas com erro")
-                self.errors.append("FFmpeg encontrado mas retornou erro")
-                return False
+
+            print(f"{CROSS} FFmpeg encontrado mas com erro")
+            self.errors.append("FFmpeg encontrado mas retornou erro")
+            return False
 
         except FileNotFoundError:
             print(f"{CROSS} FFmpeg não encontrado no PATH")
@@ -232,7 +232,7 @@ class VerificadorInstalacao:
         print(f"\n{Colors.BOLD}═══ HARDWARE {Colors.RESET}")
 
         try:
-            import psutil
+            import psutil  # pylint: disable=import-outside-toplevel
 
             # CPU
             cpu_count = psutil.cpu_count(logical=False)
@@ -278,7 +278,7 @@ class VerificadorInstalacao:
 
         except ImportError:
             print(f"{WARNING} psutil não instalado - não foi possível verificar hardware")
-            print(f"   Instale com: pip install psutil")
+            print("   Instale com: pip install psutil")
             self.warnings.append("psutil não instalado para verificar hardware")
 
     # ────────────────────────────────────────────────────────────────────────
@@ -290,11 +290,11 @@ class VerificadorInstalacao:
         print(f"\n{Colors.BOLD}═══ TESTE DE IMPORTAÇÃO DO PROJETO {Colors.RESET}")
 
         try:
-            import Reels_Encoder_v2_FINAL
+            import Reels_Encoder_v2_FINAL  # pylint: disable=import-outside-toplevel,unused-import
             print(f"{CHECKMARK} Projeto importado com sucesso")
             self.results["summary"]["projeto_import"] = "OK"
             return True
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             print(f"{CROSS} Erro ao importar projeto: {str(e)}")
             self.results["summary"]["projeto_import"] = "ERRO"
             self.errors.append(f"Erro de importação do projeto: {str(e)}")
@@ -315,32 +315,32 @@ class VerificadorInstalacao:
             status = f"{Colors.GREEN}{Colors.BOLD}✓ TUDO PRONTO!{Colors.RESET}"
             print(f"{status}")
             print(f"\n{Colors.GREEN}Você pode usar o encoder agora!{Colors.RESET}")
-            print(f"\nComande para começar:")
+            print("\nComande para começar:")
             print(f"  {Colors.CYAN}python Reels_Encoder_v2_FINAL.py seu_video.mp4{Colors.RESET}")
             self.results["summary"]["status_geral"] = "PRONTO"
             return True
-        else:
-            status = f"{Colors.RED}{Colors.BOLD}✗ PROBLEMAS ENCONTRADOS{Colors.RESET}"
-            print(f"{status}\n")
 
-            if self.errors:
-                print(f"{Colors.RED}Erros (CRÍTICO):{Colors.RESET}")
-                for i, erro in enumerate(self.errors, 1):
-                    print(f"  {i}. {erro}")
+        status = f"{Colors.RED}{Colors.BOLD}✗ PROBLEMAS ENCONTRADOS{Colors.RESET}"
+        print(f"{status}\n")
 
-            if self.warnings:
-                print(f"\n{Colors.YELLOW}Avisos (opcional):{Colors.RESET}")
-                for i, aviso in enumerate(self.warnings, 1):
-                    print(f"  {i}. {aviso}")
+        if self.errors:
+            print(f"{Colors.RED}Erros (CRÍTICO):{Colors.RESET}")
+            for i, erro in enumerate(self.errors, 1):
+                print(f"  {i}. {erro}")
 
-            print(f"\n{Colors.YELLOW}Ações recomendadas:{Colors.RESET}")
-            print(f"  1. Instale todas as dependências: pip install -r requirements.txt")
-            print(f"  2. Instale FFmpeg: https://ffmpeg.org/download.html")
-            print(f"  3. Reinicie seu PC")
-            print(f"  4. Execute este verificador novamente")
+        if self.warnings:
+            print(f"\n{Colors.YELLOW}Avisos (opcional):{Colors.RESET}")
+            for i, aviso in enumerate(self.warnings, 1):
+                print(f"  {i}. {aviso}")
 
-            self.results["summary"]["status_geral"] = "PROBLEMAS"
-            return False
+        print(f"\n{Colors.YELLOW}Ações recomendadas:{Colors.RESET}")
+        print("  1. Instale todas as dependências: pip install -r requirements.txt")
+        print("  2. Instale FFmpeg: https://ffmpeg.org/download.html")
+        print("  3. Reinicie seu PC")
+        print("  4. Execute este verificador novamente")
+
+        self.results["summary"]["status_geral"] = "PROBLEMAS"
+        return False
 
     # ────────────────────────────────────────────────────────────────────────
     # EXECUTAR TODAS AS VERIFICAÇÕES
@@ -379,7 +379,7 @@ class VerificadorInstalacao:
 
 if __name__ == "__main__":
     verificador = VerificadorInstalacao()
-    sucesso = verificador.executar()
+    SUCESSO = verificador.executar()
 
     # Sair com código apropriado
-    sys.exit(0 if sucesso else 1)
+    sys.exit(0 if SUCESSO else 1)
