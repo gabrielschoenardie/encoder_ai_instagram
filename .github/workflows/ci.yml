@@ -54,4 +54,4 @@ jobs:
           pip install numpy>=1.24.0 Pillow>=10.0.0 rich>=13.0.0 psutil>=5.9.0 opencv-python>=4.8.0 scipy pytest pytest-timeout
 
       - name: Run tests
-        run: python -m pytest enhance/test_mock_cnn.py enhance/test_processors.py -v --timeout=60
+        run: python -m pytest enhance/test_mock_cnn.py enhance/test_processors.py enhance/test_profile.py enhance/test_analyzers.py -v --timeout=60
