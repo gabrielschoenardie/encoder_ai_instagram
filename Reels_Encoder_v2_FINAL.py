@@ -897,6 +897,7 @@ class VideoProbe:
     color_space: str
     color_range: str
     max_luminance: Optional[float]
+    color_tags_missing: bool = False  # True se source SDR veio sem primaries/transfer/matrix
 
 
 def probe_video(input_file: str) -> VideoProbe:
@@ -1044,13 +1045,17 @@ def probe_video(input_file: str) -> VideoProbe:
 
     # H.264/H.265 de câmeras frequentemente omite color metadata no container.
     # Para SDR HD (≥720p), BT.709 é o padrão implícito obrigatório (ITU-T H.264 §E.2.1).
+    color_tags_missing = False
     if not is_hdr:
         if color_primaries in ("unknown", None, ""):
             color_primaries = "bt709"
+            color_tags_missing = True
         if color_transfer in ("unknown", None, ""):
             color_transfer = "bt709"
+            color_tags_missing = True
         if color_space in ("unknown", None, ""):
             color_space = "bt709"
+            color_tags_missing = True
 
     return VideoProbe(
         physical_width=physical_width,
@@ -1069,6 +1074,7 @@ def probe_video(input_file: str) -> VideoProbe:
         color_space=color_space,
         color_range=color_range,
         max_luminance=max_luminance,
+        color_tags_missing=color_tags_missing,
     )
 
 
@@ -2261,6 +2267,18 @@ def run_ffmpeg(
     # get_video_duration, get_total_frames, detect_hdr_metadata, detect_rotation_metadata_pyav
     _probe = probe_video(input_file)
 
+    # Input SDR sem color metadata → forçar interpretação BT.709 ANTES do -i.
+    # Sem isso, o zscale aborta com "no path between colorspaces" ao redimensionar
+    # ou converter fontes não-taggeadas (resize/upscale falhava; 1080p taggeado passava).
+    # Aplica só ao input principal (flags antes do -i afetam apenas o próximo input).
+    _input_color_args: list = []
+    if _probe.color_tags_missing and not _probe.is_hdr:
+        _input_color_args = [
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            "-colorspace", "bt709",
+        ]
+
     # Frame rate (CFR)
     input_fps = _probe.fps_int
     if target_fps == "auto":
@@ -2419,6 +2437,7 @@ def run_ffmpeg(
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             "-filter_complex_threads", str(filter_threads),
+            *_input_color_args,
             "-i", input_file,
             *_extra_inputs,
         ]
@@ -2486,6 +2505,7 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
+        *_input_color_args,
         "-i", input_file,
         *_extra_inputs,
     ]
@@ -2547,6 +2567,7 @@ def run_ffmpeg(
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
+        *_input_color_args,
         "-i", input_file,
         *_extra_inputs,
     ]
@@ -2954,6 +2975,17 @@ def run_ffmpeg_with_cineon(
     # Probe único — 1 ffprobe call para rotation/dimensions/fps/duration/nb_frames
     _probe = probe_video(input_file)
 
+    # Input SDR sem color metadata → forçar BT.709 antes do -i (vide run_ffmpeg).
+    # Pass 1 Cineon aplica zscale (scale_filter); sem isso, resize de fonte
+    # não-taggeada aborta com "no path between colorspaces".
+    _input_color_args: list = []
+    if _probe.color_tags_missing and not _probe.is_hdr:
+        _input_color_args = [
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            "-colorspace", "bt709",
+        ]
+
     rotation_degrees = _probe.rotation
     physical_width, physical_height = _probe.physical_width, _probe.physical_height
     effective_width, effective_height = _probe.width, _probe.height
@@ -3160,6 +3192,7 @@ def run_ffmpeg_with_cineon(
             "ffmpeg", "-y",
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
+            *_input_color_args,
             "-i", input_file,
         ]
         if _p1_vf:
