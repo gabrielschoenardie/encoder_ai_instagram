@@ -69,6 +69,7 @@ VERSÕES:
 """
 
 import argparse
+import collections
 import json
 import os
 import platform
@@ -655,13 +656,18 @@ class ResolveProgressHUD:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-def ffmpeg_live_reader(pipe, hud: ResolveProgressHUD):
+def ffmpeg_live_reader(pipe, hud: ResolveProgressHUD, sink=None):
     # Palavras-chave do bloco de configuração que x264 imprime no stderr.
     # Capturar aqui permite verificar se rc-lookahead configurado == efetivo.
     _x264_diag_keys = ("rc lookahead", "ref frames", "keyint", "b frames")
     for line in iter(pipe.readline, ""):
         if not line:
             break
+        # Acumula TODO o stderr no sink (deque acotado) para diagnóstico de erro.
+        # Sem isso, linhas de erro do ffmpeg (ex: "no path between colorspaces")
+        # eram descartadas aqui e o CalledProcessError vinha sem stderr.
+        if sink is not None:
+            sink.append(line)
         if "frame=" in line:
             parts = line.split("frame=")
             if len(parts) > 1:
@@ -1712,15 +1718,19 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
     hud = ResolveProgressHUD(total_frames, source_fps=fps)
     process = subprocess.Popen(
         ffmpeg_cmd,
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="ignore",
         cwd=cwd,
     )
+    # O reader consome TODO o stderr (linha a linha) para o HUD; acumula no deque
+    # para que, em caso de falha, o erro real do ffmpeg seja exibido/propagado.
+    # Sem isso o stderr ficava drenado e o CalledProcessError vinha vazio.
+    stderr_tail = collections.deque(maxlen=400)
     t = threading.Thread(
-        target=ffmpeg_live_reader, args=(process.stderr, hud), daemon=True
+        target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
     )
     t.start()
     with Live(hud.render(), refresh_per_second=7, console=console) as live:
@@ -1728,15 +1738,10 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
             time.sleep(0.1)
             live.update(hud.render())
 
-    try:
-        stdout, stderr = process.communicate(timeout=1)
-    except Exception:
-        try:
-            stderr = process.stderr.read()
-        except Exception:
-            stderr = ""
-
+    # Garante que o reader drenou todo o pipe antes de montar o stderr.
     t.join()
+    process.wait()
+    stderr = "".join(stderr_tail)
 
     if process.returncode != 0:
         console.print(
@@ -1746,8 +1751,10 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
             lines = stderr.strip().splitlines()
             tail = "\n".join(lines[-40:])
             console.print(f"[red]{tail}[/red]")
+        else:
+            console.print("[red](ffmpeg não emitiu stderr)[/red]")
         raise subprocess.CalledProcessError(
-            process.returncode, ffmpeg_cmd, output=stdout, stderr=stderr
+            process.returncode, ffmpeg_cmd, output=None, stderr=stderr
         )
 
 
