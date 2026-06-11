@@ -1089,17 +1089,52 @@ def build_scale_filter(
     input_height: int,
     target_width: int = 1080,
     target_height: int = 1920,
+    fit: str = "contain",
 ) -> Optional[str]:
-    """Gera filtro de scale de alta qualidade para Instagram Reels (up e downscale)."""
-    # Contain algorithm: usa o menor scale factor para garantir que nenhuma
-    # dimensão ultrapasse o target (aspect-fit). O anchor single-axis anterior
-    # produzia final_width > 1080 para portraits mais largos que 9:16 (e.g. 3:4).
-    scale_factor = min(target_width / input_width, target_height / input_height)
+    """Gera filtro de scale de alta qualidade para Instagram Reels (up e downscale).
+
+    fit="contain" (default, aspect-fit): usa o MENOR scale factor — o frame inteiro
+        cabe no alvo sem cortar conteúdo; pode sair menor que o alvo (sem padding,
+        só a resolução resultante). O anchor single-axis anterior produzia
+        final_width > 1080 para portraits mais largos que 9:16 (e.g. 3:4).
+
+    fit="cover" (aspect-fill): usa o MAIOR scale factor — escala pra cobrir os dois
+        eixos e croppa o excesso no CENTRO (crop=W:H, x/y default = centralizado).
+        Produz SEMPRE exatamente target_width×target_height, sem barras pretas.
+        O crop fica embutido aqui, então os crops finais dos transports (crop=W:H:0:0)
+        viram no-op e o pipe do cineon (target_resolution) permanece consistente.
+    """
+    if fit == "cover":
+        scale_factor = max(target_width / input_width, target_height / input_height)
+    else:
+        scale_factor = min(target_width / input_width, target_height / input_height)
 
     final_width  = int(input_width  * scale_factor)
     final_height = int(input_height * scale_factor)
     final_width  = final_width  - (final_width  % 2)
     final_height = final_height - (final_height % 2)
+
+    if fit == "cover":
+        # Arredondamento (int + par) pode deixar 1px abaixo do alvo; garante cobertura.
+        final_width  = max(final_width,  target_width)
+        final_height = max(final_height, target_height)
+
+        no_scale  = (final_width == input_width and final_height == input_height)
+        need_crop = (final_width > target_width or final_height > target_height)
+
+        if no_scale and not need_crop:
+            return None  # já é exatamente o alvo
+
+        scale_part = None if no_scale else f"zscale=w={final_width}:h={final_height}:filter=lanczos"
+        crop_part  = f"crop={target_width}:{target_height}" if need_crop else None
+        cover_filter = ",".join(p for p in (scale_part, crop_part) if p)
+
+        console.print(
+            f"[cyan]📐 Scale (cover): {input_width}x{input_height} → "
+            f"{final_width}x{final_height} → crop {target_width}x{target_height}[/cyan]"
+        )
+        console.print(f"[dim]   Filtro: zscale + Lanczos + center crop (aspect-fill)[/dim]")
+        return cover_filter
 
     if final_width == input_width and final_height == input_height:
         return None  # já na resolução alvo
@@ -2154,7 +2189,7 @@ def build_video_filter_auto(
             )
 
 
-def _resolve_output_size(input_file: str, scale_mode: str, *, probe: Optional[VideoProbe] = None):
+def _resolve_output_size(input_file: str, scale_mode: str, *, probe: Optional[VideoProbe] = None, fit: str = "contain"):
     """Determina (scale_filter, target_resolution) baseado no input e scale_mode.
 
     Centraliza a lógica de portrait/landscape + build_scale_filter, evitando
@@ -2174,10 +2209,10 @@ def _resolve_output_size(input_file: str, scale_mode: str, *, probe: Optional[Vi
     if scale_mode == "auto":
         if input_width > 0 and input_height > 0:
             if input_height > input_width:
-                scale_filter = build_scale_filter(input_width, input_height, 1080, 1920)
+                scale_filter = build_scale_filter(input_width, input_height, 1080, 1920, fit=fit)
                 target_resolution = (1080, 1920)
             else:
-                scale_filter = build_scale_filter(input_width, input_height, 1920, 1080)
+                scale_filter = build_scale_filter(input_width, input_height, 1920, 1080, fit=fit)
                 target_resolution = (1920, 1080)
             if not scale_filter:
                 console.print(
@@ -2213,6 +2248,7 @@ def run_ffmpeg(
     enhance_ai: bool = False,
     selective_masks: dict | None = None,
     dither_enabled: bool = False,
+    fit: str = "contain",
 ):
     """
     Função principal de encoding - Hollywood LUT Transport.
@@ -2312,14 +2348,14 @@ def run_ffmpeg(
         console.print(f"[bold yellow]📱 iPhone Rotation Detected: {_rotation_degrees}° (auto-rotate ativo)[/bold yellow]")
         console.print(f"[dim]📐 Físico: {_phys_w}×{_phys_h} → Efetivo: {_eff_w}×{_eff_h}[/dim]")
         if scale_mode == "auto":
-            scale_filter = build_scale_filter(_eff_w, _eff_h, 1080, 1920)
+            scale_filter = build_scale_filter(_eff_w, _eff_h, 1080, 1920, fit=fit)
             target_resolution = (1080, 1920)
         else:
             scale_filter = None
             target_resolution = (_eff_w, _eff_h)
     else:
         console.print("[dim]📱 Sem rotação de metadados detectada[/dim]")
-        scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe)
+        scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe, fit=fit)
 
     # HDR detection
     is_hdr = False
@@ -2949,6 +2985,7 @@ def run_ffmpeg_with_cineon(
     cineon_lut_path: Optional[str] = None,
     enhance_enabled: bool = False,
     enhance_ai: bool = False,
+    fit: str = "contain",
 ):
     """
     Encoding com pipeline Cineon (PyAV + 5 nodes + Portra 400).
@@ -3078,7 +3115,7 @@ def run_ffmpeg_with_cineon(
             console.print(f"[cyan]🎞️ Frame Rate: {output_fps} fps (CFR fixo)[/cyan]")
 
     # Resolução e downscale (probe já tem as dimensões efetivas pós-rotação)
-    scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe)
+    scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe, fit=fit)
 
     # Duração e VBV
     duration = _probe.duration
@@ -3962,6 +3999,7 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
             performance_mode=args.performance,
             enhance_enabled=(args.enhance == "on"),
             enhance_ai=enhance_ai,
+            fit=args.fit,
         )
     else:
         run_ffmpeg(
@@ -3982,6 +4020,7 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
             enhance_ai=enhance_ai,
             selective_masks=_selective_masks,
             dither_enabled=_dither_active,
+            fit=args.fit,
         )
     analyze_with_mediainfo(output_file)
 
@@ -4074,6 +4113,13 @@ COMPARAÇÃO:
         choices=["auto", "off"],
         default="auto",
         help="Downscale automático para 1080p: auto (detecta e converte 4K→1080p), off (mantém original). Default: auto.",
+    )
+    parser.add_argument(
+        "--fit",
+        choices=["contain", "cover"],
+        default="contain",
+        help="Enquadramento ao escalar: contain (aspect-fit, frame inteiro visível, pode sair menor que o alvo — default) "
+             "ou cover (aspect-fill, preenche 1080×1920 sem barras pretas, cortando as bordas no centro).",
     )
     parser.add_argument(
         "--show-hardware",
