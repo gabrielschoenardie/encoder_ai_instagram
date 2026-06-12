@@ -21,6 +21,9 @@ python -m pytest enhance/test_processors.py -v
 # Basic encode (FFmpeg pipeline)
 python Reels_Encoder_v2_FINAL.py input.mp4
 
+# Fill the 9:16 frame (crop edges instead of letterboxing)
+python Reels_Encoder_v2_FINAL.py input.mp4 --fit cover
+
 # Cineon film emulation encode
 python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on
 
@@ -38,7 +41,7 @@ python enhance_visualizer.py input.mp4
 
 ### Two encode pipelines
 
-**Pipeline 1 — FFmpeg Native** (default): FFmpeg subprocess with filter graph. Fast (~30–60 fps). Uses `HollywoodCinema_Ultimate_v6.7B_*.cube` LUT and optional AI-driven filter graph built in `enhance/ffmpeg_filters.py`.
+**Pipeline 1 — FFmpeg Native** (default): FFmpeg subprocess with filter graph. Fast (~30–60 fps). Uses `HollywoodCinema_Ultimate_v6.7B_*.cube` LUT and optional AI-driven filter graph built in `enhance/ffmpeg_filters.py`. `build_video_filter_auto()` dispatches per source: HDR → tonemap (no LUT); SDR → always the 32-bit float pipeline (`build_sdr_float_pipeline`, IDT→LUT→ODT with dither). The legacy 8-bit SDR transport and its `--float` flag were removed — SDR is float-only.
 
 **Pipeline 2 — Cineon** (`--cineon-pipeline on`): Frame-by-frame processing via PyAV decode → NumPy processing → FFmpeg pipe → libx264. Slower (~5–15 fps CPU) but film-grade. Implemented in `cineon_pipeline.py`. Pipeline order per frame: **Resize → Linear → Tonemap → BT709 → CAS → YUV420P**.
 
@@ -56,6 +59,14 @@ Key files:
 ### iPhone / rotation handling
 
 Rotation is delegated entirely to FFmpeg's auto-rotate. PyAV handles scale. Never use `transpose` + `noautorotate` together — see memory for context.
+
+### Framing / aspect (`--fit`)
+
+`build_scale_filter()` (in `Reels_Encoder_v2_FINAL.py`) takes a `fit` mode:
+- `contain` (default): aspect-fit via `min()` scale factor. The whole frame stays visible; output may end up smaller than the target (e.g. a 3:4 portrait → 1080×1440, no upscaling to fill).
+- `cover`: aspect-fill via `max()` scale factor, with a centered `crop=W:H` embedded in the returned filter. Always yields exactly the target (e.g. 1080×1920) with no black bars, cropping the overflow. Because cover emits exact-target dims, the transports' trailing `crop=W:H:0:0` becomes a no-op and the Cineon pipe's `target_resolution` stays consistent — no transport code needed changing.
+
+`fit` is threaded through `_resolve_output_size` → `run_ffmpeg` / `run_ffmpeg_with_cineon`. Test coverage in `enhance/test_scale_filter.py`.
 
 ### HDR pipeline order
 
