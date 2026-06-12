@@ -11,10 +11,9 @@ FILOSOFIA:
 - Film-grade color science: DWG → Cineon → Portra 400 LUT
 
 PIPELINES DISPONÍVEIS (v2.0):
-1. SDR Float (v1.4.1): 32-bit precision FFmpeg (default, --float on)
-2. SDR 8-bit (v1.3): Legacy FFmpeg pipeline (--float off)
-3. HDR: Tone mapping FFmpeg (auto-detect)
-4. 🎬 CINEON (NOVO): PyAV + DWG + Cineon + Portra 400 (--cineon-pipeline on)
+1. SDR Float: 32-bit precision FFmpeg (default)
+2. HDR: Tone mapping FFmpeg (auto-detect)
+3. 🎬 CINEON (NOVO): PyAV + DWG + Cineon + Portra 400 (--cineon-pipeline on)
 
 PIPELINE CINEON (5 NODES):
     PyAV Decode → Node 1 (DWG) → Node 2 (Grade) → Node 3 (Rec.709) →
@@ -2018,98 +2017,7 @@ def build_sdr_float_pipeline(
 
 
 # =============================================================================
-# BUILD VIDEO FILTER - HOLLYWOOD LUT TRANSPORT (SDR) - LEGACY 8-BIT
-# =============================================================================
-def build_hollywood_lut_filter(
-    hdr_filter: Optional[str],
-    scale_filter: Optional[str],
-    target_resolution: Optional[Tuple[int, int]],
-    lut_enabled: bool = True,
-    dither_enabled: bool = False,
-) -> str:
-    """
-    Pipeline ultra-simplificado: Hollywood LUT Transport (LEGACY 8-BIT).
-
-    ⚠️ NOTA: Este é o pipeline 8-bit original (v1.3).
-    Para máxima qualidade, use build_sdr_float_pipeline() (32-bit float).
-
-    FILOSOFIA:
-    - Confia 100% na LUT v6.6 para anti-banding (TPDF dithering)
-    - Sem denoise (input deve ser relativamente limpo)
-    - Sem deband standalone (coberto pelo --enhance com deband+)
-    - Sem grain (conflita com dithering da LUT)
-    - Apenas: Scale, HDR→SDR, Sharpen, [LUT], Crop
-
-    Pipeline 8-bit:
-        [LUT v6.7] → CROP
-        (todo processing em 8-bit)
-
-    Args:
-        hdr_filter: Filtro HDR→SDR (opcional)
-        scale_filter: Filtro de downscale (opcional)
-        target_resolution: Resolução alvo para crop (opcional)
-        lut_enabled: Aplicar LUT v6.7 (default: True)
-    """
-    if lut_enabled:
-        console.print("[cyan]🎨 Hollywood LUT Transport: Pipeline com LUT v6.7[/cyan]")
-        console.print("[dim]   Confiando 100% na LUT v6.7 (TPDF Dithering)[/dim]")
-    else:
-        console.print("[cyan]⚡ Hollywood LUT Transport: Pipeline sem LUT[/cyan]")
-        console.print("[dim]   Apenas: Scale → HDR→SDR → Sharpen → Crop[/dim]")
-
-    parts = []
-
-    # Prefix: Scale + HDR (ordem otimizada)
-    if scale_filter:
-        parts.append(scale_filter)
-        console.print("[green]✓ Scale:[/green] Lanczos downscale aplicado")
-
-    if hdr_filter:
-        parts.append(hdr_filter)
-        console.print("[green]✓ HDR→SDR:[/green] Tone mapping aplicado")
-
-    # LUT v6.7 com trilinear interpolation (CONDICIONAL)
-    if lut_enabled:
-        _get_hollywood_lut_path()   # valida existência — levanta FileNotFoundError se ausente
-        parts.append(f"lut3d=file={_HOLLYWOOD_LUT_FILENAME}:interp=trilinear")
-        console.print(f"[green]✓ LUT v6.7:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear)")
-    else:
-        console.print(f"[dim]○ LUT desativada (--lut off)[/dim]")
-
-    if dither_enabled:
-        from enhance.ffmpeg_filters import _build_dither
-        parts.append(_build_dither(0.5))
-        console.print("[green]✓ Dither:[/green] Blue-noise pós-LUT (c0s=4, temporal)")
-
-    # Crop final (remove macroblock padding)
-    if target_resolution:
-        tw, th = target_resolution
-        parts.append(f"crop={tw}:{th}:0:0")
-        console.print(f"[green]✓ Crop:[/green] {tw}x{th} (remove padding)")
-
-    video_filter = ",".join(parts)
-
-    # Panel com título e cor baseado em lut_enabled
-    if lut_enabled:
-        panel_title = "🎬 Hollywood LUT Transport (com LUT v6.7)"
-        panel_border = "green"
-    else:
-        panel_title = "🎬 Hollywood LUT Transport (sem LUT)"
-        panel_border = "yellow"
-
-    console.print(
-        Panel(
-            f"[bold]Pipeline:[/bold]\n[green]{video_filter}[/green]",
-            title=panel_title,
-            border_style=panel_border,
-        )
-    )
-
-    return video_filter
-
-
-# =============================================================================
-# BUILD VIDEO FILTER - AUTO DETECTION (HDR vs SDR) + FLOAT SUPPORT
+# BUILD VIDEO FILTER - AUTO DETECTION (HDR vs SDR)
 # =============================================================================
 def build_video_filter_auto(
     is_hdr: bool,
@@ -2117,7 +2025,6 @@ def build_video_filter_auto(
     target_resolution: Optional[Tuple[int, int]],
     lut_enabled: bool = True,
     tonemap_algorithm: str = "mobius",
-    float_processing: bool = True,
     dither_enabled: bool = False,
     max_luminance: Optional[float] = None,
 ) -> str:
@@ -2125,8 +2032,7 @@ def build_video_filter_auto(
     Função INTELIGENTE de construção de pipeline com suporte a 32-bit float.
     Detecta automaticamente se deve usar:
     - Pipeline HDR (tonemap apenas, SEM LUT)
-    - Pipeline SDR Float (32-bit, novo em v1.4)
-    - Pipeline SDR 8-bit (legacy, v1.3)
+    - Pipeline SDR Float (32-bit)
 
     IMPORTANTE:
     - Hollywood Cinema LUT v6.6 foi construída para SDR inputs (Rec.709/sRGB)
@@ -2140,7 +2046,6 @@ def build_video_filter_auto(
         target_resolution: Resolução alvo para crop (opcional)
         lut_enabled: Aplicar LUT v6.6 (APENAS para SDR sources)
         tonemap_algorithm: Algoritmo de tone mapping para HDR (mobius, hable, reinhard)
-        float_processing: Usar 32-bit float pipeline para SDR (default: True)
 
     Returns:
         String completa do filtro FFmpeg
@@ -2161,32 +2066,19 @@ def build_video_filter_auto(
             max_luminance=max_luminance,
         )
     else:
-        # SDR SOURCE: Escolhe entre float (novo) ou 8-bit (legacy)
-        if float_processing:
-            console.print(
-                "[bold cyan]🎯 Modo: SDR Source (32-bit Float Pipeline)[/bold cyan]"
-            )
-            console.print(
-                "[dim]   DaVinci Intermediate simulado (máxima qualidade)[/dim]"
-            )
-            return build_sdr_float_pipeline(
-                scale_filter=scale_filter,
-                target_resolution=target_resolution,
-                lut_enabled=lut_enabled,
-                dither_enabled=dither_enabled,
-            )
-        else:
-            console.print(
-                "[bold cyan]🎯 Modo: SDR Source (8-bit Legacy Pipeline)[/bold cyan]"
-            )
-            console.print("[dim]   Pipeline v1.3 original (compatibilidade)[/dim]")
-            return build_hollywood_lut_filter(
-                hdr_filter=None,
-                scale_filter=scale_filter,
-                target_resolution=target_resolution,
-                lut_enabled=lut_enabled,
-                dither_enabled=dither_enabled,
-            )
+        # SDR SOURCE: pipeline 32-bit float (DaVinci Intermediate simulado)
+        console.print(
+            "[bold cyan]🎯 Modo: SDR Source (32-bit Float Pipeline)[/bold cyan]"
+        )
+        console.print(
+            "[dim]   DaVinci Intermediate simulado (máxima qualidade)[/dim]"
+        )
+        return build_sdr_float_pipeline(
+            scale_filter=scale_filter,
+            target_resolution=target_resolution,
+            lut_enabled=lut_enabled,
+            dither_enabled=dither_enabled,
+        )
 
 
 def _resolve_output_size(input_file: str, scale_mode: str, *, probe: Optional[VideoProbe] = None, fit: str = "contain"):
@@ -2243,7 +2135,6 @@ def run_ffmpeg(
     show_hardware: bool = True,
     threads_override: int = 0,
     performance_mode: str = "balanced",
-    float_processing: bool = True,
     enhance_enabled: bool = False,
     enhance_ai: bool = False,
     selective_masks: dict | None = None,
@@ -2402,7 +2293,6 @@ def run_ffmpeg(
         target_resolution=target_resolution,
         lut_enabled=lut_enabled,
         tonemap_algorithm=tonemap,
-        float_processing=float_processing,
         dither_enabled=dither_enabled,
         max_luminance=_probe.max_luminance,
     )
@@ -3967,16 +3857,9 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
             )
     # ── Blue-noise dither flag (FASE 30A) ─────────────────────────────────────
     _dither_arg    = getattr(args, "dither", "auto")
-    _dither_active = (
-        _dither_arg == "on"
-        or (
-            _dither_arg == "auto"
-            and (
-                getattr(args, "enhance", "off") == "on"
-                or getattr(args, "float", "on") == "on"  # float→8-bit requer dither anti-banding
-            )
-        )
-    )
+    # Pipeline SDR é sempre 32-bit float → 8-bit, então o ODT sempre se beneficia
+    # do dither anti-banding. auto = ativo (salvo --dither off explícito).
+    _dither_active = _dither_arg != "off"
     if _dither_active:
         console.print(
             "[cyan]🎲 Dither:[/cyan] Blue-noise ativado — quebra coerência de banding pré-quantização"
@@ -4015,7 +3898,6 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
             show_hardware=(args.show_hardware == "on"),
             threads_override=args.threads,
             performance_mode=args.performance,
-            float_processing=(args.float == "on"),
             enhance_enabled=(args.enhance == "on"),
             enhance_ai=enhance_ai,
             selective_masks=_selective_masks,
@@ -4045,7 +3927,6 @@ MODO FFMPEG (default, rápido):
   python Reels_Encoder_v2.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
   python Reels_Encoder_v2.py input.mp4 --fps 60                  # 60 fps CFR (ação/esportes)
   python Reels_Encoder_v2.py iphone_dolby.mov                    # HDR→SDR + 4K→1080p automático
-  python Reels_Encoder_v2.py input.mp4 --float off               # 8-bit legacy (v1.3)
 
 MODO CINEON (film emulation):
   python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on                        # Film look Portra 400 (100%)
@@ -4143,12 +4024,6 @@ COMPARAÇÃO:
         choices=["quality", "balanced", "speed"],
         default="balanced",
         help="Modo de performance: quality (lento, máxima qualidade), balanced (auto), speed (rápido). Default: balanced.",
-    )
-    parser.add_argument(
-        "--float",
-        choices=["on", "off"],
-        default="on",
-        help="[NOVO v1.4] 32-bit float processing para SDR (DaVinci Intermediate simulado). on = máxima qualidade (default), off = 8-bit legacy (v1.3)",
     )
     # NOVO v2.0: Argumentos Cineon
     parser.add_argument(
