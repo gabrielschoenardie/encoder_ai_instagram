@@ -682,6 +682,249 @@ class TestBluenoiseDither:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SELECTIVE FILTERGRAPH — body / structure coverage
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _assert_no_malformed_vf(vf: str) -> None:
+    """Assert a comma-separated -vf string has no malformed fragments.
+
+    Guards against: empty segments (',,'), leading/trailing commas, empty
+    colon-separated tokens within a fragment, and unquoted spaces.
+    """
+    assert vf, "filter string must be non-empty"
+    assert ",," not in vf, f"double comma (empty fragment) in: {vf!r}"
+    assert not vf.startswith(","), f"leading comma in: {vf!r}"
+    assert not vf.endswith(","), f"trailing comma in: {vf!r}"
+    assert " " not in vf, f"unquoted space in -vf string: {vf!r}"
+    for frag in vf.split(","):
+        assert frag.strip() != "", f"empty fragment in: {vf!r}"
+        for tok in frag.split(":"):
+            assert tok != "", f"empty colon-token in fragment {frag!r} of {vf!r}"
+
+
+def _numeric_params(vf: str):
+    """Yield every value of a `key=value` token whose value looks numeric."""
+    for frag in vf.split(","):
+        for tok in frag.split(":"):
+            if "=" not in tok:
+                continue
+            value = tok.rsplit("=", 1)[-1]
+            try:
+                yield float(value)
+            except ValueError:
+                continue  # non-numeric param value (e.g. filter=weak) — skip
+
+
+def _selective_profile(**overrides) -> EnhanceProfile:
+    """Profile with all four stages enabled (deblock/denoise/deband/sharpen)."""
+    base = dict(
+        deblock_enabled=True,
+        denoise_enabled=True, denoise_strength=0.5, denoise_method="hqdn3d",
+        deband_enhance_enabled=True, deband_strength=0.5,
+        sharpen_enabled=True, sharpen_strength=0.5,
+    )
+    base.update(overrides)
+    return EnhanceProfile(**base)
+
+
+class TestSelectiveFiltergraph:
+    """FASE 29A — build_selective_filtergraph() filter_complex body structure.
+
+    The existing TestMCTFFiltergraph only checks the -stream_loop flag; these
+    cover the actual filter_complex graph that gets built when masks exist.
+    """
+
+    def test_returns_triple_when_mask_present(self):
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        result = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920", deband_mask_path="d.png"
+        )
+        assert isinstance(result, tuple) and len(result) == 3
+        fc, extra_inputs, map_label = result
+        assert isinstance(fc, str) and fc
+        assert isinstance(extra_inputs, list)
+        assert map_label == "[vout]"
+
+    def test_none_when_no_mask_paths(self):
+        """No mask paths → None (caller falls back to global -vf)."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        assert build_selective_filtergraph(_selective_profile(), "scale=1080:1920") is None
+
+    def test_none_when_masks_given_but_filters_disabled(self):
+        """Mask paths supplied but deband/sharpen disabled → None.
+
+        has_deband/has_sharpen require BOTH a path AND the enabling flag.
+        """
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        profile = EnhanceProfile(deband_enhance_enabled=False, sharpen_enabled=False)
+        result = build_selective_filtergraph(
+            profile, "scale=1080:1920",
+            deband_mask_path="d.png", sharpen_mask_path="s.png",
+        )
+        assert result is None
+
+    def test_alphamerge_present_for_deband_mask(self):
+        """A deband mask must produce an alphamerge step (selective application)."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, _, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920", deband_mask_path="d.png"
+        )
+        assert "alphamerge" in fc, f"deband mask must alphamerge: {fc}"
+        # alphamerge requires an alpha-carrying format upstream
+        assert "format=yuva420p" in fc, f"alphamerge needs yuva420p: {fc}"
+        assert "[dmask]" in fc, f"deband mask label must be wired: {fc}"
+
+    def test_alphamerge_present_for_sharpen_mask(self):
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, _, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920", sharpen_mask_path="s.png"
+        )
+        assert "alphamerge" in fc, f"sharpen mask must alphamerge: {fc}"
+        assert "[smask]" in fc, f"sharpen mask label must be wired: {fc}"
+
+    def test_both_masks_produce_two_alphamerge_two_overlay(self):
+        """Two masks → two selective branches (2× alphamerge + 2× overlay)."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, _, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920",
+            deband_mask_path="d.png", sharpen_mask_path="s.png",
+        )
+        assert fc.count("alphamerge") == 2, f"expected 2 alphamerge: {fc}"
+        assert fc.count("overlay=format=yuv420") == 2, f"expected 2 overlay: {fc}"
+        assert fc.count("split=2") == 2, f"expected 2 split: {fc}"
+
+    def test_mask_input_indices_increment(self):
+        """Two masks → mask streams referenced as [1:v] then [2:v]."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, extra_inputs, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920",
+            deband_mask_path="d.png", sharpen_mask_path="s.png",
+        )
+        assert "[1:v]" in fc and "[2:v]" in fc, f"mask indices must be 1 and 2: {fc}"
+        assert "[3:v]" not in fc, f"no third mask input expected: {fc}"
+        assert extra_inputs.count("-i") == 2, f"expected 2 mask inputs: {extra_inputs}"
+
+    def test_single_mask_uses_only_index_one(self):
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, extra_inputs, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920", sharpen_mask_path="s.png"
+        )
+        assert "[1:v]" in fc, f"single mask must use [1:v]: {fc}"
+        assert "[2:v]" not in fc, f"single mask must not reference [2:v]: {fc}"
+        assert extra_inputs.count("-i") == 1, f"expected 1 mask input: {extra_inputs}"
+
+    def test_main_vf_tail_appended_before_vout(self):
+        """The main pipeline tail must be the final chain, mapped to [vout]."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        tail = "lut3d=hollywood.cube,scale=1080:1920,format=yuv420p"
+        fc, _, map_label = build_selective_filtergraph(
+            _selective_profile(), tail, deband_mask_path="d.png"
+        )
+        assert tail in fc, f"main_vf_tail must appear verbatim: {fc}"
+        assert fc.rstrip().endswith("[vout]"), f"graph must end at [vout]: {fc}"
+        assert map_label == "[vout]"
+
+    def test_no_empty_chains_in_filter_complex(self):
+        """Each ';'-separated chain must be non-empty (no dangling separators)."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, _, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920",
+            deband_mask_path="d.png", sharpen_mask_path="s.png",
+        )
+        for chain in fc.split(";"):
+            assert chain.strip() != "", f"empty chain in filter_complex: {fc!r}"
+
+    def test_global_filters_have_no_mask_when_unmasked(self):
+        """Deblock/denoise stay global; with only a deband mask, denoise is plain."""
+        from enhance.ffmpeg_filters import build_selective_filtergraph
+        fc, _, _ = build_selective_filtergraph(
+            _selective_profile(), "scale=1080:1920", deband_mask_path="d.png"
+        )
+        # deblock + denoise run as simple [in] filter [out] chains, no alphamerge
+        assert "[deblocked]" in fc, f"deblock chain expected: {fc}"
+        assert "[denoised]" in fc, f"denoise chain expected: {fc}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXTREME STRENGTH VALUES — syntax robustness
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestExtremeStrengthSyntax:
+    """Strength at the boundaries (0.0, 1.0) must never yield malformed syntax.
+
+    NOTE: fragment *inclusion* is gated by the `*_enabled` flags, NOT by
+    strength — so an enabled filter at strength=0.0 still emits a (clamped)
+    fragment. These tests document that true behavior and assert the emitted
+    strings stay well-formed at both extremes.
+    """
+
+    def _all_enabled(self, strength: float) -> EnhanceProfile:
+        return EnhanceProfile(
+            deblock_enabled=True,
+            denoise_enabled=True, denoise_strength=strength, denoise_method="nlmeans",
+            deband_enhance_enabled=True, deband_strength=strength,
+            sharpen_enabled=True, sharpen_strength=strength,
+        )
+
+    def test_strength_zero_well_formed(self):
+        result = build_pre_lut_filtergraph(self._all_enabled(0.0))
+        assert result is not None
+        _assert_no_malformed_vf(result)
+
+    def test_strength_one_well_formed(self):
+        result = build_pre_lut_filtergraph(self._all_enabled(1.0))
+        assert result is not None
+        _assert_no_malformed_vf(result)
+
+    def test_strength_zero_still_emits_all_fragments(self):
+        """Enabled-at-zero still emits fragments (gated by flags, not strength)."""
+        result = build_pre_lut_filtergraph(self._all_enabled(0.0))
+        assert result is not None
+        for name in ("deblock", "nlmeans", "deband", "cas"):
+            assert name in result, f"{name} fragment missing at strength=0.0: {result}"
+
+    def test_strength_zero_params_clamped_to_minimums(self):
+        """At strength 0.0 params clamp to FFmpeg-valid minimums, not below."""
+        result = build_pre_lut_filtergraph(self._all_enabled(0.0))
+        assert result is not None
+        for frag in result.split(","):
+            if frag.startswith("nlmeans"):
+                s_val = float(frag.split(":")[0].split("=", 2)[-1])
+                assert s_val >= 1.0, f"nlmeans s must clamp to ≥1.0: {frag}"
+            if frag.startswith("deband"):
+                for tok in frag.split(":"):
+                    if tok[:1].isdigit() and "thr=" in tok:
+                        assert float(tok.split("=")[1]) >= 0.00003, f"thr below FFmpeg min: {frag}"
+
+    def test_strength_one_params_within_caps(self):
+        """At strength 1.0 params stay within their documented upper caps."""
+        result = build_pre_lut_filtergraph(self._all_enabled(1.0))
+        assert result is not None
+        for frag in result.split(","):
+            if frag.startswith("nlmeans"):
+                s_val = float(frag.split(":")[0].split("=", 2)[-1])
+                assert s_val <= 10.0, f"nlmeans s exceeds FFmpeg max 10.0: {frag}"
+            if frag.startswith("cas"):
+                val = float(frag.split("strength=")[1].split(":")[0])
+                assert val <= 0.65, f"cas strength exceeds cap 0.65: {frag}"
+            if frag.startswith("deband"):
+                for tok in frag.split(":"):
+                    if tok[:1].isdigit() and "thr=" in tok:
+                        assert float(tok.split("=")[1]) <= 0.5, f"thr exceeds 0.5: {frag}"
+
+    def test_all_numeric_params_parse_at_both_extremes(self):
+        """Every numeric `key=value` must be a finite float at 0.0 and 1.0."""
+        import math
+        for strength in (0.0, 1.0):
+            result = build_pre_lut_filtergraph(self._all_enabled(strength))
+            assert result is not None
+            values = list(_numeric_params(result))
+            assert values, f"expected numeric params at strength={strength}: {result}"
+            for v in values:
+                assert math.isfinite(v), f"non-finite param {v} at strength={strength}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # RUNNER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -716,6 +959,8 @@ def main() -> int:
         ("Processor (processor.py)", TestProcessor),
         ("FFmpeg Filters (ffmpeg_filters.py)", TestFFmpegFilters),
         ("MCTF Filtergraph (FASE 29A)", TestMCTFFiltergraph),
+        ("Selective Filtergraph (structure)", TestSelectiveFiltergraph),
+        ("Extreme Strength Syntax", TestExtremeStrengthSyntax),
         ("Blue-noise Dither (FASE 30A)", TestBluenoiseDither),
         ("AST Validation", TestASTValidation),
     ]
