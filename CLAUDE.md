@@ -76,6 +76,15 @@ When processing HDR input (`--hdr auto`), FFmpeg tone-mapping is applied. The co
 
 Loudness normalization uses EBU R128 two-pass (`--loudnorm on`, default): target -14 LUFS (Instagram), true-peak **-1.5 dBTP** (headroom against IG's AAC transcode), `linear=true`. Pass 1 (`build_loudnorm_measure_filter`) measures with `print_format=json`; Pass 2 (`build_loudnorm_filter`) feeds back `measured_I/TP/LRA/thresh` **and `offset` (target_offset)** for precision. Channel-aware: mono sources get `dual_mono=true` (EBU -3 LU correction), and >2-channel sources are downmixed to stereo *inside* the filter chain (`aformat=channel_layouts=stereo,…`) in **both** passes so measurement and delivery share the same layout (the trailing `-ac 2` is then a no-op). `-14` is the lever that prevents IG re-normalizing the audio; IG always re-encodes, so the goal is minimal alteration, not avoiding recompression. Channel count via `probe_audio_channels` (defaults to stereo on failure). Output: AAC-LC, 48 kHz, stereo, 192 kbps. Test coverage in `enhance/test_loudnorm.py`.
 
+### EBU Meter (post-encode QC)
+
+After every encode, `_encode_single_file()` calls `run_post_encode_qc()` (in `ebu_meter.py`, modeled on NapoleonWils0n's `ebu-meter.rs`). Two parts:
+
+1. **Audit (always runs, single *and* batch):** measures the final file with the canonical `ebur128=peak=true` filter (`-f null`), parsing the `Summary:` block for Integrated LUFS-I / True Peak dBTP / LRA, plus codec + sample rate via ffprobe. Renders an **ANTES (original) vs DEPOIS (final)** Rich table with `✓`/`⚠` flags against `LOUDNORM_TARGETS` (−14 LUFS ±1, ≤ −1.5 dBTP). This is independent of loudnorm's internal estimate — a true post-encode audit. Loudnorm 2-pass remains the *only* normalization; this never alters audio.
+2. **Visual monitor (`--ebu-meter`, default `on`; force-disabled in `--batch`):** opens two detached, non-blocking FFplay windows (original + final) using the reference filtergraph `amovie='<esc>',ebur128=video=1:meter=18:dualmono=true:target=<I>[out0][out1]` (path escaping `\`→`\\`, `:`→`\:`). `ebur128=video=1` is itself the broadcast-style meter — no `showwaves`/`showspectrum`.
+
+All failure modes degrade gracefully (no audio / unparseable `-inf` silence → `—`; `ffplay` missing → warning + table still prints; any QC error is caught and never breaks the encode). Pure builders/parsers tested in `enhance/test_ebu_meter.py` (no subprocess).
+
 ### LUTs
 
 Two `.cube` files in root:

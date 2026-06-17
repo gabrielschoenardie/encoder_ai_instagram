@@ -1,0 +1,329 @@
+"""
+ebu_meter.py
+============
+Post-encode EBU R128 quality-control mode.
+
+Inspired by NapoleonWils0n/ffmpeg-rust-scripts `ebu-meter.rs`, whose whole
+mechanism is a single FFplay `lavfi` graph driving the `ebur128` filter's
+built-in video meter.
+
+This module does two things, *after* an encode finishes:
+
+  1. **Audit (always):** measure the final file's loudness with the canonical
+     `ebur128` filter (Integrated LUFS-I, True Peak dBTP, Loudness Range LU) and
+     report codec + sample rate, side by side with the original (ANTES/DEPOIS).
+  2. **Visualize (opt-out):** open graphical FFplay EBU R128 meter windows for
+     visual QC — one for the original, one for the final.
+
+It never alters audio: loudnorm 2-pass remains the sole normalization path.
+Every failure mode (no audio, unparseable summary, missing ffplay) degrades
+gracefully and never fails the encode.
+
+Pure builders/parsers (`build_*`, `parse_*`) are unit-tested in
+`enhance/test_ebu_meter.py` without any subprocess.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+from typing import Optional
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pure builders / parsers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def build_ebur128_measure_cmd(input_file: str) -> list:
+    """Pass de medição EBU R128 (não-destrutivo, sem encode).
+
+    `ebur128=peak=true` garante que o True Peak apareça no bloco `Summary:`
+    impresso no stderr ao final.
+    """
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-i", input_file,
+        "-af", "ebur128=peak=true",
+        "-f", "null",
+        "-",
+    ]
+
+
+def _to_float(raw: Optional[str]) -> Optional[float]:
+    """Converte string numérica do summary para float, rejeitando inf/nan.
+
+    Áudio silencioso reporta `-inf` — tratado como medição inutilizável (None).
+    """
+    if raw is None:
+        return None
+    try:
+        val = float(raw)
+    except (ValueError, TypeError):
+        return None
+    if math.isinf(val) or math.isnan(val):
+        return None
+    return val
+
+
+# Aceita número decimal OU inf (com sinal). O inf é capturado para então ser
+# rejeitado por _to_float — distingue "campo ausente" de "áudio silencioso".
+_NUM = r"(-?inf|-?\d+(?:\.\d+)?)"
+
+_RE_I = re.compile(r"\bI:\s*" + _NUM + r"\s*LUFS")
+_RE_LRA = re.compile(r"\bLRA:\s*" + _NUM + r"\s*LU\b")
+_RE_TP = re.compile(r"\bPeak:\s*" + _NUM + r"\s*dBFS")
+
+
+def parse_ebur128_summary(stderr: str) -> Optional[dict]:
+    """Extrai {'I', 'TP', 'LRA'} do bloco `Summary:` do filtro ebur128.
+
+    Retorna None se faltar qualquer campo ou se a medição for inutilizável
+    (silêncio → -inf). `LRA:` casa apenas o range global (não `LRA low/high:`),
+    e `Peak:` casa o True Peak (a linha de cabeçalho é `True peak:`, minúscula).
+    """
+    if not stderr:
+        return None
+
+    m_i = _RE_I.search(stderr)
+    m_lra = _RE_LRA.search(stderr)
+    m_tp = _RE_TP.search(stderr)
+    if not (m_i and m_lra and m_tp):
+        return None
+
+    i = _to_float(m_i.group(1))
+    lra = _to_float(m_lra.group(1))
+    tp = _to_float(m_tp.group(1))
+    if i is None or lra is None or tp is None:
+        return None
+
+    return {"I": i, "TP": tp, "LRA": lra}
+
+
+def _escape_lavfi_path(path: str) -> str:
+    """Escapa um path para uso dentro de `amovie='...'` num filtergraph lavfi.
+
+    Mesma regra do ebu-meter.rs: barra invertida dobrada, depois dois-pontos
+    escapado (ordem importa). Ex.: `C:\\v\\a.mp4` → `C\\:\\\\v\\\\a.mp4`.
+    """
+    return path.replace("\\", "\\\\").replace(":", "\\:")
+
+
+def build_ffplay_meter_args(input_file: str, target_i: float, title: str) -> list:
+    """Argumentos do FFplay para o medidor EBU R128 gráfico (janela de QC).
+
+    Reproduz o grafo do ebu-meter.rs:
+        amovie='<path>',ebur128=video=1:meter=18:dualmono=true:target=<I>[out0][out1]
+    `video=1` desenha o medidor broadcast; `meter=18` é a escala +18 LU.
+    """
+    esc = _escape_lavfi_path(input_file)
+    graph = (
+        f"amovie='{esc}',"
+        f"ebur128=video=1:meter=18:dualmono=true:target={target_i:g}"
+        f"[out0][out1]"
+    )
+    return [
+        "ffplay",
+        "-hide_banner",
+        "-v", "error",
+        "-window_title", title,
+        "-f", "lavfi",
+        "-i", graph,
+    ]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Impure runners
+# ──────────────────────────────────────────────────────────────────────────────
+
+def probe_audio_codec(input_file: str):
+    """(codec_name, sample_rate) do primeiro stream de áudio, ou (None, None)."""
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,sample_rate",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_file,
+            ],
+            stderr=subprocess.PIPE,
+        )
+        lines = out.decode("utf-8", "ignore").strip().splitlines()
+        codec = lines[0].strip() if len(lines) >= 1 and lines[0].strip() else None
+        rate = lines[1].strip() if len(lines) >= 2 and lines[1].strip() else None
+        return codec, rate
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError, IndexError):
+        return None, None
+
+
+def measure_loudness(input_file: str) -> Optional[dict]:
+    """Mede loudness EBU R128 do arquivo. Retorna {'I','TP','LRA'} ou None."""
+    try:
+        result = subprocess.run(
+            build_ebur128_measure_cmd(input_file),
+            capture_output=True, text=True, encoding="utf-8", errors="ignore",
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    return parse_ebur128_summary(result.stderr or "")
+
+
+def launch_meter_window(input_file: str, target_i: float, title: str) -> Optional[subprocess.Popen]:
+    """Abre a janela FFplay do medidor (detached, não-bloqueante).
+
+    Retorna o Popen, ou None se o ffplay não estiver disponível / falhar ao abrir.
+    """
+    if shutil.which("ffplay") is None:
+        return None
+    args = build_ffplay_meter_args(input_file, target_i, title)
+    kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Desacopla o ffplay do processo pai para não bloquear o terminal.
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        return subprocess.Popen(args, **kwargs)
+    except (FileNotFoundError, OSError):
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Orchestration + report
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _fmt(value: Optional[float], suffix: str = "") -> str:
+    return "—" if value is None else f"{value:.1f}{suffix}"
+
+
+def _flag_integrated(measured: Optional[float], target_i: float, tol: float = 1.0) -> str:
+    if measured is None:
+        return ""
+    return " ✓" if abs(measured - target_i) <= tol else " ⚠"
+
+
+def _flag_true_peak(measured: Optional[float], target_tp: float) -> str:
+    if measured is None:
+        return ""
+    return " ✓" if measured <= target_tp + 1e-9 else " ⚠"
+
+
+def run_post_encode_qc(
+    original_file: str,
+    output_file: str,
+    target: str = "instagram",
+    show_meter: bool = True,
+    targets: Optional[dict] = None,
+    console=None,
+) -> None:
+    """Auditoria EBU R128 pós-encode (sempre) + janelas FFplay (opcional).
+
+    Args:
+        original_file: entrada original (coluna ANTES).
+        output_file:   arquivo final encodado (coluna DEPOIS).
+        target:        chave de loudness ('instagram').
+        show_meter:    abre as janelas FFplay de QC (forçado False em batch).
+        targets:       dict de alvos {target: {'I','TP','LRA'}}; se None, importa
+                       LOUDNORM_TARGETS do encoder.
+        console:       Rich Console; se None, cria um.
+    """
+    # Console + tabela (import tardio p/ manter os builders puros sem rich)
+    if console is None:
+        from rich.console import Console
+        console = Console()
+    from rich.table import Table
+    from rich import box
+
+    if targets is None:
+        try:
+            from Reels_Encoder_v2_FINAL import LOUDNORM_TARGETS
+            targets = LOUDNORM_TARGETS
+        except Exception:
+            targets = {"instagram": {"I": -14, "TP": -1.5, "LRA": 11}}
+    t = targets.get(target, targets.get("instagram", {"I": -14, "TP": -1.5, "LRA": 11}))
+    tgt_i = float(t.get("I", -14))
+    tgt_tp = float(t.get("TP", -1.5))
+    tgt_lra = t.get("LRA", 11)
+
+    console.rule("[bold cyan]🎧 EBU R128 — Auditoria pós-encode")
+
+    before = measure_loudness(original_file)
+    after = measure_loudness(output_file)
+    b_codec, b_rate = probe_audio_codec(original_file)
+    a_codec, a_rate = probe_audio_codec(output_file)
+
+    bI = before["I"] if before else None
+    bTP = before["TP"] if before else None
+    bLRA = before["LRA"] if before else None
+    aI = after["I"] if after else None
+    aTP = after["TP"] if after else None
+    aLRA = after["LRA"] if after else None
+
+    table = Table(box=box.ROUNDED, show_lines=False)
+    table.add_column("Métrica", style="bold")
+    table.add_column("ANTES (original)", justify="right")
+    table.add_column("DEPOIS (final)", justify="right")
+    table.add_column("Alvo", justify="right", style="dim")
+
+    table.add_row(
+        "Integrated (LUFS-I)",
+        _fmt(bI) + _flag_integrated(bI, tgt_i),
+        _fmt(aI) + _flag_integrated(aI, tgt_i),
+        f"{tgt_i:g}",
+    )
+    table.add_row(
+        "True Peak (dBTP)",
+        _fmt(bTP) + _flag_true_peak(bTP, tgt_tp),
+        _fmt(aTP) + _flag_true_peak(aTP, tgt_tp),
+        f"≤ {tgt_tp:g}",
+    )
+    table.add_row(
+        "Loudness Range (LU)",
+        _fmt(bLRA), _fmt(aLRA), f"~{tgt_lra}",
+    )
+    table.add_row("Codec", b_codec or "—", a_codec or "—", "AAC-LC")
+    table.add_row("Sample Rate (Hz)", b_rate or "—", a_rate or "—", "48000")
+
+    console.print(table)
+
+    if after is None:
+        console.print(
+            "[yellow]⚠ Não foi possível medir o áudio final "
+            "(sem stream de áudio ou formato não suportado).[/yellow]"
+        )
+
+    # ── Janelas FFplay (QC visual) ────────────────────────────────────────────
+    if not show_meter:
+        return
+    if shutil.which("ffplay") is None:
+        console.print(
+            "[yellow]⚠ ffplay não encontrado no PATH — pulando o monitor EBU R128 visual.[/yellow]"
+        )
+        return
+
+    name = os.path.basename(output_file)
+    opened = 0
+    if os.path.exists(original_file):
+        if launch_meter_window(
+            original_file, tgt_i, f"EBU R128 — ANTES (original): {os.path.basename(original_file)}"
+        ):
+            opened += 1
+    if launch_meter_window(
+        output_file, tgt_i, f"EBU R128 — DEPOIS (final): {name}"
+    ):
+        opened += 1
+
+    if opened:
+        console.print(
+            f"[green]🎧 Monitor EBU R128 aberto ({opened} janela(s)) — "
+            f"feche-as quando terminar a inspeção. (--ebu-meter off para desativar)[/green]"
+        )
+    else:
+        console.print("[yellow]⚠ Não foi possível abrir as janelas do monitor EBU R128.[/yellow]")

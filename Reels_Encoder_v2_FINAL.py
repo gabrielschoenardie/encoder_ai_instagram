@@ -3855,8 +3855,12 @@ def find_video_files(folder: str) -> list:
     return found
 
 
-def _encode_single_file(input_file: str, output_file: str, args) -> None:
-    """Encoda um único arquivo com as configurações de 'args'."""
+def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool = False) -> None:
+    """Encoda um único arquivo com as configurações de 'args'.
+
+    is_batch: em batch, as janelas FFplay do monitor EBU R128 são suprimidas
+    (a auditoria de loudness ainda roda para cada arquivo).
+    """
     enhance_ai = (args.enhance_ai == "on") if hasattr(args, 'enhance_ai') else False
     if enhance_ai and args.enhance != "on":
         console.print(
@@ -3969,6 +3973,21 @@ def _encode_single_file(input_file: str, output_file: str, args) -> None:
         )
     analyze_with_mediainfo(output_file)
 
+    # ── EBU R128 — auditoria pós-encode (sempre) + monitor FFplay (opcional) ──
+    try:
+        from ebu_meter import run_post_encode_qc
+        _show_meter = (getattr(args, "ebu_meter", "on") == "on") and not is_batch
+        run_post_encode_qc(
+            input_file,
+            output_file,
+            target="instagram",
+            show_meter=_show_meter,
+            targets=LOUDNORM_TARGETS,
+            console=console,
+        )
+    except Exception as _ebu_exc:
+        console.print(f"[yellow]⚠ Auditoria EBU R128 falhou: {_ebu_exc}[/yellow]")
+
 
 # =============================================================================
 # MAIN
@@ -4033,6 +4052,14 @@ COMPARAÇÃO:
         choices=["on", "off"],
         default="on",
         help="Normalização de áudio EBU R128 (default: on). Target: -14 LUFS, -1 dBTP",
+    )
+    parser.add_argument(
+        "--ebu-meter",
+        choices=["on", "off"],
+        default="on",
+        help="QC pós-encode: abre o monitor EBU R128 (FFplay) p/ comparação ANTES/DEPOIS "
+             "(default: on; desativado automaticamente em --batch). A auditoria de loudness "
+             "(LUFS-I/dBTP/LRA) roda sempre, independente desta flag.",
     )
     parser.add_argument(
         "--hdr",
@@ -4232,7 +4259,7 @@ COMPARAÇÃO:
                 f"[bold cyan][ {idx}/{total} ]  {os.path.basename(input_file)}"
             )
             try:
-                _encode_single_file(input_file, output_file, args)
+                _encode_single_file(input_file, output_file, args, is_batch=True)
                 results_ok.append(os.path.basename(input_file))
             except KeyboardInterrupt:
                 console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")

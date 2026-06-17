@@ -220,6 +220,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 | Argumento | Valores | Padrão | Descrição |
 |---|---|---|---|
 | `--loudnorm` | `on/off` | `on` | Normalização EBU R128 2-pass (-14 LUFS, -1.5 dBTP) |
+| `--ebu-meter` | `on/off` | `on` | QC pós-encode: monitor EBU R128 (FFplay) ANTES/DEPOIS. A auditoria de loudness roda sempre |
 
 **Pipeline de loudness (EBU R128, 2-pass verdadeiro):**
 
@@ -229,6 +230,19 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 - **Canais:** saída **sempre estéreo** (o Instagram aceita mono/estéreo, mas rejeita 5.1). Fontes **mono** recebem correção `dual_mono` (-3 LU); fontes **multicanal (5.1)** são downmixadas para estéreo *dentro* da cadeia de filtros — nos dois passes — para que medição e entrega usem o mesmo layout.
 - **Codec de saída:** AAC-LC, 48 kHz, estéreo, 192 kbps.
 - **Segurança:** áudio silencioso/inválido ou que exija ganho > 25 dB desativa o loudnorm automaticamente (evita amplificar ruído).
+
+**Auditoria EBU R128 pós-encode (`--ebu-meter`):**
+
+Inspirado no projeto [`ebu-meter.rs`](https://github.com/NapoleonWils0n/ffmpeg-rust-scripts). Após cada encode:
+
+- **Auditoria automática (sempre, inclusive em batch):** mede o arquivo final com o filtro canônico `ebur128` e exibe uma tabela comparativa **ANTES (original) × DEPOIS (final)** — Integrated (LUFS-I), True Peak (dBTP), Loudness Range (LU), Codec e Sample Rate — com selos `✓`/`⚠` contra o alvo Instagram (-14 LUFS, ≤ -1.5 dBTP). É só medição/auditoria: o loudnorm 2-pass continua sendo o único método de normalização.
+- **Monitor visual FFplay (opcional, padrão ATIVADO):** abre duas janelas de medidor EBU R128 broadcast (`ebur128=video=1`) — uma do original, uma do final — para QC visual lado a lado. Não-bloqueante; feche quando terminar. Use `--ebu-meter off` para desativar. **Desativado automaticamente no modo `--batch`** (a auditoria continua rodando por arquivo).
+- **Robusto:** sem áudio / silêncio (`-inf`) → coluna `—`; `ffplay` ausente → aviso e tabela mesmo assim; qualquer falha de QC nunca interrompe o encode.
+
+```bash
+python Reels_Encoder_v2_FINAL.py input.mp4                 # auditoria + monitor EBU (padrão)
+python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem janelas FFplay
+```
 
 #### 📁 Batch & Output
 
