@@ -74,7 +74,7 @@ When processing HDR input (`--hdr auto`), FFmpeg tone-mapping is applied. The co
 
 ### Audio
 
-Loudness normalization uses EBU R128 two-pass (`--loudnorm on`, default): target -14 LUFS, true-peak -1 dBTP. Implemented via FFmpeg `loudnorm` filter with analysis pass.
+Loudness normalization uses EBU R128 two-pass (`--loudnorm on`, default): target -14 LUFS (Instagram), true-peak **-1.5 dBTP** (headroom against IG's AAC transcode), `linear=true`. Pass 1 (`build_loudnorm_measure_filter`) measures with `print_format=json`; Pass 2 (`build_loudnorm_filter`) feeds back `measured_I/TP/LRA/thresh` **and `offset` (target_offset)** for precision. Channel-aware: mono sources get `dual_mono=true` (EBU -3 LU correction), and >2-channel sources are downmixed to stereo *inside* the filter chain (`aformat=channel_layouts=stereo,…`) in **both** passes so measurement and delivery share the same layout (the trailing `-ac 2` is then a no-op). `-14` is the lever that prevents IG re-normalizing the audio; IG always re-encodes, so the goal is minimal alteration, not avoiding recompression. Channel count via `probe_audio_channels` (defaults to stereo on failure). Output: AAC-LC, 48 kHz, stereo, 192 kbps. Test coverage in `enhance/test_loudnorm.py`.
 
 ### LUTs
 

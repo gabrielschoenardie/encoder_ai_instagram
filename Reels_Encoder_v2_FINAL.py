@@ -202,8 +202,12 @@ VBV_PRESETS = {
 # LOUDNORM TARGETS (EBU R128)
 # =============================================================================
 LOUDNORM_TARGETS = {
-    "instagram": {"I": -14, "TP": -1, "LRA": 11},
-    "youtube": {"I": -14, "TP": -1, "LRA": 11},
+    # TP=-1.5 dBTP: headroom contra inter-sample clipping introduzido pelo
+    # transcode AAC do Instagram. I=-14 LUFS = alvo que evita re-normalização
+    # de loudness pelo IG (chega praticamente intacto).
+    "instagram": {"I": -14, "TP": -1.5, "LRA": 11},
+    "youtube": {"I": -14, "TP": -1.5, "LRA": 11},
+    # Broadcast permanece no teto EBU R128 de -1 dBTP.
     "broadcast": {"I": -23, "TP": -1, "LRA": 7},
 }
 
@@ -1164,6 +1168,55 @@ def _rotation_to_vf_filter(rotation: int) -> Optional[str]:
 # =============================================================================
 # AUDIO LOUDNESS NORMALIZATION (EBU R128)
 # =============================================================================
+def probe_audio_channels(input_file: str) -> int:
+    """Retorna o número de canais do primeiro stream de áudio.
+
+    Degrada para 2 (estéreo) se não houver áudio ou o ffprobe falhar — assim
+    o pipeline de loudnorm permanece no layout estéreo seguro.
+    """
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=channels",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_file,
+            ],
+            stderr=subprocess.PIPE,
+        )
+        ch = int(out.decode().strip().splitlines()[0])
+        return ch if ch > 0 else 2
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError, IndexError, OSError):
+        return 2
+
+
+def _loudnorm_channel_prefix(channels: int) -> str:
+    """Downmix p/ estéreo ANTES do loudnorm quando a fonte tem >2 canais.
+
+    Garante que a medição (Pass 1) e a normalização (Pass 2) atuem sobre o
+    MESMO layout estéreo que é efetivamente entregue — sem isso, o downmix
+    `-ac 2` aplicado depois do loudnorm desloca a loudness final do alvo.
+    """
+    return "aformat=channel_layouts=stereo," if channels and channels > 2 else ""
+
+
+def _loudnorm_dual_mono(channels: int) -> str:
+    """':dual_mono=true' p/ fontes mono (correção EBU R128 de -3 LU)."""
+    return ":dual_mono=true" if channels == 1 else ""
+
+
+def build_loudnorm_measure_filter(target: str = "instagram", channels: int = 2) -> str:
+    """Pass 1: filtro de medição (print_format=json), ciente do layout de canais."""
+    t = LOUDNORM_TARGETS.get(target, LOUDNORM_TARGETS["instagram"])
+    return (
+        f"{_loudnorm_channel_prefix(channels)}"
+        f"loudnorm=I={t['I']}:TP={t['TP']}:LRA={t['LRA']}"
+        f"{_loudnorm_dual_mono(channels)}"
+        f":print_format=json"
+    )
+
+
 def analyze_audio_loudness(
     input_file: str, target: str = "instagram"
 ) -> Optional[dict]:
@@ -1172,13 +1225,15 @@ def analyze_audio_loudness(
 
     console.print(f"[cyan]🔊 Pass 1: Analisando loudness (target: {target})...[/cyan]")
 
+    channels = probe_audio_channels(input_file)
+
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-i",
         input_file,
         "-af",
-        f"loudnorm=I={t['I']}:TP={t['TP']}:LRA={t['LRA']}:print_format=json",
+        build_loudnorm_measure_filter(target, channels),
         "-f",
         "null",
         "-",
@@ -1251,6 +1306,9 @@ def analyze_audio_loudness(
         console.print(f"[dim]   LRA: {stats['input_lra']} LU[/dim]")
         console.print(f"[dim]   Threshold: {stats['input_thresh']} LUFS[/dim]")
 
+        # Layout de canais p/ o Pass 2 (dual_mono / downmix estéreo)
+        stats["_channels"] = channels
+
         return stats
 
     except (json.JSONDecodeError, subprocess.SubprocessError, FileNotFoundError, OSError) as e:
@@ -1258,22 +1316,63 @@ def analyze_audio_loudness(
         return None
 
 
-def build_loudnorm_filter(stats: dict, target: str = "instagram") -> str:
-    """Pass 2: Gera filtro loudnorm com valores medidos para normalização linear."""
+def build_loudnorm_filter(
+    stats: dict, target: str = "instagram", channels: Optional[int] = None
+) -> str:
+    """Pass 2: Gera filtro loudnorm com valores medidos para normalização linear.
+
+    Args:
+        stats:    dict do Pass 1 (input_i/tp/lra/thresh, target_offset, _channels).
+        target:   chave em LOUDNORM_TARGETS.
+        channels: nº de canais; se None, lido de stats['_channels'] (default 2).
+    """
     t = LOUDNORM_TARGETS.get(target, LOUDNORM_TARGETS["instagram"])
+    if channels is None:
+        channels = int(stats.get("_channels", 2))
+
+    # offset (target_offset do Pass 1) — fecha o erro residual de precisão.
+    offset_frag = ""
+    if "target_offset" in stats:
+        try:
+            offset_frag = f":offset={float(stats['target_offset'])}"
+        except (ValueError, TypeError):
+            offset_frag = ""  # valor não-numérico → omite (graceful)
 
     loudnorm_filter = (
+        f"{_loudnorm_channel_prefix(channels)}"
         f"loudnorm=I={t['I']}:TP={t['TP']}:LRA={t['LRA']}:"
         f"measured_I={stats['input_i']}:"
         f"measured_TP={stats['input_tp']}:"
         f"measured_LRA={stats['input_lra']}:"
-        f"measured_thresh={stats['input_thresh']}:"
-        f"linear=true:print_format=summary"
+        f"measured_thresh={stats['input_thresh']}"
+        f"{offset_frag}"
+        f"{_loudnorm_dual_mono(channels)}"
+        f":linear=true:print_format=summary"
     )
 
     console.print(f"[green]✓ Loudnorm filter: I={t['I']} LUFS, TP={t['TP']} dBTP, linear=true[/green]")
 
     return loudnorm_filter
+
+
+def _audio_output_args(audio_filter: Optional[str] = None) -> list:
+    """Argumentos FFmpeg de saída de áudio — idênticos nos 3 pipelines.
+
+    Saída SEMPRE estéreo (`-ac 2`): o Instagram aceita mono/estéreo mas
+    rejeita 5.1. AAC-LC / 48 kHz / 192 kbps. Se `audio_filter` for fornecido,
+    é prefixado como `-af` antes dos args de codec.
+    """
+    args: list = []
+    if audio_filter:
+        args += ["-af", audio_filter]
+    args += [
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ar", "48000",
+        "-ac", "2",
+        "-profile:a", "aac_low",
+    ]
+    return args
 
 
 def _x264_params_string(duration_seconds: float = 30, threads: int = 0, lookahead: int = 120, fps: int = 30) -> str:
@@ -2398,18 +2497,8 @@ def run_ffmpeg(
             "-x264-params", x264_params,
         ]
 
-        if audio_filter:
-            ffmpeg_cmd.extend(["-af", audio_filter])
-
-        ffmpeg_cmd.extend([
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-ar", "48000",
-            "-ac", "2",
-            "-profile:a", "aac_low",
-            *metadata_args,
-            output_file,
-        ])
+        ffmpeg_cmd.extend(_audio_output_args(audio_filter))
+        ffmpeg_cmd.extend([*metadata_args, output_file])
 
 
         _run_encoding(ffmpeg_cmd, total_frames, cwd=script_dir, fps=output_fps)
@@ -2530,18 +2619,8 @@ def run_ffmpeg(
         "-passlogfile", logfile,
     ]
 
-    if audio_filter:
-        pass2_cmd.extend(["-af", audio_filter])
-
-    pass2_cmd.extend([
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-ar", "48000",
-        "-ac", "2",
-        "-profile:a", "aac_low",
-        *metadata_args,
-        output_file,
-    ])
+    pass2_cmd.extend(_audio_output_args(audio_filter))
+    pass2_cmd.extend([*metadata_args, output_file])
 
 
     _run_encoding(pass2_cmd, total_frames, cwd=script_dir, fps=output_fps)
@@ -3292,24 +3371,8 @@ def run_ffmpeg_with_cineon(
         ]
     )
 
-    # Audio filter (loudnorm)
-    if audio_filter:
-        ffmpeg_cmd.extend(["-af", audio_filter])
-
-    ffmpeg_cmd.extend(
-        [
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            "-profile:a",
-            "aac_low",
-        ]
-    )
+    # Audio filter (loudnorm) + codec args — saída sempre estéreo (-ac 2)
+    ffmpeg_cmd.extend(_audio_output_args(audio_filter))
 
     # ═══════════════════════════════════════════════════════════════
     # METADATA & CONTAINER FLAGS
