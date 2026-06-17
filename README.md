@@ -219,7 +219,16 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 
 | Argumento | Valores | Padrão | Descrição |
 |---|---|---|---|
-| `--loudnorm` | `on/off` | `on` | Normalização EBU R128 (-14 LUFS, -1 dBTP) |
+| `--loudnorm` | `on/off` | `on` | Normalização EBU R128 2-pass (-14 LUFS, -1.5 dBTP) |
+
+**Pipeline de loudness (EBU R128, 2-pass verdadeiro):**
+
+- **Pass 1 — medição:** analisa o áudio com `loudnorm:print_format=json` e extrai `input_i/tp/lra/thresh` + `target_offset`.
+- **Pass 2 — normalização linear:** reaplica os valores medidos com `linear=true` e o `offset` do Pass 1 (máxima precisão, sem compressão dinâmica).
+- **Alvos Instagram/Reels:** **-14 LUFS** integrado (evita que o Instagram re-normalize o loudness) e **-1.5 dBTP** de true peak (margem contra clipping no transcode AAC do Instagram).
+- **Canais:** saída **sempre estéreo** (o Instagram aceita mono/estéreo, mas rejeita 5.1). Fontes **mono** recebem correção `dual_mono` (-3 LU); fontes **multicanal (5.1)** são downmixadas para estéreo *dentro* da cadeia de filtros — nos dois passes — para que medição e entrega usem o mesmo layout.
+- **Codec de saída:** AAC-LC, 48 kHz, estéreo, 192 kbps.
+- **Segurança:** áudio silencioso/inválido ou que exija ganho > 25 dB desativa o loudnorm automaticamente (evita amplificar ruído).
 
 #### 📁 Batch & Output
 
