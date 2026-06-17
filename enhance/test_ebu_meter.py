@@ -115,6 +115,24 @@ def test_parse_summary_garbage_is_none():
     assert E.parse_ebur128_summary("") is None
 
 
+def test_parse_summary_ignores_per_frame_progress_lines():
+    # Regression: ebur128 prints per-frame progress lines that -nostats does NOT
+    # suppress. At t~0 (silent intro) they read 'I: -70.0 LUFS ... LRA: 0.0 LU'.
+    # The parser must read the final Summary block, not the first progress line.
+    stderr_with_progress = (
+        "[Parsed_ebur128_0 @ 0x1] t: 0.1  TARGET:-23 LUFS  M:-120.7 S:-120.7     "
+        "I: -70.0 LUFS     LRA:  0.0 LU  FTPK: -25.4 -26.0 dBFS  TPK: -25.4 -26.0 dBFS\n"
+        "[Parsed_ebur128_0 @ 0x1] t: 0.2  TARGET:-23 LUFS  M:-120.7 S:-120.7     "
+        "I: -70.0 LUFS     LRA:  0.0 LU  FTPK: -12.4 -13.0 dBFS  TPK: -12.4 -13.0 dBFS\n"
+        + _SUMMARY_OK
+    )
+    stats = E.parse_ebur128_summary(stderr_with_progress)
+    assert stats is not None
+    assert stats["I"] == -14.0   # from Summary, NOT the -70.0 progress lines
+    assert stats["LRA"] == 7.5   # from Summary, NOT the 0.0 progress lines
+    assert stats["TP"] == -1.5
+
+
 def test_parse_summary_missing_field_is_none():
     partial = "Summary:\n  Integrated loudness:\n    I:  -14.0 LUFS\n"
     # Missing LRA and True peak → cannot build a complete record → None.

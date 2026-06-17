@@ -85,13 +85,24 @@ def parse_ebur128_summary(stderr: str) -> Optional[dict]:
     Retorna None se faltar qualquer campo ou se a medição for inutilizável
     (silêncio → -inf). `LRA:` casa apenas o range global (não `LRA low/high:`),
     e `Peak:` casa o True Peak (a linha de cabeçalho é `True peak:`, minúscula).
+
+    IMPORTANTE: o ebur128 emite linhas de progresso por frame
+    (`... I: -70.0 LUFS ... LRA: 0.0 LU ...`) que `-nostats` NÃO suprime — no
+    início (silêncio/intro) elas reportam o piso -70.0/0.0. Parseamos APENAS a
+    partir do último `Summary:`, ignorando essas linhas; caso contrário um
+    `.search` casaria o primeiro frame (t≈0) em vez do valor final.
     """
     if not stderr:
         return None
 
-    m_i = _RE_I.search(stderr)
-    m_lra = _RE_LRA.search(stderr)
-    m_tp = _RE_TP.search(stderr)
+    sidx = stderr.rfind("Summary:")
+    if sidx == -1:
+        return None
+    block = stderr[sidx:]
+
+    m_i = _RE_I.search(block)
+    m_lra = _RE_LRA.search(block)
+    m_tp = _RE_TP.search(block)
     if not (m_i and m_lra and m_tp):
         return None
 
