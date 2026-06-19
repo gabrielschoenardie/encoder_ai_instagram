@@ -11,12 +11,16 @@ pip install -r requirements.txt
 # Validate installation
 python tools/verificador_instalacao.py
 
-# Run all AI module tests
-python -m pytest enhance/ -v
+# Run all module tests (AI + interactive UI)
+python -m pytest enhance/ ui/ -v
 
 # Run a single test file
 python -m pytest enhance/test_mock_cnn.py -v
-python -m pytest enhance/test_processors.py -v
+python -m pytest ui/test_config.py -v
+
+# Interactive Premiere-style UI (launcher wizard)
+python Reels_Encoder_v2_FINAL.py            # no args → opens the launcher
+python Reels_Encoder_v2_FINAL.py --ui       # force the launcher
 
 # Basic encode (FFmpeg pipeline)
 python Reels_Encoder_v2_FINAL.py input.mp4
@@ -94,3 +98,21 @@ Two `.cube` files in root:
 ### Entry point
 
 `Reels_Encoder_v2_FINAL.py` (~4000 lines) owns all CLI argument parsing, hardware detection, VBV bitrate selection, and dispatches to either the FFmpeg subprocess path or the Cineon pipeline in `cineon_pipeline.py`.
+
+### Interactive Terminal UI (`ui/`)
+
+Premiere-Pro-styled interactive layer, added **additively** (the engine monolith is untouched except three small guarded seams). Full design rationale + the 3 evaluated visual concepts live in `docs/terminal-ui-masterplan.md`.
+
+- `ui/theme.py` — single source of truth for the palette (indigo/violet), named Rich styles, box choices, and glyph sets (with ASCII fallback for legacy consoles). `get_console()` is the themed `Console` factory and also nudges stdout/stderr to UTF-8 so emoji/box glyphs don't crash on cp1252 consoles.
+- `ui/config.py` — `EncodeConfig` (Pydantic v2) mirrors every `argparse` dest 1:1. `to_namespace()` emits the *exact* `argparse.Namespace` the engine consumes; `from_namespace()` is the inverse. Validates ranges/choices and carries preset factories.
+- `ui/components.py` — reusable renderables (tab bar, Program/Properties panels, info cards, quality chips, log panel, settings-preview card). Pure: return Rich renderables, no I/O.
+- `ui/prompts.py` — validated interactive input helpers (file/folder path, choice menu, numeric range, toggle). Never run inside `Live`.
+- `ui/launcher.py` — `run_launcher()`: banner → preset menu → source pick → (preset or full tabbed config) → settings preview → confirm → returns a `Namespace` (or `None` if cancelled).
+- `ui/dashboard.py` — `EncodeDashboard` duck-types `ResolveProgressHUD` (`update_frame()`/`render()`); Premiere-style Live layout with progress + perf monitor (psutil) + a log tail read from the engine's shared stderr deque. `make_dashboard()` is the factory.
+
+**Engine seams (the only edits to `Reels_Encoder_v2_FINAL.py`), all guarded with `try/except` and identical-to-before fallback:**
+1. Global `console` adopts `ui.theme.get_console()` if available (else plain `Console()`).
+2. `_run_encoding()` uses `ui.dashboard.make_dashboard(...)` if available, else `ResolveProgressHUD`.
+3. `main()` opens the launcher when `--ui` is set or no input/`--batch` is given; the returned Namespace flows through the existing single/batch dispatch. Every existing CLI command behaves identically.
+
+Tests: `ui/test_*.py` (config round-trip, theme tokens, component render-smoke, launcher wiring via monkeypatch, dashboard math/render). Run with `python -m pytest ui/ -v`.

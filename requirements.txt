@@ -15,6 +15,7 @@ Pillow>=10.0.0                  # Processamento de imagens (PIL)
 
 # Interface de Usuário e Logging
 rich>=13.0.0                    # Terminal UI com cores, tabelas e painéis
+pydantic>=2,<3                 # Modelo tipado de configuração da UI interativa (pacote ui/)
 
 # Monitoramento de Sistema (recomendado, mas opcional)
 psutil>=5.9.0                   # Detecção de Hardware (CPU, RAM, etc)

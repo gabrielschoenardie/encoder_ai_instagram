@@ -92,6 +92,22 @@ python Reels_Encoder_v2_FINAL.py meu_video.mp4
 python Reels_Encoder_v2_FINAL.py meu_video.mp4 --cineon-pipeline on
 ```
 
+### 🎛️ UI interativa (estilo Premiere Pro)
+
+Rode **sem argumentos** (ou com `--ui`) para abrir o launcher interativo: menu de
+presets, configuração por abas (Source · Color/LUT · Audio · Enhance · Export),
+**preview das configurações** antes do encode e um dashboard ao vivo com progresso,
+fps/speed/ETA, monitor de performance (CPU/RAM) e log. A CLI tradicional continua
+100% idêntica — a UI é uma camada aditiva.
+
+```bash
+python Reels_Encoder_v2_FINAL.py            # abre o launcher
+python Reels_Encoder_v2_FINAL.py --ui       # força o launcher
+```
+
+> Conceito visual e plano completo: [`docs/terminal-ui-masterplan.md`](docs/terminal-ui-masterplan.md).
+> Para a melhor renderização (cores truecolor + glyphs), use o **Windows Terminal**.
+
 ### Exemplos mais usados
 
 ```bash

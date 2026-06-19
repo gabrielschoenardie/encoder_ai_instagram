@@ -150,7 +150,13 @@ except ImportError:
 
 DEVNULL_FF = "NUL" if os.name == "nt" else "/dev/null"
 
-console = Console()
+# Console global. Usa o tema Premiere do pacote `ui` se disponível (aditivo);
+# caso contrário, um Console padrão — comportamento idêntico ao anterior.
+try:
+    from ui.theme import get_console as _get_themed_console
+    console = _get_themed_console()
+except Exception:
+    console = Console()
 
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
@@ -1848,7 +1854,21 @@ def _build_metadata_args(
 
 def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps: int = 30):
     """Executa encoding com progress bar."""
-    hud = ResolveProgressHUD(total_frames, source_fps=fps)
+    # O reader consome TODO o stderr (linha a linha) para o HUD; acumula no deque
+    # para que, em caso de falha, o erro real do ffmpeg seja exibido/propagado.
+    # Sem isso o stderr ficava drenado e o CalledProcessError vinha vazio.
+    stderr_tail = collections.deque(maxlen=400)
+    # SEAM (UI aditiva): usa o dashboard Premiere se o pacote `ui` estiver
+    # disponível; o dashboard duck-types ResolveProgressHUD (update_frame/render)
+    # e lê o log do mesmo deque. Sem `ui`, comportamento idêntico ao anterior.
+    hud = None
+    try:
+        from ui.dashboard import make_dashboard
+        hud = make_dashboard(total_frames, fps=fps, log_sink=stderr_tail, console=console)
+    except Exception:
+        hud = None
+    if hud is None:
+        hud = ResolveProgressHUD(total_frames, source_fps=fps)
     process = subprocess.Popen(
         ffmpeg_cmd,
         stdout=subprocess.DEVNULL,
@@ -1858,10 +1878,6 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
         errors="ignore",
         cwd=cwd,
     )
-    # O reader consome TODO o stderr (linha a linha) para o HUD; acumula no deque
-    # para que, em caso de falha, o erro real do ffmpeg seja exibido/propagado.
-    # Sem isso o stderr ficava drenado e o CalledProcessError vinha vazio.
-    stderr_tail = collections.deque(maxlen=400)
     t = threading.Thread(
         target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
     )
@@ -4190,6 +4206,12 @@ COMPARAÇÃO:
         metavar="PASTA",
         help="[BATCH] Pasta de destino para os arquivos gerados. Default: mesma pasta do input.",
     )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Abre a UI interativa (launcher Premiere). Também abre automaticamente "
+             "quando nenhum input/--batch é informado. Requer o pacote 'ui'.",
+    )
     args = parser.parse_args()
 
     # Hardware info mode
@@ -4201,6 +4223,26 @@ COMPARAÇÃO:
             "[dim]Estes parâmetros serão aplicados automaticamente no encode.[/dim]"
         )
         sys.exit(0)
+
+    # ─── UI INTERATIVA (aditiva) ────────────────────────────────────────────────
+    # Dispara quando --ui é passado, ou quando nenhum trabalho foi especificado
+    # (sem input e sem --batch). O launcher devolve um Namespace equivalente ao
+    # argparse, que substitui `args` e segue pelo dispatch normal (batch/single).
+    if args.ui or (args.input is None and args.batch is None):
+        try:
+            from ui.launcher import run_launcher
+            launched = run_launcher(console=console)
+            if launched is None:
+                sys.exit(0)  # usuário cancelou
+            args = launched
+        except ImportError:
+            if args.ui:
+                console.print(
+                    "[red]Erro:[/red] pacote 'ui' indisponível "
+                    "(instale 'pydantic>=2'). Use a CLI tradicional."
+                )
+                sys.exit(1)
+            # sem --ui explícito, cai no erro padrão de input obrigatório abaixo
 
     # ─── BATCH MODE ───────────────────────────────────────────────────────────
     if args.batch is not None:
