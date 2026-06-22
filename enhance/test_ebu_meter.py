@@ -173,3 +173,55 @@ def test_ffplay_args_target_float_formatting():
     # -14.0 should render as target=-14 (no trailing .0 noise) or target=-14.0;
     # accept either but it must be present and parseable.
     assert "target=-14" in graph
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# window geometry (side-by-side layout)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_ffplay_args_geometry_flags():
+    geom = {"width": 700, "height": 525, "left": 100, "top": 50}
+    args = E.build_ffplay_meter_args("a.mp4", target_i=-14, title="t", geometry=geom)
+    # geometry flags appear before -i, with the right values
+    assert args[args.index("-x") + 1] == "700"
+    assert args[args.index("-y") + 1] == "525"
+    assert args[args.index("-left") + 1] == "100"
+    assert args[args.index("-top") + 1] == "50"
+    assert args.index("-x") < args.index("-i")
+    # graph still immediately follows -i
+    assert "ebur128=video=1" in args[args.index("-i") + 1]
+
+
+def test_ffplay_args_no_geometry_is_unchanged():
+    base = E.build_ffplay_meter_args("a.mp4", target_i=-14, title="t")
+    assert "-x" not in base and "-left" not in base
+
+
+def test_layout_two_windows_side_by_side_no_overlap():
+    layout = E.compute_side_by_side_layout(n=2, screen=(1920, 1080))
+    assert len(layout) == 2
+    left, right = layout
+    # second window starts to the right of the first (no overlap)
+    assert right["left"] >= left["left"] + left["width"]
+    # same size and same vertical position (true side-by-side)
+    assert left["width"] == right["width"]
+    assert left["top"] == right["top"]
+    # both fit on screen
+    assert left["left"] >= 0
+    assert right["left"] + right["width"] <= 1920
+
+
+def test_layout_centered_horizontally():
+    layout = E.compute_side_by_side_layout(n=2, screen=(1920, 1080))
+    left, right = layout
+    total_w = (right["left"] + right["width"]) - left["left"]
+    margin_l = left["left"]
+    margin_r = 1920 - (right["left"] + right["width"])
+    # left/right margins within 1px of each other → centered
+    assert abs(margin_l - margin_r) <= 1
+
+
+def test_layout_single_window():
+    layout = E.compute_side_by_side_layout(n=1, screen=(1920, 1080))
+    assert len(layout) == 1
+    assert layout[0]["left"] >= 0

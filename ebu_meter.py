@@ -124,12 +124,21 @@ def _escape_lavfi_path(path: str) -> str:
     return path.replace("\\", "\\\\").replace(":", "\\:")
 
 
-def build_ffplay_meter_args(input_file: str, target_i: float, title: str) -> list:
+def build_ffplay_meter_args(
+    input_file: str,
+    target_i: float,
+    title: str,
+    geometry: Optional[dict] = None,
+) -> list:
     """Argumentos do FFplay para o medidor EBU R128 gráfico (janela de QC).
 
     Reproduz o grafo do ebu-meter.rs:
         amovie='<path>',ebur128=video=1:meter=18:dualmono=true:target=<I>[out0][out1]
     `video=1` desenha o medidor broadcast; `meter=18` é a escala +18 LU.
+
+    Se `geometry` for fornecido (dict com chaves opcionais `width`/`height`/
+    `left`/`top`), as flags `-x`/`-y`/`-left`/`-top` do FFplay posicionam e
+    dimensionam a janela — permitindo abrir as duas janelas lado a lado.
     """
     esc = _escape_lavfi_path(input_file)
     graph = (
@@ -137,11 +146,22 @@ def build_ffplay_meter_args(input_file: str, target_i: float, title: str) -> lis
         f"ebur128=video=1:meter=18:dualmono=true:target={target_i:g}"
         f"[out0][out1]"
     )
+    geom_args: list = []
+    if geometry:
+        if geometry.get("width") is not None:
+            geom_args += ["-x", str(int(geometry["width"]))]
+        if geometry.get("height") is not None:
+            geom_args += ["-y", str(int(geometry["height"]))]
+        if geometry.get("left") is not None:
+            geom_args += ["-left", str(int(geometry["left"]))]
+        if geometry.get("top") is not None:
+            geom_args += ["-top", str(int(geometry["top"]))]
     return [
         "ffplay",
         "-hide_banner",
         "-v", "error",
         "-window_title", title,
+        *geom_args,
         "-f", "lavfi",
         "-i", graph,
     ]
@@ -186,14 +206,68 @@ def measure_loudness(input_file: str) -> Optional[dict]:
     return parse_ebur128_summary(result.stderr or "")
 
 
-def launch_meter_window(input_file: str, target_i: float, title: str) -> Optional[subprocess.Popen]:
+def _get_screen_size() -> Optional[tuple]:
+    """(largura, altura) da tela primária em px, ou None se indeterminável."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            try:
+                user32.SetProcessDPIAware()
+            except Exception:
+                pass
+            w, h = int(user32.GetSystemMetrics(0)), int(user32.GetSystemMetrics(1))
+            if w > 0 and h > 0:
+                return w, h
+        except Exception:
+            pass
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        w, h = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.destroy()
+        if w > 0 and h > 0:
+            return int(w), int(h)
+    except Exception:
+        pass
+    return None
+
+
+def compute_side_by_side_layout(n: int = 2, screen: Optional[tuple] = None) -> list:
+    """Geometrias para `n` janelas lado a lado, centradas na tela.
+
+    Retorna uma lista de dicts `{width,height,left,top}` (uma por janela). Se a
+    resolução da tela não puder ser determinada, assume 1920×1080.
+    """
+    sw, sh = screen if screen else (_get_screen_size() or (1920, 1080))
+    gap = 24
+    # Cada janela ocupa metade da largura útil (92% da tela), com aspecto ~4:3,
+    # limitada a 85% da altura da tela.
+    win_w = max(320, (int(sw * 0.92) - gap * (n - 1)) // n)
+    win_h = min(int(sh * 0.85), int(win_w * 3 / 4))
+    total_w = win_w * n + gap * (n - 1)
+    left0 = max(0, (sw - total_w) // 2)
+    top = max(0, (sh - win_h) // 2)
+    return [
+        {"width": win_w, "height": win_h, "left": left0 + i * (win_w + gap), "top": top}
+        for i in range(n)
+    ]
+
+
+def launch_meter_window(
+    input_file: str,
+    target_i: float,
+    title: str,
+    geometry: Optional[dict] = None,
+) -> Optional[subprocess.Popen]:
     """Abre a janela FFplay do medidor (detached, não-bloqueante).
 
     Retorna o Popen, ou None se o ffplay não estiver disponível / falhar ao abrir.
     """
     if shutil.which("ffplay") is None:
         return None
-    args = build_ffplay_meter_args(input_file, target_i, title)
+    args = build_ffplay_meter_args(input_file, target_i, title, geometry=geometry)
     kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Desacopla o ffplay do processo pai para não bloquear o terminal.
     if os.name == "nt":
@@ -320,14 +394,19 @@ def run_post_encode_qc(
         return
 
     name = os.path.basename(output_file)
+    has_original = os.path.exists(original_file)
+    # Layout lado a lado, centrado na tela: ANTES à esquerda, DEPOIS à direita.
+    layout = compute_side_by_side_layout(n=2 if has_original else 1)
     opened = 0
-    if os.path.exists(original_file):
+    if has_original:
         if launch_meter_window(
-            original_file, tgt_i, f"EBU R128 — ANTES (original): {os.path.basename(original_file)}"
+            original_file, tgt_i, f"EBU R128 — ANTES (original): {os.path.basename(original_file)}",
+            geometry=layout[0],
         ):
             opened += 1
     if launch_meter_window(
-        output_file, tgt_i, f"EBU R128 — DEPOIS (final): {name}"
+        output_file, tgt_i, f"EBU R128 — DEPOIS (final): {name}",
+        geometry=layout[-1],
     ):
         opened += 1
 
