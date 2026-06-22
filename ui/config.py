@@ -81,9 +81,9 @@ class EncodeConfig(BaseModel):
     saturation: float = Field(default=1.0, ge=0.0, le=2.0)
 
     # Enhance / AI
-    enhance: str = "off"
-    enhance_ai: str = "off"
-    mctf: str = "off"
+    enhance: str = "on"
+    enhance_ai: str = "on"
+    mctf: str = "on"
     dither: str = "auto"
 
     # Misc / engine flags

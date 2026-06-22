@@ -1,5 +1,5 @@
 """
-Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.0.0 (FASE 26)
+Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.0.0
 
 NOVIDADE v2.0 - PIPELINE DWG/CINEON (2025-01-22):
 Integração completa do pipeline cinematográfico de 5 nodes com film emulation Portra 400.
@@ -61,7 +61,7 @@ DEPENDENCIES:
   pip install colour-science>=0.4.7  # Colour (para modo Cineon)
 
 VERSÕES:
-- v2.0.0: Integração Pipeline Cineon (FASE 26)
+- v2.0.0: Integração Pipeline Cineon
 - v1.4.1: CAS Conservador (0.30 para SDR float)
 - v1.4: Float Pipeline (32-bit precision)
 - v1.3: Color Preservation Fix (desat=0)
@@ -97,7 +97,7 @@ from rich.panel import Panel
 from rich import box
 
 # =============================================================================
-# CINEON PIPELINE IMPORTS (FASE 26)
+# CINEON PIPELINE IMPORTS
 # =============================================================================
 try:
     from cineon_pipeline import (
@@ -2042,7 +2042,7 @@ def _get_hollywood_lut_path() -> str:
 
 
 # =============================================================================
-# BUILD VIDEO FILTER - SDR 32-BIT FLOAT PIPELINE (FASE 24)
+# BUILD VIDEO FILTER - SDR 32-BIT FLOAT PIPELINE
 # =============================================================================
 def build_sdr_float_pipeline(
     scale_filter: Optional[str],
@@ -2491,7 +2491,7 @@ def run_ffmpeg(
         ]
         if _use_selective:
             ffmpeg_cmd += ["-filter_complex", _filter_complex,
-                           "-map", _map_label, "-map", "0:a",
+                           "-map", _map_label, "-map", "0:a?",
                            "-frames:v", str(total_frames)]
         else:
             ffmpeg_cmd += ["-vf", video_filter]
@@ -2611,7 +2611,7 @@ def run_ffmpeg(
     ]
     if _use_selective:
         pass2_cmd += ["-filter_complex", _filter_complex,
-                      "-map", _map_label, "-map", "0:a",
+                      "-map", _map_label, "-map", "0:a?",
                       "-frames:v", str(total_frames)]
     else:
         pass2_cmd += ["-vf", video_filter]
@@ -2975,7 +2975,7 @@ def run_ffmpeg_with_cineon(
     """
     Encoding com pipeline Cineon (PyAV + 5 nodes + Portra 400).
 
-    FASE 26.7 ULTRA-SIMPLIFICADO:
+    ULTRA-SIMPLIFICADO:
     - Film look Portra 400: SEMPRE 100% (sem blending)
     - Sem lut_strength (removido)
 
@@ -3898,25 +3898,15 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 f"[cyan]✨ Mapas gerados em[/cyan] [bold]{out_dir}/[/bold]"
             )
-            console.print(
-                "[dim]  Abra os arquivos frame_*_panel.png para ver onde o enhance vai operar.[/dim]"
-            )
             if _selective_masks:
                 console.print(
                     "[dim]  Máscaras seletivas geradas — deband e CAS operam por zona.[/dim]"
                 )
-            from rich.prompt import Confirm
-            if not Confirm.ask(
-                "\n[bold cyan]Continuar encode com enhance-ai?[/bold cyan]",
-                default=True,
-            ):
-                console.print("[yellow]Encode cancelado pelo usuario.[/yellow]")
-                return
         except Exception as _viz_exc:
             console.print(
                 f"[yellow]Preflight falhou: {_viz_exc} — continuando sem visualizacao[/yellow]"
             )
-    # ── MCTF mask video (FASE 29A) ────────────────────────────────────────────
+    # ── MCTF mask video ───────────────────────────────────────────────────────
     if getattr(args, "mctf", "off") == "on" and enhance_ai and ENHANCE_AVAILABLE and input_file:
         try:
             from enhance_visualizer import generate_mctf_mask_video
@@ -3938,7 +3928,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 f"[yellow]⚠ MCTF falhou: {_mctf_exc} — usando consensus masks[/yellow]"
             )
-    # ── Blue-noise dither flag (FASE 30A) ─────────────────────────────────────
+    # ── Blue-noise dither flag ────────────────────────────────────────────────
     _dither_arg    = getattr(args, "dither", "auto")
     # Pipeline SDR é sempre 32-bit float → 8-bit, então o ODT sempre se beneficia
     # do dither anti-banding. auto = ativo (salvo --dither off explícito).
@@ -4153,25 +4143,25 @@ COMPARAÇÃO:
     parser.add_argument(
         "--enhance",
         choices=["on", "off"],
-        default="off",
-        help="Enhancement Engine (FASE 27): análise de conteúdo + denoise/sharpen/deband+ "
+        default="on",
+        help="Enhancement Engine: análise de conteúdo + denoise/sharpen/deband+ "
              "adaptativos. Analisa 5 frames, aplica filtros apenas onde necessário. "
              "Cineon mode: NumPy/OpenCV per-frame. FFmpeg mode: filtros nativos. "
-             "Default: off.",
+             "Default: on.",
     )
     parser.add_argument(
         "--mctf",
         choices=["on", "off"],
-        default="off",
-        help="MCTF mask video (FASE 29A): gera vídeo de máscara por frame com optical flow "
+        default="on",
+        help="MCTF mask video: gera vídeo de máscara por frame com optical flow "
              "Farneback antes do encode. Requer --enhance on --enhance-ai on. "
-             "Elimina flicker temporal nas regiões de deband/CAS. Default: off.",
+             "Elimina flicker temporal nas regiões de deband/CAS. Default: on.",
     )
     parser.add_argument(
         "--dither",
         choices=["on", "off", "auto"],
         default="auto",
-        help="Blue-noise dithering antes da quantização final (FASE 30A). "
+        help="Blue-noise dithering antes da quantização final. "
              "'auto' = ativado quando --enhance on (banding detectado pelo enhance). "
              "Quebra a coerência espacial de banding que sobrevive ao re-encoding do Instagram. "
              "Técnica usada em DCP, DaVinci Resolve, Unreal Engine. "
@@ -4180,10 +4170,10 @@ COMPARAÇÃO:
     parser.add_argument(
         "--enhance-ai",
         choices=["on", "off"],
-        default="off",
-        help="Mock AI decisions para Enhancement Engine (FASE 27F). "
+        default="on",
+        help="Mock AI decisions para Enhancement Engine. "
              "Requer --enhance on. Usa modelo sigmoid em vez de heurísticas. "
-             "Default: off.",
+             "Default: on.",
     )
     parser.add_argument(
         "--saturation",

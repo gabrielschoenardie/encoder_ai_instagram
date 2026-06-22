@@ -36,9 +36,9 @@ def test_defaults_match_argparse_defaults():
     assert ns.cineon_lut == DEFAULT_CINEON_LUT
     assert ns.exposure_offset == 0.0
     assert ns.saturation == 1.0
-    assert ns.enhance == "off"
-    assert ns.enhance_ai == "off"
-    assert ns.mctf == "off"
+    assert ns.enhance == "on"
+    assert ns.enhance_ai == "on"
+    assert ns.mctf == "on"
     assert ns.dither == "auto"
     assert ns.hardware_info is False
     assert ns.ui is False
