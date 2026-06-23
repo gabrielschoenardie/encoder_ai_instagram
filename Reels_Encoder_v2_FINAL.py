@@ -1171,6 +1171,53 @@ def _rotation_to_vf_filter(rotation: int) -> Optional[str]:
     return None
 
 
+def _build_derotate_cmd(input_file: str, tmp_file: str) -> list:
+    """Comando ffmpeg que zera o display matrix via -display_rotation 0 (input)
+    e copia os streams sem reencodar. -display_rotation é opção de INPUT, então
+    precede o -i; o stream-copy preserva os pixels (já em pé) byte a byte."""
+    return [
+        "ffmpeg", "-y", "-v", "error",
+        "-display_rotation", "0",
+        "-i", input_file,
+        "-map", "0", "-c", "copy",
+        "-movflags", "+faststart",
+        tmp_file,
+    ]
+
+
+def _strip_residual_rotation(output_file: str) -> None:
+    """Remove um display matrix de rotação residual do arquivo final.
+
+    O caminho seletivo (filter_complex multi-input) faz o autorotate dos pixels
+    corretamente (frame sai em pé), mas PROPAGA o display matrix do input 0 para o
+    stream de saída. Players honram esse matrix e re-rotacionam o frame já vertical
+    → vídeo deitado. O -vf global não sofre disso: consome E limpa o matrix.
+
+    Solução: remux stream-copy com -display_rotation 0, que zera o matrix do input
+    sem reencodar (instantâneo, pixels intactos). Confirmado empiricamente que
+    `-metadata:s:v:0 rotate=0` e `-map_metadata -1` NÃO removem o side data
+    displaymatrix; apenas o override -display_rotation 0 funciona.
+    """
+    tmp = output_file + ".derot.tmp.mp4"
+    cmd = _build_derotate_cmd(output_file, tmp)
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        os.replace(tmp, output_file)
+        console.print(
+            "[green]✓ Rotação:[/green] display matrix residual removido "
+            "[dim](orientação já gravada no pixel)[/dim]"
+        )
+    except Exception as exc:
+        console.print(
+            f"[yellow]⚠ Strip de rotação residual falhou: {exc} — arquivo mantido[/yellow]"
+        )
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
 # =============================================================================
 # AUDIO LOUDNESS NORMALIZATION (EBU R128)
 # =============================================================================
@@ -1918,6 +1965,7 @@ def build_scene_referred_hdr_pipeline(
     tonemap_algorithm: str = "mobius",
     dither_enabled: bool = False,
     max_luminance: Optional[float] = None,
+    input_color: Optional[Tuple[str, str, str]] = None,
 ) -> str:
     """
     Pipeline CORRETO para HDR sources: Scene-Referred Processing SEM LUT.
@@ -1946,6 +1994,28 @@ def build_scene_referred_hdr_pipeline(
     console.print("[dim]   LUT v6.6 não é aplicada em HDR (coordenadas SDR apenas)[/dim]")
 
     parts = []
+
+    # STAGE 0: Re-carimbar metadados de cor HDR (ANTES de qualquer zscale)
+    # Filtros de enhance seletivo upstream (format=yuva420p, alphamerge, overlay)
+    # descartam o color_trc/primaries do frame. Sem isso, o zscale=t=linear aborta
+    # com "no path between colorspaces" (code 3074), pois não conhece o transfer
+    # de origem (HLG/PQ). setparams usa os mesmos nomes do ffprobe, então os valores
+    # sondados round-trip sem mapeamento frágil. Só emite as chaves conhecidas.
+    if input_color:
+        _ic_prim, _ic_trc, _ic_space = input_color
+        _sp_args = []
+        if _ic_prim and _ic_prim != "unknown":
+            _sp_args.append(f"color_primaries={_ic_prim}")
+        if _ic_trc and _ic_trc != "unknown":
+            _sp_args.append(f"color_trc={_ic_trc}")
+        if _ic_space and _ic_space != "unknown":
+            _sp_args.append(f"colorspace={_ic_space}")
+        if _sp_args:
+            parts.append("setparams=" + ":".join(_sp_args))
+            console.print(
+                f"[green]✓ Color tags:[/green] re-carimbado ({', '.join(_sp_args)}) "
+                "[dim]— protege o zscale contra strip de metadados upstream[/dim]"
+            )
 
     # STAGE 1: Scale (se necessário)
     if scale_filter:
@@ -2142,6 +2212,7 @@ def build_video_filter_auto(
     tonemap_algorithm: str = "mobius",
     dither_enabled: bool = False,
     max_luminance: Optional[float] = None,
+    input_color: Optional[Tuple[str, str, str]] = None,
 ) -> str:
     """
     Função INTELIGENTE de construção de pipeline com suporte a 32-bit float.
@@ -2179,6 +2250,7 @@ def build_video_filter_auto(
             tonemap_algorithm=tonemap_algorithm,
             dither_enabled=dither_enabled,
             max_luminance=max_luminance,
+            input_color=input_color,
         )
     else:
         # SDR SOURCE: pipeline 32-bit float (DaVinci Intermediate simulado)
@@ -2410,6 +2482,7 @@ def run_ffmpeg(
         tonemap_algorithm=tonemap,
         dither_enabled=dither_enabled,
         max_luminance=_probe.max_luminance,
+        input_color=(_probe.color_primaries, _probe.color_transfer, _probe.color_space),
     )
 
 
@@ -2519,6 +2592,11 @@ def run_ffmpeg(
 
         _run_encoding(ffmpeg_cmd, total_frames, cwd=script_dir, fps=output_fps)
         console.print("[green]✓ Render finalizado![/green]")
+
+        # O filter_complex seletivo propaga o display matrix do input 0; com fonte
+        # rotacionada isso deixaria um rotation espúrio no output (vídeo deitado).
+        if _use_selective and (_rotation_degrees % 360) != 0:
+            _strip_residual_rotation(output_file)
 
         if audio_filter:
             console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 18 | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]")
@@ -2651,6 +2729,10 @@ def run_ffmpeg(
                 pass
 
     console.print("[green]✓ Render 2-Pass finalizado![/green]")
+
+    # Mesmo strip do CRF: o seletivo propaga o display matrix do input 0.
+    if _use_selective and (_rotation_degrees % 360) != 0:
+        _strip_residual_rotation(output_file)
 
     if audio_filter:
         console.print(f"[dim]📋 Metadados: BT.709 TV | Profile High@4.1 | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]")
