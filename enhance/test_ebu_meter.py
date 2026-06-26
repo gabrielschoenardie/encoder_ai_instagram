@@ -214,7 +214,6 @@ def test_layout_two_windows_side_by_side_no_overlap():
 def test_layout_centered_horizontally():
     layout = E.compute_side_by_side_layout(n=2, screen=(1920, 1080))
     left, right = layout
-    total_w = (right["left"] + right["width"]) - left["left"]
     margin_l = left["left"]
     margin_r = 1920 - (right["left"] + right["width"])
     # left/right margins within 1px of each other → centered
