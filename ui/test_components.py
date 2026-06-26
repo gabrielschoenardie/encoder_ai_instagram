@@ -75,3 +75,39 @@ def test_settings_preview_cineon():
 def test_render_choice_menu():
     out = _render(render_choice_menu("Preset", ["Quick", "Film", "Batch"]))
     assert "Quick" in out and "Film" in out and "Batch" in out
+
+
+def test_delivery_seal_ready():
+    checks = [
+        ("Loudness", "-14.0 LUFS", True),
+        ("True Peak", "-1.5 dBTP", True),
+        ("Codec", "aac", True),
+        ("Sample Rate", "48000", True),
+    ]
+    out = _render(C.delivery_seal(checks))
+    assert "MASTER QC" in out
+    assert "Loudness" in out
+    # the seal renders letter-spaced ("D E L I V E R Y")
+    assert "DELIVERY" in out.replace(" ", "")
+
+
+def test_delivery_seal_review():
+    checks = [
+        ("Loudness", "-9.0 LUFS", False),
+        ("True Peak", "-1.5 dBTP", True),
+        ("Codec", "aac", True),
+        ("Sample Rate", "48000", True),
+    ]
+    out = _render(C.delivery_seal(checks))
+    assert "MASTER QC" in out
+    # the seal renders letter-spaced ("R E V I S A R")
+    assert "REVISAR" in out.replace(" ", "")
+
+
+def test_delivery_seal_unknown_renders():
+    checks = [
+        ("Loudness", "—", None),
+        ("True Peak", "-1.5 dBTP", True),
+    ]
+    out = _render(C.delivery_seal(checks))
+    assert "Loudness" in out

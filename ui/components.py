@@ -18,9 +18,11 @@ from rich.align import Align
 from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from . import theme
 from .theme import GRID_BOX, PANEL_BOX, glyphs
 
 
@@ -186,3 +188,58 @@ def settings_preview(config, console=None) -> RenderableType:
     )
     return info_card(f"PREVIEW · {src} → {out or '(batch)'}", inner,
                      style="accent", console=console)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Delivery seal (post-encode QC certificate)
+# ──────────────────────────────────────────────────────────────────────────────
+def delivery_seal(checks, *, ready=None, console=None) -> RenderableType:
+    """Hollywood-style 'delivery seal' QC card certifying the final audio.
+
+    Args:
+        checks:  sequence of ``(label, value, passed)`` where ``passed`` is
+                 ``True`` (✓/ok), ``False`` (⚠/warn) or ``None`` (•/muted unknown).
+        ready:   force the seal state; when ``None`` it is derived from ``checks``
+                 (ready iff no check failed — ``None`` counts as unknown, not fail).
+        console: themed Rich Console (for glyph downgrade only).
+    """
+    g = _g(console)
+    checks = list(checks)
+
+    if ready is None:
+        ready = not any(p is False for (_, _, p) in checks)
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column()
+    grid.add_column()
+
+    cells = []
+    for label, value, passed in checks:
+        chip = quality_chip(label, passed, console=console)
+        cell = Text()
+        cell.append_text(chip)
+        cell.append("  ")
+        cell.append(str(value), style="value")
+        cells.append(cell)
+
+    for i in range(0, len(cells), 2):
+        left = cells[i]
+        right = cells[i + 1] if i + 1 < len(cells) else Text("")
+        grid.add_row(left, right)
+
+    rule_style = "seal" if ready else "warn"
+    if ready:
+        seal_line = Text(f"{g['star']}  D E L I V E R Y   R E A D Y  {g['star']}",
+                         style="seal")
+    else:
+        seal_line = Text(f"{g['warn']}  R E V I S A R   E N T R E G A  {g['warn']}",
+                         style="warn")
+
+    inner = Group(
+        grid,
+        Rule(style=rule_style),
+        Align.center(seal_line),
+    )
+    return Panel(inner, title="MASTER QC", title_align="left",
+                 border_style="seal" if ready else "warn",
+                 box=theme.HEAVY_BOX, padding=(1, 2))
