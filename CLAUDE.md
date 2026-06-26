@@ -87,6 +87,8 @@ After every encode, `_encode_single_file()` calls `run_post_encode_qc()` (in `eb
 1. **Audit (always runs, single *and* batch):** measures the final file with the canonical `ebur128=peak=true` filter (`-f null`), parsing the `Summary:` block for Integrated LUFS-I / True Peak dBTP / LRA, plus codec + sample rate via ffprobe. Renders an **ANTES (original) vs DEPOIS (final)** Rich table with `✓`/`⚠` flags against `LOUDNORM_TARGETS` (−14 LUFS ±1, ≤ −1.5 dBTP). This is independent of loudnorm's internal estimate — a true post-encode audit. Loudnorm 2-pass remains the *only* normalization; this never alters audio.
 2. **Visual monitor (`--ebu-meter`, default `on`; force-disabled in `--batch`):** opens two detached, non-blocking FFplay windows (original + final) using the reference filtergraph `amovie='<esc>',ebur128=video=1:meter=18:dualmono=true:target=<I>[out0][out1]` (path escaping `\`→`\\`, `:`→`\:`). `ebur128=video=1` is itself the broadcast-style meter — no `showwaves`/`showspectrum`.
 
+The audit table is then followed by a Premiere-style `ui.components.delivery_seal` card (built from the pure `build_delivery_checks` helper) that lights up a gold `★ DELIVERY READY ★` when the final file passes −14 LUFS ±1 and ≤ −1.5 dBTP, or an amber `REVISAR ENTREGA` review state otherwise; it is best-effort and never breaks the encode.
+
 All failure modes degrade gracefully (no audio / unparseable `-inf` silence → `—`; `ffplay` missing → warning + table still prints; any QC error is caught and never breaks the encode). Pure builders/parsers tested in `enhance/test_ebu_meter.py` (no subprocess).
 
 ### LUTs

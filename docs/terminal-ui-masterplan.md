@@ -299,7 +299,7 @@ filter/pipeline code.
 - [ ] **P4** `dashboard.py`: Premiere Live layout; `update_frame()` duck-type; psutil perf card;
       bounded log tail; `make_dashboard()` factory
 - [ ] **P4** Edit B seam in `_run_encoding` (guarded) + HUD fallback verified
-- [ ] **P5** Edit A `main()` branch + Edit C `--ui` flag + batch dashboard + QC card restyle
+- [x] **P5** Edit A `main()` branch + Edit C `--ui` flag + batch dashboard + QC card restyle
 - [ ] **P6** README/CLAUDE.md updates; requirements.txt += pydantic
 
 ## 11. Validation Checklist
@@ -311,7 +311,7 @@ filter/pipeline code.
 - [ ] `python Reels_Encoder_v2_FINAL.py` (no args) — launcher opens
 - [ ] `python Reels_Encoder_v2_FINAL.py --ui` — launcher opens, drives a real encode
 - [ ] Render verified in **Windows Terminal** and **legacy PowerShell** (glyphs/colors)
-- [ ] Dashboard shows progress + fps/speed/ETA + perf + log; QC card renders
+- [x] Dashboard shows progress + fps/speed/ETA + perf + log; QC card renders
 - [ ] `git diff` on engine file == only Edits A/B/C, all guarded
 
 ## 12. Success Criteria

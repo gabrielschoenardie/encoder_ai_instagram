@@ -214,7 +214,6 @@ def test_layout_two_windows_side_by_side_no_overlap():
 def test_layout_centered_horizontally():
     layout = E.compute_side_by_side_layout(n=2, screen=(1920, 1080))
     left, right = layout
-    total_w = (right["left"] + right["width"]) - left["left"]
     margin_l = left["left"]
     margin_r = 1920 - (right["left"] + right["width"])
     # left/right margins within 1px of each other → centered
@@ -225,3 +224,57 @@ def test_layout_single_window():
     layout = E.compute_side_by_side_layout(n=1, screen=(1920, 1080))
     assert len(layout) == 1
     assert layout[0]["left"] >= 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# build_delivery_checks (pure, rich-free)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_build_delivery_checks_conforming_all_pass():
+    checks = E.build_delivery_checks(
+        aI=-14.0, aTP=-1.5, a_codec="aac", a_rate="48000",
+        tgt_i=-14, tgt_tp=-1.5,
+    )
+    labels = [c[0] for c in checks]
+    assert labels == ["Loudness", "True Peak", "Codec", "Sample Rate"]
+    assert all(passed is True for (_, _, passed) in checks)
+    # value strings carry units / raw values
+    by_label = {c[0]: c for c in checks}
+    assert by_label["Loudness"][1] == "-14.0 LUFS"
+    assert by_label["True Peak"][1] == "-1.5 dBTP"
+    assert by_label["Codec"][1] == "aac"
+    assert by_label["Sample Rate"][1] == "48000"
+
+
+def test_build_delivery_checks_off_target_loudness_fails():
+    checks = E.build_delivery_checks(
+        aI=-9.0, aTP=-1.5, a_codec="aac", a_rate="48000",
+        tgt_i=-14, tgt_tp=-1.5,
+    )
+    by_label = {c[0]: c for c in checks}
+    assert by_label["Loudness"][2] is False
+    assert by_label["True Peak"][2] is True
+
+
+def test_build_delivery_checks_hot_true_peak_fails():
+    checks = E.build_delivery_checks(
+        aI=-14.0, aTP=-0.5, a_codec="aac", a_rate="48000",
+        tgt_i=-14, tgt_tp=-1.5,
+    )
+    by_label = {c[0]: c for c in checks}
+    assert by_label["True Peak"][2] is False
+    assert by_label["Loudness"][2] is True
+
+
+def test_build_delivery_checks_all_none():
+    checks = E.build_delivery_checks(
+        aI=None, aTP=None, a_codec=None, a_rate=None,
+        tgt_i=-14, tgt_tp=-1.5,
+    )
+    assert all(passed is None for (_, _, passed) in checks)
+    # None metrics show '—' without a stray unit
+    by_label = {c[0]: c for c in checks}
+    assert by_label["Loudness"][1] == "—"
+    assert by_label["True Peak"][1] == "—"
+    assert by_label["Codec"][1] == "—"
+    assert by_label["Sample Rate"][1] == "—"

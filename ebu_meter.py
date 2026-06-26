@@ -300,6 +300,33 @@ def _flag_true_peak(measured: Optional[float], target_tp: float) -> str:
     return " ✓" if measured <= target_tp + 1e-9 else " ⚠"
 
 
+def build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp):
+    """Return list[(label, value_str, passed|None)] certifying the final audio.
+
+    Pure (rich-free): turns the post-encode audit's final-file metrics into the
+    conformance rows the ``ui.components.delivery_seal`` card renders. ``passed``
+    is ``None`` when its source metric is unavailable.
+    """
+    loud_val = f"{_fmt(aI)} LUFS" if aI is not None else "—"
+    loud_pass = None if aI is None else abs(aI - tgt_i) <= 1.0
+
+    tp_val = f"{_fmt(aTP)} dBTP" if aTP is not None else "—"
+    tp_pass = None if aTP is None else aTP <= tgt_tp + 1e-9
+
+    codec_val = a_codec or "—"
+    codec_pass = None if not a_codec else a_codec.lower().startswith("aac")
+
+    rate_val = str(a_rate) if a_rate else "—"
+    rate_pass = None if not a_rate else str(a_rate) == "48000"
+
+    return [
+        ("Loudness", loud_val, loud_pass),
+        ("True Peak", tp_val, tp_pass),
+        ("Codec", codec_val, codec_pass),
+        ("Sample Rate", rate_val, rate_pass),
+    ]
+
+
 def run_post_encode_qc(
     original_file: str,
     output_file: str,
@@ -377,6 +404,14 @@ def run_post_encode_qc(
     table.add_row("Sample Rate (Hz)", b_rate or "—", a_rate or "—", "48000")
 
     console.print(table)
+
+    # ── Delivery seal (Premiere-style QC certificate) ─────────────────────────
+    try:
+        from ui.components import delivery_seal
+        checks = build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
+        console.print(delivery_seal(checks, console=console))
+    except Exception:
+        pass
 
     if after is None:
         console.print(
