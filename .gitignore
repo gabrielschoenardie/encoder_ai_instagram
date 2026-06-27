@@ -59,6 +59,9 @@ htmlcov/
 *.log
 *.csv
 
+# Generated AI enhancement log
+enhance_ai_log.json
+
 # Media files (large video/image files during processing)
 *.mp4
 *.avi
