@@ -12,6 +12,7 @@ The recurring Premiere frame is: a **tab bar** on top, a **Program** panel and a
 
 from __future__ import annotations
 
+import os
 from typing import Iterable, Optional, Sequence
 
 from rich.align import Align
@@ -28,6 +29,22 @@ from .theme import GRID_BOX, PANEL_BOX, glyphs
 
 def _g(console=None) -> dict:
     return glyphs(console)
+
+
+def _short_path(p: str, limit: int = 30) -> str:
+    """Basename, middle-elided, so a deep path can't clip the panel title.
+
+    Keeps the head and tail of the filename (the tail carries the extension
+    and the engine's ``_Hollywood_CRF18`` / ``_Cineon_Film`` suffix) joined by
+    an ASCII ellipsis so it stays safe on legacy consoles.
+    """
+    name = os.path.basename(p.rstrip("/\\")) or p
+    if len(name) <= limit:
+        return name
+    keep = limit - 3
+    head = keep // 2
+    tail = keep - head
+    return f"{name[:head]}...{name[-tail:]}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -179,8 +196,10 @@ def settings_preview(config, console=None) -> RenderableType:
         quality_chip("EBU Meter", config.ebu_meter == "on", console),
     ]
 
-    src = config.input or config.batch or "—"
-    out = config.output_path() if hasattr(config, "output_path") else None
+    src_full = config.input or config.batch or "—"
+    out_full = config.output_path() if hasattr(config, "output_path") else None
+    src = _short_path(src_full)
+    out = _short_path(out_full) if out_full else None
 
     inner = Group(
         properties_panel(rows, title="EXPORT SETTINGS", console=console),
