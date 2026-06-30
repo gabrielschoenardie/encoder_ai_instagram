@@ -89,7 +89,6 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
-from pymediainfo import MediaInfo
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -2603,8 +2602,6 @@ def run_ffmpeg(
         else:
             console.print(f"[dim]📋 Metadados: BT.709 TV | CRF 18 | VBV {vbv_description}[/dim]")
 
-        console.print("[cyan]🔍 Validando MediaInfo (Studio Delivery)...[/cyan]")
-        validate_media_info(output_file)
         return
 
     # 2-PASS MODE
@@ -2738,158 +2735,6 @@ def run_ffmpeg(
         console.print(f"[dim]📋 Metadados: BT.709 TV | Profile High@4.1 | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]")
     else:
         console.print(f"[dim]📋 Metadados: BT.709 TV | Profile High@4.1 | VBV {vbv_description}[/dim]")
-
-    console.print("[cyan]🔍 Validando MediaInfo (Studio Delivery)...[/cyan]")
-    validate_media_info(output_file)
-
-
-# =============================================================================
-# MEDIAINFO VALIDATION
-# =============================================================================
-def validate_media_info(file_path: str):
-    """Valida metadados do arquivo gerado."""
-    console.print("\n[bold cyan]📋 MediaInfo Validation — Studio Delivery[/bold cyan]\n")
-
-    try:
-        media_info = MediaInfo.parse(file_path)
-    except Exception as e:
-        console.print(f"[red]Erro ao parsear MediaInfo: {e}[/red]")
-        return
-
-    video = next((t for t in media_info.tracks if t.track_type == "Video"), None)
-    audio = next((t for t in media_info.tracks if t.track_type == "Audio"), None)
-    general = next((t for t in media_info.tracks if t.track_type == "General"), None)
-
-    def ok(label, value):
-        console.print(f"[green]✓ {label}: {value}[/green]")
-
-    def fail(label, value, expected):
-        console.print(f"[red]✗ {label}: {value} (esperado: {expected})[/red]")
-
-    # CONTAINER
-    console.print("[bold]📦 CONTAINER[/bold]")
-
-    if not general:
-        console.print("[red]✗ Track General não encontrada[/red]")
-    else:
-        if general.format == "MPEG-4":
-            ok("Container", "MPEG-4")
-        else:
-            fail("Container", general.format, "MPEG-4")
-
-        if general.writing_application:
-            ok("Writing application", general.writing_application)
-
-        if hasattr(general, "comment") and general.comment:
-            ok("Comment (VBV)", general.comment)
-
-    # VIDEO
-    console.print("\n[bold]🎥 VIDEO[/bold]")
-
-    if not video:
-        console.print("[red]✗ Track de vídeo não encontrada[/red]")
-    else:
-        if video.format in ("AVC", "H.264"):
-            ok("Codec", video.format)
-        else:
-            fail("Codec", video.format, "AVC / H.264")
-
-        if video.codec_id and video.codec_id.startswith("avc"):
-            ok("Codec ID", video.codec_id)
-        else:
-            fail("Codec ID", video.codec_id, "avc1")
-
-        if (
-            video.format_profile
-            and "High" in video.format_profile
-            and "4.1" in video.format_profile
-        ):
-            ok("Profile", video.format_profile)
-        else:
-            fail("Profile", video.format_profile, "High@4.1")
-
-        if video.bit_depth == 8:
-            ok("Bit depth", "8-bit")
-        else:
-            fail("Bit depth", video.bit_depth, "8-bit")
-
-        if video.color_range in ("Limited", "TV"):
-            ok("Color range", video.color_range)
-        else:
-            fail("Color range", video.color_range, "Limited / TV")
-
-        if video.color_primaries == "BT.709":
-            ok("Color primaries", "BT.709")
-        else:
-            fail("Color primaries", video.color_primaries, "BT.709")
-
-        if video.transfer_characteristics == "BT.709":
-            ok("Transfer characteristics", "BT.709")
-        else:
-            fail("Transfer characteristics", video.transfer_characteristics, "BT.709")
-
-        if video.matrix_coefficients == "BT.709":
-            ok("Matrix coefficients", "BT.709")
-        else:
-            fail("Matrix coefficients", video.matrix_coefficients, "BT.709")
-
-        if video.width == 1080 and video.height == 1920:
-            ok("Resolution", "1080x1920")
-        else:
-            console.print(f"[yellow]• Resolution: {video.width}x{video.height} (verificar uso)[/yellow]")
-
-        try:
-            fps = float(video.frame_rate)
-            if 23.976 <= fps <= 60:
-                ok("Frame rate", f"{fps:.3f} fps")
-            else:
-                fail("Frame rate", fps, "24-60 fps")
-        except Exception:
-            console.print("[yellow]• Frame rate: não detectável[/yellow]")
-
-    # AUDIO
-    console.print("\n[bold]🔊 AUDIO[/bold]")
-
-    if not audio:
-        console.print("[yellow]⚠ Sem trilha de áudio (Instagram aceita)[/yellow]")
-    else:
-        if audio.format == "AAC":
-            ok("Codec", "AAC")
-        else:
-            fail("Codec", audio.format, "AAC")
-
-        if audio.format_profile in ("LC", "AAC LC"):
-            ok("Profile", "AAC-LC")
-        else:
-            console.print(f"[yellow]• Profile: {audio.format_profile} (aceitável)[/yellow]")
-
-        if audio.channel_s == 2:
-            ok("Channels", "2.0")
-        else:
-            fail("Channels", audio.channel_s, "2")
-
-        if audio.sampling_rate and int(audio.sampling_rate) == 48000:
-            ok("Sampling rate", "48 kHz")
-        else:
-            fail("Sampling rate", audio.sampling_rate, "48000")
-
-    console.print("\n[bold green]✅ Validação Studio Delivery concluída[/bold green]\n")
-
-
-def analyze_with_mediainfo(output_file: str):
-    """Exibe MediaInfo completo em JSON."""
-    try:
-        out = subprocess.check_output(
-            ["mediainfo", "--Output=JSON", output_file],
-            stderr=subprocess.PIPE,
-            encoding="utf-8",
-        )
-        console.rule("[bold cyan]📊 MediaInfo (JSON)")
-        console.print(json.dumps(json.loads(out), indent=4))
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]MediaInfo retornou erro:[/red] {e}")
-    except FileNotFoundError:
-        console.print("[yellow]mediainfo CLI não encontrado no PATH.[/yellow]")
 
 
 def resize_frame_numpy(frame, target_width: int, target_height: int):
@@ -3892,10 +3737,6 @@ def run_ffmpeg_with_cineon(
     except subprocess.CalledProcessError:
         console.print("[yellow]   ⚠ ffprobe falhou (não crítico)[/yellow]")
 
-    # MediaInfo validation (existente)
-    console.print("[cyan]🔍 Validando MediaInfo (Studio Delivery)...[/cyan]")
-    validate_media_info(output_file)
-
     # Limpeza dos logs temporários do 2-pass
     if logfile_2pass:
         for _ext in ("-0.log", "-0.log.mbtree"):
@@ -4059,7 +3900,6 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             dither_enabled=_dither_active,
             fit=args.fit,
         )
-    analyze_with_mediainfo(output_file)
 
     # ── EBU R128 — auditoria pós-encode (sempre) + monitor FFplay (opcional) ──
     try:
