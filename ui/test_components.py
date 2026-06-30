@@ -188,3 +188,13 @@ def test_gauge_bar_clamps_out_of_range():
     # must not raise and must not exceed width
     assert _render(C.gauge_bar(150, width=10)).count("█") <= 10
     assert _render(C.gauge_bar(-20, width=10)).count("█") == 0
+
+
+def test_job_strip_shows_source_and_output():
+    out = _render(C.job_strip("clip.mov", "clip_out.mp4", src_dims=(1080, 1920)))
+    assert "clip.mov" in out and "clip_out.mp4" in out and "9:16" in out
+
+
+def test_job_strip_without_output_renders():
+    out = _render(C.job_strip("clip.mov"))
+    assert "clip.mov" in out
