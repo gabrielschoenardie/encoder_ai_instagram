@@ -171,3 +171,20 @@ def test_delivery_seal_unknown_renders():
     ]
     out = _render(C.delivery_seal(checks))
     assert "Loudness" in out
+
+
+def test_gauge_bar_renders():
+    out = _render(C.gauge_bar(45))
+    assert out.strip() != ""
+
+
+def test_gauge_bar_fill_scales_with_pct():
+    low = _render(C.gauge_bar(10, width=12))
+    high = _render(C.gauge_bar(90, width=12))
+    assert high.count("█") > low.count("█")
+
+
+def test_gauge_bar_clamps_out_of_range():
+    # must not raise and must not exceed width
+    assert _render(C.gauge_bar(150, width=10)).count("█") <= 10
+    assert _render(C.gauge_bar(-20, width=10)).count("█") == 0

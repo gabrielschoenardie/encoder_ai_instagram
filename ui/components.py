@@ -265,6 +265,29 @@ def log_panel(lines: Sequence[str], title: str = "LOG", max_lines: int = 6,
                  border_style="panel.border", box=PANEL_BOX, padding=(0, 1))
 
 
+def gauge_bar(pct: float, width: int = 12, console=None) -> RenderableType:
+    """A small horizontal load gauge whose fill scales with ``pct`` (0–100) and
+    whose colour steps green→amber→red by threshold. Used by the perf monitor."""
+    g = _g(console)
+    try:
+        pct = float(pct)
+    except (TypeError, ValueError):
+        pct = 0.0
+    pct = min(max(pct, 0.0), 100.0)
+    filled = int(round(pct / 100.0 * width))
+    filled = min(max(filled, 0), width)
+    if pct >= 85:
+        style = "err"
+    elif pct >= 60:
+        style = "warn"
+    else:
+        style = "ok"
+    bar = Text()
+    bar.append(g["block_full"] * filled, style=style)
+    bar.append(g["block_empty"] * (width - filled), style="bar.back")
+    return bar
+
+
 def notification(message: str, level: str = "info", console=None) -> RenderableType:
     """A one-line toast-style notification."""
     g = _g(console)
