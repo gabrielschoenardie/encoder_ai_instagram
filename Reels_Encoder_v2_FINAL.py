@@ -1905,7 +1905,8 @@ def _build_metadata_args(
     return metadata
 
 
-def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps: int = 30):
+def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps: int = 30,
+                  source=None, output=None, fit: str = "contain", src_dims=None):
     """Executa encoding com progress bar."""
     # O reader consome TODO o stderr (linha a linha) para o HUD; acumula no deque
     # para que, em caso de falha, o erro real do ffmpeg seja exibido/propagado.
@@ -1917,7 +1918,8 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
     hud = None
     try:
         from ui.dashboard import make_dashboard
-        hud = make_dashboard(total_frames, fps=fps, log_sink=stderr_tail, console=console)
+        hud = make_dashboard(total_frames, fps=fps, log_sink=stderr_tail, console=console,
+                             source=source, output=output, fit=fit, src_dims=src_dims)
     except Exception:
         hud = None
     if hud is None:
@@ -2607,7 +2609,9 @@ def run_ffmpeg(
         ffmpeg_cmd.extend([*metadata_args, output_file])
 
 
-        _run_encoding(ffmpeg_cmd, total_frames, cwd=script_dir, fps=output_fps)
+        _run_encoding(ffmpeg_cmd, total_frames, cwd=script_dir, fps=output_fps,
+                      source=input_file, output=output_file, fit=fit,
+                      src_dims=(_probe.width, _probe.height))
         console.print("[green]✓ Render finalizado![/green]")
 
         # O filter_complex seletivo propaga o display matrix do input 0; com fonte
@@ -2669,7 +2673,9 @@ def run_ffmpeg(
     ]
 
 
-    _run_encoding(pass1_cmd, total_frames, cwd=script_dir, fps=output_fps)
+    _run_encoding(pass1_cmd, total_frames, cwd=script_dir, fps=output_fps,
+                  source=input_file, output=output_file, fit=fit,
+                  src_dims=(_probe.width, _probe.height))
     console.print("[green]✓ Pass 1 completo![/green]")
 
     # ── Análise Pass 1 → Parâmetros Adaptativos Pass 2 ───────────────────────
@@ -2732,7 +2738,9 @@ def run_ffmpeg(
     pass2_cmd.extend([*metadata_args, output_file])
 
 
-    _run_encoding(pass2_cmd, total_frames, cwd=script_dir, fps=output_fps)
+    _run_encoding(pass2_cmd, total_frames, cwd=script_dir, fps=output_fps,
+                  source=input_file, output=output_file, fit=fit,
+                  src_dims=(_probe.width, _probe.height))
 
     # Limpar logs temporários
     for ext in ["-0.log", "-0.log.mbtree"]:
@@ -3200,7 +3208,9 @@ def run_ffmpeg_with_cineon(
         ])
 
 
-        _run_encoding(pass1_cineon_cmd, total_frames, cwd=script_dir, fps=output_fps)
+        _run_encoding(pass1_cineon_cmd, total_frames, cwd=script_dir, fps=output_fps,
+                      source=input_file, output=output_file, fit=fit,
+                      src_dims=(_probe.width, _probe.height))
         console.print("[green]✓ Pass 1 Cineon completo![/green]")
 
         # Análise do stats.log → parâmetros adaptativos para Pass 2

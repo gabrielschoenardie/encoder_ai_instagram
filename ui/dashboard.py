@@ -41,7 +41,8 @@ class EncodeDashboard:
 
     def __init__(self, total_frames: int, source_fps: int = 30,
                  log_sink: Optional[Deque[str]] = None, console=None,
-                 title: str = "ENCODING"):
+                 title: str = "ENCODING", source=None, output=None,
+                 fit: str = "contain", src_dims=None):
         self.total_frames = max(int(total_frames), 1)
         self.source_fps = max(int(source_fps), 1)
         self.current_frame = 0
@@ -54,6 +55,10 @@ class EncodeDashboard:
         self.log_sink = log_sink
         self.console = console
         self.title = title
+        self.source = source
+        self.output = output
+        self.fit = fit
+        self.src_dims = src_dims
         self._glyphs = glyphs(console)
         if _PSUTIL:
             try:
@@ -149,12 +154,18 @@ class EncodeDashboard:
         cols.add_row(self._metrics_panel(), self._perf_panel())
         log_lines = list(self.log_sink) if self.log_sink else []
         log = C.log_panel(log_lines, title="LOG", max_lines=5, console=self.console)
+        if self.source:
+            strip = C.job_strip(self.source, self.output, src_dims=self.src_dims,
+                                console=self.console)
+            return Group(strip, header, cols, log)
         return Group(header, cols, log)
 
 
 def make_dashboard(total_frames: int, fps: int = 30,
                    log_sink: Optional[Deque[str]] = None, console=None,
-                   title: str = "ENCODING") -> EncodeDashboard:
+                   title: str = "ENCODING", source=None, output=None,
+                   fit: str = "contain", src_dims=None) -> EncodeDashboard:
     """Factory used by the engine seam in _run_encoding."""
     return EncodeDashboard(total_frames, source_fps=fps, log_sink=log_sink,
-                           console=console, title=title)
+                           console=console, title=title, source=source,
+                           output=output, fit=fit, src_dims=src_dims)

@@ -60,3 +60,15 @@ def test_progress_bar_animates_and_shows_percent():
 def test_perf_panel_renders_gauge_or_fallback():
     out = _render(make_dashboard(100))
     assert "PERFORMANCE" in out  # gauges when psutil present, fallback text otherwise
+
+
+def test_dashboard_shows_job_identity():
+    dash = make_dashboard(100, fps=30, source="in.mov", output="out.mp4",
+                          src_dims=(1080, 1920))
+    out = _render(dash)
+    assert "in.mov" in out and "out.mp4" in out
+
+
+def test_dashboard_without_job_identity_still_renders():
+    out = _render(make_dashboard(100))
+    assert "TIMELINE" in out and "PERFORMANCE" in out

@@ -265,6 +265,30 @@ def log_panel(lines: Sequence[str], title: str = "LOG", max_lines: int = 6,
                  border_style="panel.border", box=PANEL_BOX, padding=(0, 1))
 
 
+def job_strip(source: str, output: Optional[str] = None,
+              src_dims: Optional[tuple] = None, console=None) -> RenderableType:
+    """A thin one-line job-identity strip: source ▸ output (+ aspect tag).
+
+    Shown atop the live dashboard so the encode never loses sight of *what* is
+    being rendered. Paths are middle-elided; when ``src_dims=(w, h)`` (effective
+    dims) is given, a small aspect tag (e.g. '9:16 1080×1920') is appended.
+    """
+    g = _g(console)
+    line = Text()
+    line.append(f"{g['film']} ", style="accent")
+    line.append(_short_path(source) if source else "—", style="value")
+    line.append(f"  {g['arrow']}  ", style="accent")
+    line.append(_short_path(output) if output else "(saída)", style="info")
+    if src_dims and len(src_dims) == 2:
+        try:
+            sw, sh = int(src_dims[0]), int(src_dims[1])
+            if sw > 0 and sh > 0:
+                line.append(f"   ·  {classify_aspect(sw, sh)} {sw}×{sh}", style="muted")
+        except (TypeError, ValueError):
+            pass
+    return Panel(line, box=GRID_BOX, border_style="panel.border", padding=(0, 1))
+
+
 def gauge_bar(pct: float, width: int = 12, console=None) -> RenderableType:
     """A small horizontal load gauge whose fill scales with ``pct`` (0–100) and
     whose colour steps green→amber→red by threshold. Used by the perf monitor."""
