@@ -62,6 +62,9 @@ htmlcov/
 # Generated AI enhancement log
 enhance_ai_log.json
 
+# Packaged skill artifacts (source of truth is .claude/skills/)
+*.skill
+
 # Media files (large video/image files during processing)
 *.mp4
 *.avi
