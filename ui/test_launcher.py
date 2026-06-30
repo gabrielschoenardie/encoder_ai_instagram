@@ -39,6 +39,26 @@ def test_cineon_flow(monkeypatch):
     assert ns.cineon_pipeline == "on"
 
 
+def test_eof_during_prompt_returns_none(monkeypatch):
+    # Closing stdin (Ctrl-D / piped EOF) must cancel cleanly, not crash.
+    def boom(*a, **k):
+        raise EOFError
+
+    monkeypatch.setattr(L, "ask_choice", boom)
+    ns = L.run_launcher(console=_silent_console())
+    assert ns is None
+
+
+def test_keyboardinterrupt_during_prompt_returns_none(monkeypatch):
+    # Ctrl-C must cancel cleanly, not propagate a traceback.
+    def boom(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(L, "ask_choice", boom)
+    ns = L.run_launcher(console=_silent_console())
+    assert ns is None
+
+
 def test_cancel_returns_none(monkeypatch):
     monkeypatch.setattr(L, "ask_choice", lambda *a, **k: 1)
     monkeypatch.setattr(L, "ask_path", lambda *a, **k: "clip.mov")

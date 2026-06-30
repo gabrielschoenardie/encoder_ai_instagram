@@ -45,8 +45,20 @@ PRESETS = [
 
 
 def run_launcher(console=None) -> Optional[argparse.Namespace]:
-    """Drive the wizard. Returns a Namespace or None (cancelled)."""
+    """Drive the wizard. Returns a Namespace or None (cancelled).
+
+    Ctrl-C and a closed stdin (EOF, e.g. piped input running out) cancel the
+    wizard cleanly instead of crashing with a traceback.
+    """
     con = console or get_console()
+    try:
+        return _run_launcher(con)
+    except (EOFError, KeyboardInterrupt):
+        con.print("\n[warn]Cancelado pelo usuário.[/warn]")
+        return None
+
+
+def _run_launcher(con) -> Optional[argparse.Namespace]:
     con.print(C.banner("REELS ENCODER", "Premiere Workspace · UI interativa"))
 
     preset = ask_choice(con, "Selecione um fluxo", PRESETS, default=1)

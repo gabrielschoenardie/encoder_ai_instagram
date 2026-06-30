@@ -72,6 +72,20 @@ def test_settings_preview_cineon():
     assert "Cineon Film" in out
 
 
+def test_settings_preview_elides_long_paths():
+    # A deep absolute path must not clip the PREVIEW title and swallow the
+    # output filename: the launcher shows source → output there.
+    longin = ("C:/Users/someone/Videos/projects/2026/reels/raw/"
+              "a_really_quite_long_source_clip_filename.mov")
+    cfg = EncodeConfig(input=longin)
+    out = _render(C.settings_preview(cfg))
+    assert "→" in out
+    # the output's extension survives instead of being clipped off
+    assert ".mp4" in out
+    # the deep directory is not crammed into the title
+    assert "projects" not in out
+
+
 def test_render_choice_menu():
     out = _render(render_choice_menu("Preset", ["Quick", "Film", "Batch"]))
     assert "Quick" in out and "Film" in out and "Batch" in out

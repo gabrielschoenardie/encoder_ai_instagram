@@ -278,3 +278,69 @@ def test_build_delivery_checks_all_none():
     assert by_label["True Peak"][1] == "—"
     assert by_label["Codec"][1] == "—"
     assert by_label["Sample Rate"][1] == "—"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _parse_fps
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_parse_fps_fraction_and_plain():
+    assert abs(E._parse_fps("30000/1001") - 29.97) < 0.01
+    assert E._parse_fps("30") == 30.0
+    assert E._parse_fps("25/1") == 25.0
+
+
+def test_parse_fps_degrades_to_none():
+    assert E._parse_fps("0/0") is None
+    assert E._parse_fps(None) is None
+    assert E._parse_fps("") is None
+    assert E._parse_fps("garbage") is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# build_video_checks (pure, rich-free) — CONTAINER + VIDEO conformance
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_build_video_checks_conforming_all_pass():
+    info = {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2", "codec": "h264", "profile": "High",
+        "level": 41, "width": 1080, "height": 1920, "pix_fmt": "yuv420p",
+        "color_primaries": "bt709", "color_transfer": "bt709", "color_space": "bt709",
+        "fps": 30.0,
+    }
+    checks = E.build_video_checks(info)
+    assert [c[0] for c in checks] == [
+        "Container", "Video", "Resolution", "Bit Depth", "Color", "FPS",
+    ]
+    by = {c[0]: c for c in checks}
+    assert by["Container"][1] == "MP4" and by["Container"][2] is True
+    assert by["Video"][1] == "H.264 High@4.1" and by["Video"][2] is True
+    assert by["Resolution"][1] == "1080x1920" and by["Resolution"][2] is True
+    assert by["Bit Depth"][1] == "8-bit" and by["Bit Depth"][2] is True
+    assert by["Color"][1] == "BT.709" and by["Color"][2] is True
+    assert by["FPS"][2] is True
+
+
+def test_build_video_checks_flags_nonconforming():
+    info = {
+        "container": "matroska,webm", "codec": "hevc", "profile": "Main 10",
+        "level": 120, "width": 2160, "height": 3840, "pix_fmt": "yuv420p10le",
+        "color_primaries": "bt2020", "color_transfer": "smpte2084",
+        "color_space": "bt2020nc", "fps": 60.0,
+    }
+    by = {c[0]: c for c in E.build_video_checks(info)}
+    assert by["Container"][2] is False
+    assert by["Video"][2] is False           # not H.264 High
+    assert by["Bit Depth"][1] == "10-bit" and by["Bit Depth"][2] is False
+    assert by["Color"][2] is False           # BT.2020, not BT.709
+    # a non-1080x1920 size is informational (e.g. contain crop), not a hard fail
+    assert by["Resolution"][2] is None
+
+
+def test_build_video_checks_missing_all_none():
+    checks = E.build_video_checks({})
+    assert all(passed is None for (_, _, passed) in checks)
+    by = {c[0]: c for c in checks}
+    assert by["Container"][1] == "—"
+    assert by["Video"][1] == "—"
+    assert by["Color"][1] == "—"
