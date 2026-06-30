@@ -32,6 +32,9 @@ try:  # perf monitor is best-effort
 except Exception:  # pragma: no cover - psutil is a stated dependency
     _PSUTIL = False
 
+_SPIN_UNICODE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_SPIN_ASCII = "|/-\\"
+
 
 class EncodeDashboard:
     """Live dashboard with the same update interface as ResolveProgressHUD."""
@@ -81,13 +84,25 @@ class EncodeDashboard:
         self.eta = time.strftime("%H:%M:%S", time.gmtime(eta_seconds))
 
     # ── rendering ───────────────────────────────────────────────────────────────
-    def _progress_bar(self, width: int = 44) -> Text:
+    def _spinner(self) -> str:
+        frames = _SPIN_ASCII if self._glyphs["block_full"] == "#" else _SPIN_UNICODE
+        return frames[int(time.time() * 10) % len(frames)]
+
+    def _progress_bar(self, width: int = 40) -> Text:
         g = self._glyphs
         p = min(max(self.current_frame / self.total_frames, 0.0), 1.0)
         filled = int(p * width)
         bar = Text()
-        bar.append(g["block_full"] * filled, style="bar.complete")
-        bar.append(g["block_empty"] * (width - filled), style="bar.back")
+        bar.append(self._spinner() + " ", style="accent")
+        pulse = int(time.time() * 8) % max(filled, 1)
+        for i in range(width):
+            if i < filled:
+                if abs(i - pulse) <= 1:
+                    bar.append(g["block_full"], style="bar.pulse")
+                else:
+                    bar.append(g["block_full"], style="bar.complete")
+            else:
+                bar.append(g["block_empty"], style="bar.back")
         bar.append(f"  {p * 100:5.1f}%", style="value")
         return bar
 
@@ -105,20 +120,21 @@ class EncodeDashboard:
                      border_style="panel.border", box=PANEL_BOX, padding=(1, 2))
 
     def _perf_panel(self) -> RenderableType:
-        grid = Table.grid(padding=(0, 2))
+        grid = Table.grid(padding=(0, 1))
         grid.add_column(style="label", justify="right")
-        grid.add_column(style="value")
+        grid.add_column()
+        grid.add_column(style="info", justify="right")
         if _PSUTIL:
             try:
                 cpu = psutil.cpu_percent(interval=None)
                 vm = psutil.virtual_memory()
-                grid.add_row("cpu", f"{cpu:.0f}%")
-                grid.add_row("ram", f"{vm.percent:.0f}%")
-                grid.add_row("ram used", f"{vm.used / 1e9:.1f} GB")
+                grid.add_row("cpu", C.gauge_bar(cpu, console=self.console), f"{cpu:.0f}%")
+                grid.add_row("ram", C.gauge_bar(vm.percent, console=self.console), f"{vm.percent:.0f}%")
+                grid.add_row("ram used", Text(""), f"{vm.used / 1e9:.1f} GB")
             except Exception:
-                grid.add_row("perf", "—")
+                grid.add_row("perf", Text(""), "—")
         else:
-            grid.add_row("perf", "psutil n/d")
+            grid.add_row("perf", Text(""), "psutil n/d")
         return Panel(grid, title="PERFORMANCE", title_align="left",
                      border_style="panel.border", box=PANEL_BOX, padding=(1, 2))
 

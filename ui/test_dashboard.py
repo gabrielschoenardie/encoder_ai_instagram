@@ -47,3 +47,16 @@ def test_log_sink_shown():
 def test_render_without_frames():
     # Fresh dashboard must render (0%) without error.
     assert "0.0%" in _render(make_dashboard(100))
+
+
+def test_progress_bar_animates_and_shows_percent():
+    dash = make_dashboard(200, fps=30)
+    dash.update_frame(100)
+    out = _render(dash)
+    assert "50.0%" in out
+    assert "█" in out  # filled blocks present
+
+
+def test_perf_panel_renders_gauge_or_fallback():
+    out = _render(make_dashboard(100))
+    assert "PERFORMANCE" in out  # gauges when psutil present, fallback text otherwise
