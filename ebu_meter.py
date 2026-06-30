@@ -192,6 +192,53 @@ def probe_audio_codec(input_file: str):
         return None, None
 
 
+def probe_video_info(input_file: str) -> dict:
+    """Metadados de vídeo + container do primeiro stream de vídeo via ffprobe.
+
+    Retorna um dict normalizado (chaves consumidas por ``build_video_checks``),
+    ou ``{}`` se o ffprobe falhar / não houver stream de vídeo.
+    """
+    try:
+        out = subprocess.check_output(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries",
+                "stream=codec_name,profile,level,width,height,pix_fmt,"
+                "color_primaries,color_transfer,color_space,r_frame_rate",
+                "-show_entries", "format=format_name",
+                "-of", "json",
+                input_file,
+            ],
+            stderr=subprocess.PIPE,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return {}
+
+    import json
+    try:
+        data = json.loads(out.decode("utf-8", "ignore") or "{}")
+    except ValueError:
+        return {}
+
+    streams = data.get("streams") or []
+    st = streams[0] if streams else {}
+    fmt = data.get("format") or {}
+    return {
+        "container": fmt.get("format_name"),
+        "codec": st.get("codec_name"),
+        "profile": st.get("profile"),
+        "level": st.get("level"),
+        "width": st.get("width"),
+        "height": st.get("height"),
+        "pix_fmt": st.get("pix_fmt"),
+        "color_primaries": st.get("color_primaries"),
+        "color_transfer": st.get("color_transfer"),
+        "color_space": st.get("color_space"),
+        "fps": _parse_fps(st.get("r_frame_rate")),
+    }
+
+
 def measure_loudness(input_file: str) -> Optional[dict]:
     """Mede loudness EBU R128 do arquivo. Retorna {'I','TP','LRA'} ou None."""
     try:
@@ -327,6 +374,125 @@ def build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp):
     ]
 
 
+def _parse_fps(raw: Optional[str]) -> Optional[float]:
+    """Converte um frame rate do ffprobe ('30000/1001' ou '30') para float.
+
+    Retorna None para entradas vazias, divisão por zero ou não-numéricas.
+    """
+    if not raw:
+        return None
+    try:
+        if "/" in raw:
+            num, den = raw.split("/", 1)
+            den_f = float(den)
+            return float(num) / den_f if den_f else None
+        return float(raw)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _bit_depth(pix_fmt: Optional[str]) -> Optional[int]:
+    """Profundidade de bits inferida do pix_fmt (yuv420p→8, yuv420p10le→10)."""
+    if not pix_fmt:
+        return None
+    p = pix_fmt.lower()
+    if "10" in p:
+        return 10
+    if "12" in p:
+        return 12
+    return 8
+
+
+# Map de codec_name (ffprobe) → rótulo de exibição.
+_VCODEC_DISPLAY = {"h264": "H.264", "hevc": "HEVC", "vp9": "VP9", "av1": "AV1"}
+
+
+def build_video_checks(info: dict) -> list:
+    """Return list[(label, value_str, passed|None)] certifying CONTAINER + VIDEO.
+
+    Pure (rich-free): turns the probed video/container metadata of the final
+    file into the conformance rows the ``ui.components.delivery_seal`` card
+    renders alongside the audio rows. ``passed`` is ``None`` when a field is
+    unavailable or merely informational (e.g. a non-1080×1920 size produced by
+    ``--fit contain`` is reported but not failed).
+    """
+    info = info or {}
+
+    # CONTAINER
+    container = info.get("container") or ""
+    if not container:
+        cont_val, cont_pass = "—", None
+    else:
+        cont_pass = "mp4" in container.lower()
+        cont_val = "MP4" if cont_pass else container
+
+    # VIDEO codec / profile / level
+    codec = info.get("codec")
+    if not codec:
+        vid_val, vid_pass = "—", None
+    else:
+        disp = _VCODEC_DISPLAY.get(codec.lower(), codec.upper())
+        profile = info.get("profile")
+        level = info.get("level")
+        label = disp
+        if profile:
+            label += f" {profile}"
+        try:
+            if level and int(level) > 0:
+                label += f"@{int(level) / 10:.1f}"
+        except (ValueError, TypeError):
+            pass
+        vid_val = label
+        vid_pass = codec.lower() == "h264" and bool(profile) and "high" in profile.lower()
+
+    # RESOLUTION (target 1080×1920; other sizes are informational, not failures)
+    w, h = info.get("width"), info.get("height")
+    if not (w and h):
+        res_val, res_pass = "—", None
+    else:
+        res_val = f"{w}x{h}"
+        res_pass = True if (int(w), int(h)) == (1080, 1920) else None
+
+    # BIT DEPTH (Instagram delivery is 8-bit)
+    bits = _bit_depth(info.get("pix_fmt"))
+    if bits is None:
+        bd_val, bd_pass = "—", None
+    else:
+        bd_val, bd_pass = f"{bits}-bit", (bits == 8)
+
+    # COLOR (BT.709 across primaries / transfer / matrix)
+    triplet = [
+        info.get("color_primaries"),
+        info.get("color_transfer"),
+        info.get("color_space"),
+    ]
+    present = [v.lower() for v in triplet if v and v.lower() not in ("unknown", "reserved", "")]
+    if not present:
+        col_val, col_pass = "—", None
+    elif all(v == "bt709" for v in present):
+        col_val, col_pass = "BT.709", True
+    else:
+        col_pass = False
+        col_val = next((v for v in triplet if v and v.lower() != "bt709"), "—")
+
+    # FPS (broadcast-plausible 24–60)
+    fps = info.get("fps")
+    if fps is None:
+        fps_val, fps_pass = "—", None
+    else:
+        fps_val = f"{fps:g} fps"
+        fps_pass = 23.0 <= fps <= 60.5
+
+    return [
+        ("Container", cont_val, cont_pass),
+        ("Video", vid_val, vid_pass),
+        ("Resolution", res_val, res_pass),
+        ("Bit Depth", bd_val, bd_pass),
+        ("Color", col_val, col_pass),
+        ("FPS", fps_val, fps_pass),
+    ]
+
+
 def run_post_encode_qc(
     original_file: str,
     output_file: str,
@@ -406,10 +572,13 @@ def run_post_encode_qc(
     console.print(table)
 
     # ── Delivery seal (Premiere-style QC certificate) ─────────────────────────
+    # O selo certifica o master completo: CONTAINER/VIDEO (do arquivo final) +
+    # ÁUDIO (loudness/codec da auditoria EBU acima).
     try:
         from ui.components import delivery_seal
-        checks = build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
-        console.print(delivery_seal(checks, console=console))
+        video_checks = build_video_checks(probe_video_info(output_file))
+        audio_checks = build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
+        console.print(delivery_seal(video_checks + audio_checks, console=console))
     except Exception:
         pass
 
