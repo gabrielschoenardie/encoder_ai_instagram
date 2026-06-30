@@ -118,6 +118,34 @@ def test_delivery_seal_review():
     assert "REVISAR" in out.replace(" ", "")
 
 
+def test_aspect_frame_contain_vs_cover():
+    c = _render(C._aspect_frame("contain"))
+    v = _render(C._aspect_frame("cover"))
+    assert "9:16" in c and "9:16" in v
+    assert "contain" in c
+    assert "cover" in v
+    assert c != v
+
+
+def test_program_panel_shows_9_16_frame():
+    out = _render(C.program_panel("in.mov", "out.mp4", ["4K HDR"], fit="cover"))
+    assert "in.mov" in out and "out.mp4" in out
+    assert "9:16" in out
+
+
+def test_program_split_renders():
+    out = _render(C.program_split("clip.mov", "clip_out.mp4",
+                                  [("LUT", "Hollywood")], fit="contain"))
+    assert "clip.mov" in out and "Hollywood" in out and "9:16" in out
+
+
+def test_settings_preview_has_program_viewer():
+    cfg = EncodeConfig(input="clip.mov", lut="on", loudnorm="on")
+    out = _render(C.settings_preview(cfg))
+    assert "FFmpeg Native" in out
+    assert "9:16" in out
+
+
 def test_delivery_seal_unknown_renders():
     checks = [
         ("Loudness", "—", None),

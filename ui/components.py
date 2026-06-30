@@ -78,22 +78,110 @@ def tab_bar(sections: Sequence[str], active: int, console=None) -> RenderableTyp
 # ──────────────────────────────────────────────────────────────────────────────
 # Panels
 # ──────────────────────────────────────────────────────────────────────────────
+def _aspect_frame(fit: str = "contain", console=None) -> RenderableType:
+    """A 9:16 'Program monitor' frame that visualises the framing (``fit``).
+
+    Target is the canonical Instagram Reels canvas (1080x1920, 9:16). ``contain``
+    draws letterbox bars (the whole source fits, bars top/bottom); ``cover`` fills
+    the frame edge-to-edge with corner crop markers. The char grid is sized so it
+    *looks* 9:16 despite ~2:1 terminal cells. Glyphs downgrade to ASCII on legacy
+    consoles.
+    """
+    g = _g(console)
+    w = 16  # inner width in chars
+
+    def line(text: str = "", style: str = "value") -> Text:
+        return Text(text.center(w), style=style)
+
+    if fit == "cover":
+        edge = g["block_full"]
+        mark = g["bullet"]
+
+        def framed(inner_text: str = "", inner_style: str = "value") -> Text:
+            t = Text()
+            t.append(edge, style="accent")
+            t.append(inner_text.center(w - 2), style=inner_style)
+            t.append(edge, style="accent")
+            return t
+
+        crop = Text()
+        crop.append(edge, style="accent")
+        mid = (" " + mark).ljust(w - 3) + mark + " "
+        crop.append(mid[: w - 2], style="warn")
+        crop.append(edge, style="accent")
+        rows = [
+            crop,
+            framed(),
+            framed("9:16", "value"),
+            framed("1080 x 1920", "info"),
+            framed(),
+            framed("cover", "accent"),
+            framed("preenche · crop", "muted"),
+            framed(),
+            crop,
+        ]
+    else:  # contain
+        bar = Text(g["block_empty"] * w, style="muted")
+        rows = [
+            bar,
+            bar,
+            line(""),
+            line("9:16", "value"),
+            line("1080 x 1920", "info"),
+            line(""),
+            line("contain", "accent"),
+            line("ajusta", "muted"),
+            line(""),
+            bar,
+            bar,
+        ]
+
+    return Panel(Group(*rows), border_style="panel.border", box=PANEL_BOX,
+                 padding=(0, 1), width=w + 4)
+
+
 def program_panel(
     source: str,
     output: Optional[str],
     meta: Optional[Sequence[str]] = None,
+    fit: str = "contain",
     console=None,
 ) -> RenderableType:
-    """The 'Program' monitor: source/output and a 9:16 target placeholder."""
+    """The 'Program' monitor: a 9:16 framing preview plus source/output rows."""
     body = Table.grid(padding=(0, 1))
     body.add_column(style="label", justify="right")
     body.add_column(style="value")
     body.add_row("in", source or "—")
     body.add_row("out", output or "—")
-    for line in meta or []:
-        body.add_row("", Text(line, style="muted"))
-    return Panel(body, title="PROGRAM", title_align="left",
+    for ln in meta or []:
+        body.add_row("", Text(ln, style="muted"))
+    inner = Group(_aspect_frame(fit, console=console), body)
+    return Panel(inner, title="PROGRAM", title_align="left",
                  border_style="panel.border", box=PANEL_BOX, padding=(1, 2))
+
+
+def program_split(
+    source: str,
+    output: Optional[str],
+    prop_rows: Sequence[tuple],
+    fit: str = "contain",
+    meta: Optional[Sequence[str]] = None,
+    prop_title: str = "EXPORT SETTINGS",
+    console=None,
+) -> RenderableType:
+    """Premiere-style split: the 9:16 Program monitor (left) + Properties (right).
+
+    Mirrors the dashboard's two-column ``Table.grid(expand=True)`` pattern: the
+    viewer takes its natural width on the left, the properties card stretches.
+    """
+    split = Table.grid(expand=True, padding=(0, 1))
+    split.add_column(justify="left")
+    split.add_column(ratio=1)
+    split.add_row(
+        program_panel(source, output, meta=meta, fit=fit, console=console),
+        properties_panel(prop_rows, title=prop_title, console=console),
+    )
+    return split
 
 
 def properties_panel(rows: Sequence[tuple], title: str = "PROPERTIES",
@@ -202,7 +290,7 @@ def settings_preview(config, console=None) -> RenderableType:
     out = _short_path(out_full) if out_full else None
 
     inner = Group(
-        properties_panel(rows, title="EXPORT SETTINGS", console=console),
+        program_split(src, out, rows, fit=config.fit, console=console),
         Align.left(quality_row(chips, console=console)),
     )
     return info_card(f"PREVIEW · {src} → {out or '(batch)'}", inner,
