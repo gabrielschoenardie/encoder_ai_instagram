@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import theme
+from .aspect import classify_aspect, orientation_of
 from .theme import GRID_BOX, PANEL_BOX, glyphs
 
 
@@ -78,20 +79,41 @@ def tab_bar(sections: Sequence[str], active: int, console=None) -> RenderableTyp
 # ──────────────────────────────────────────────────────────────────────────────
 # Panels
 # ──────────────────────────────────────────────────────────────────────────────
-def _aspect_frame(fit: str = "contain", console=None) -> RenderableType:
-    """A 9:16 'Program monitor' frame that visualises the framing (``fit``).
+def _aspect_frame(fit: str = "contain", aspect: str = "9:16",
+                  dims: str = "1080 x 1920", orientation: str = "portrait",
+                  console=None) -> RenderableType:
+    """A 'Program monitor' frame that visualises the source aspect + framing.
 
-    Target is the canonical Instagram Reels canvas (1080x1920, 9:16). ``contain``
-    draws letterbox bars (the whole source fits, bars top/bottom); ``cover`` fills
-    the frame edge-to-edge with corner crop markers. The char grid is sized so it
-    *looks* 9:16 despite ~2:1 terminal cells. Glyphs downgrade to ASCII on legacy
-    consoles.
+    The frame's char grid adapts to ``orientation`` so it *looks* the right
+    shape despite ~2:1 terminal cells: portrait → a tall narrow frame, landscape
+    → a wide short frame, square → medium. ``contain`` draws letterbox bars (the
+    whole source fits, bars top/bottom); ``cover`` fills the frame edge-to-edge
+    with corner crop markers. ``aspect``/``dims`` label the source. Glyphs
+    downgrade to ASCII on legacy consoles.
     """
     g = _g(console)
-    w = 16  # inner width in chars
+
+    # Inner width (chars) + count of decorative bars/edge rows, picked so the
+    # rendered panel reads as the right shape on a ~2:1 cell grid.
+    if orientation == "landscape":
+        w, bars = 28, 1
+    elif orientation == "square":
+        w, bars = 18, 1
+    else:  # portrait (default)
+        w, bars = 16, 2
 
     def line(text: str = "", style: str = "value") -> Text:
         return Text(text.center(w), style=style)
+
+    labels = [
+        ("", "value"),
+        (aspect, "value"),
+        (dims, "info"),
+        ("", "value"),
+        (fit, "accent"),
+        ("preenche · crop" if fit == "cover" else "ajusta", "muted"),
+        ("", "value"),
+    ]
 
     if fit == "cover":
         edge = g["block_full"]
@@ -109,32 +131,14 @@ def _aspect_frame(fit: str = "contain", console=None) -> RenderableType:
         mid = (" " + mark).ljust(w - 3) + mark + " "
         crop.append(mid[: w - 2], style="warn")
         crop.append(edge, style="accent")
-        rows = [
-            crop,
-            framed(),
-            framed("9:16", "value"),
-            framed("1080 x 1920", "info"),
-            framed(),
-            framed("cover", "accent"),
-            framed("preenche · crop", "muted"),
-            framed(),
-            crop,
-        ]
+        rows = [crop] * bars
+        rows += [framed(t, s) for (t, s) in labels]
+        rows += [crop] * bars
     else:  # contain
         bar = Text(g["block_empty"] * w, style="muted")
-        rows = [
-            bar,
-            bar,
-            line(""),
-            line("9:16", "value"),
-            line("1080 x 1920", "info"),
-            line(""),
-            line("contain", "accent"),
-            line("ajusta", "muted"),
-            line(""),
-            bar,
-            bar,
-        ]
+        rows = [bar] * bars
+        rows += [line(t, s) for (t, s) in labels]
+        rows += [bar] * bars
 
     return Panel(Group(*rows), border_style="panel.border", box=PANEL_BOX,
                  padding=(0, 1), width=w + 4)
@@ -145,9 +149,26 @@ def program_panel(
     output: Optional[str],
     meta: Optional[Sequence[str]] = None,
     fit: str = "contain",
+    src_dims: Optional[tuple] = None,
     console=None,
 ) -> RenderableType:
-    """The 'Program' monitor: a 9:16 framing preview plus source/output rows."""
+    """The 'Program' monitor: a framing preview plus source/output rows.
+
+    When ``src_dims=(w, h)`` (rotation-corrected effective dims) is given, the
+    framing preview reflects the *real* source aspect/orientation; otherwise it
+    falls back to the canonical Reels target (9:16, 1080x1920, portrait).
+    """
+    if src_dims and len(src_dims) == 2:
+        sw, sh = int(src_dims[0]), int(src_dims[1])
+        frame = _aspect_frame(
+            fit,
+            aspect=classify_aspect(sw, sh),
+            dims=f"{sw} x {sh}",
+            orientation=orientation_of(sw, sh),
+            console=console,
+        )
+    else:
+        frame = _aspect_frame(fit, console=console)
     body = Table.grid(padding=(0, 1))
     body.add_column(style="label", justify="right")
     body.add_column(style="value")
@@ -155,7 +176,7 @@ def program_panel(
     body.add_row("out", output or "—")
     for ln in meta or []:
         body.add_row("", Text(ln, style="muted"))
-    inner = Group(_aspect_frame(fit, console=console), body)
+    inner = Group(frame, body)
     return Panel(inner, title="PROGRAM", title_align="left",
                  border_style="panel.border", box=PANEL_BOX, padding=(1, 2))
 
@@ -167,6 +188,7 @@ def program_split(
     fit: str = "contain",
     meta: Optional[Sequence[str]] = None,
     prop_title: str = "EXPORT SETTINGS",
+    src_dims: Optional[tuple] = None,
     console=None,
 ) -> RenderableType:
     """Premiere-style split: the 9:16 Program monitor (left) + Properties (right).
@@ -178,7 +200,8 @@ def program_split(
     split.add_column(justify="left")
     split.add_column(ratio=1)
     split.add_row(
-        program_panel(source, output, meta=meta, fit=fit, console=console),
+        program_panel(source, output, meta=meta, fit=fit, src_dims=src_dims,
+                      console=console),
         properties_panel(prop_rows, title=prop_title, console=console),
     )
     return split
@@ -254,7 +277,7 @@ def notification(message: str, level: str = "info", console=None) -> RenderableT
 # ──────────────────────────────────────────────────────────────────────────────
 # Settings preview (shown before encode)
 # ──────────────────────────────────────────────────────────────────────────────
-def settings_preview(config, console=None) -> RenderableType:
+def settings_preview(config, src_dims=None, console=None) -> RenderableType:
     """Compose a full pre-encode preview from an EncodeConfig.
 
     Accepts the EncodeConfig (or anything with the same attributes). Builds a
@@ -290,7 +313,8 @@ def settings_preview(config, console=None) -> RenderableType:
     out = _short_path(out_full) if out_full else None
 
     inner = Group(
-        program_split(src, out, rows, fit=config.fit, console=console),
+        program_split(src, out, rows, fit=config.fit, src_dims=src_dims,
+                      console=console),
         Align.left(quality_row(chips, console=console)),
     )
     return info_card(f"PREVIEW · {src} → {out or '(batch)'}", inner,

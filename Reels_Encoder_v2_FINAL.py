@@ -157,6 +157,13 @@ try:
 except Exception:
     console = Console()
 
+# Source-aspect describer (rotation-corrected). Guarded + additive: surfaces the
+# real source aspect before encoding without touching any target logic.
+try:
+    from ui.aspect import describe_aspect as _describe_source_aspect
+except Exception:
+    _describe_source_aspect = None
+
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
 # =============================================================================
@@ -2434,6 +2441,17 @@ def run_ffmpeg(
         console.print("[dim]📱 Sem rotação de metadados detectada[/dim]")
         scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe, fit=fit)
 
+    # Source aspect surfacing (guarded, additive — covers CRF and 2pass, which
+    # split after this convergence point). Mode A: native orientation preserved.
+    if _describe_source_aspect is not None and target_resolution:
+        try:
+            console.print(
+                f"[bold cyan]🎬 Fonte: {_describe_source_aspect(_probe.width, _probe.height, _probe.rotation)}"
+                f" → alvo {target_resolution[0]}×{target_resolution[1]}[/bold cyan]"
+            )
+        except Exception:
+            pass
+
     # HDR detection
     is_hdr = False
     if hdr_mode == "auto":
@@ -3028,6 +3046,17 @@ def run_ffmpeg_with_cineon(
 
     # Resolução e downscale (probe já tem as dimensões efetivas pós-rotação)
     scale_filter, target_resolution = _resolve_output_size(input_file, scale_mode, probe=_probe, fit=fit)
+
+    # Source aspect surfacing (guarded, additive). Mode A: native orientation
+    # preserved — no target logic changed.
+    if _describe_source_aspect is not None and target_resolution:
+        try:
+            console.print(
+                f"[bold cyan]🎬 Fonte: {_describe_source_aspect(_probe.width, _probe.height, _probe.rotation)}"
+                f" → alvo {target_resolution[0]}×{target_resolution[1]}[/bold cyan]"
+            )
+        except Exception:
+            pass
 
     # Duração e VBV
     duration = _probe.duration

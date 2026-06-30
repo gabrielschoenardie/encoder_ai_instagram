@@ -24,6 +24,7 @@ from rich.prompt import Confirm
 
 from . import components as C
 from .config import EncodeConfig
+from .probe import probe_source_dims
 from .prompts import (
     ask_choice,
     ask_folder,
@@ -77,7 +78,10 @@ def _run_launcher(con) -> Optional[argparse.Namespace]:
 
     # Preview → confirm loop
     while True:
-        con.print(C.settings_preview(cfg, console=con))
+        # Best-effort source-aspect probe (None for batch or any failure) so the
+        # Program viewer can reflect the real source orientation.
+        src_dims = probe_source_dims(cfg.input) if cfg.input else None
+        con.print(C.settings_preview(cfg, src_dims=src_dims, console=con))
         if Confirm.ask("[primary]Iniciar encode com estas configurações?[/primary]",
                        default=True, console=con):
             return cfg.to_namespace()

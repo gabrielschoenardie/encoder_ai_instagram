@@ -146,6 +146,24 @@ def test_settings_preview_has_program_viewer():
     assert "9:16" in out
 
 
+def test_program_panel_reflects_16_9_source():
+    out = _render(C.program_panel("c.mov", "o.mp4", src_dims=(1920, 1080)))
+    assert "16:9" in out
+    assert "1920 x 1080" in out
+
+
+def test_program_panel_reflects_9_16_source():
+    out = _render(C.program_panel("c.mov", "o.mp4", src_dims=(1080, 1920)))
+    assert "9:16" in out
+    assert "1080 x 1920" in out
+
+
+def test_settings_preview_reflects_16_9_source():
+    cfg = EncodeConfig(input="clip.mov", lut="on", loudnorm="on")
+    out = _render(C.settings_preview(cfg, src_dims=(1920, 1080)))
+    assert "16:9" in out
+
+
 def test_delivery_seal_unknown_renders():
     checks = [
         ("Loudness", "—", None),
