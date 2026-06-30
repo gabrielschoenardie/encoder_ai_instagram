@@ -1,0 +1,18 @@
+# requirements.txt — dependências de scripts/analyze_source.py
+#
+# Instalação:
+#   pip install -r scripts/requirements.txt
+#
+# Nota: estas bibliotecas já fazem parte do stack do Reels_Encoder_v2_FINAL.py.
+# Se o encoder estiver funcionando, analyze_source.py já tem todas as dependências.
+#
+# Verificar instalação:
+#   python -c "import av, cv2, numpy, colour, rich; print('OK')"
+
+av>=10.0.0          # PyAV — extração de frames via FFmpeg bindings
+opencv-python>=4.8  # feature extraction (Laplacian, Farneback, YCrCb)
+numpy>=1.24         # arrays float32, operações vetorizadas
+colour-science>=0.4 # pipeline Cineon Mode (DWG transform, gamut mapping, tone mapping)
+bm3d>=1.0.0         # denoise BM3D no enhance/ package (Cineon Mode)
+scipy>=1.11         # RPDF dithering e operações de sinal no Cineon Mode
+rich>=13.0          # terminal report (opcional — fallback para JSON se ausente)
