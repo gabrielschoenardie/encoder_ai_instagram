@@ -6,6 +6,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.8", "3.9", "3.10"]
     steps:
@@ -19,5 +20,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install pylint
     - name: Analysing the code with pylint
+      # import-error is pure CI noise here: this job installs only pylint (not the
+      # project's third-party deps), so every external import would otherwise raise
+      # E0401 (weighted 5x) and sink the score. fail-fast:false lets each Python
+      # version report independently instead of one cancelling the others.
       run: |
-        pylint $(git ls-files '*.py') --fail-under=8.0
+        pylint $(git ls-files '*.py') --fail-under=8.0 --disable=import-error
