@@ -22,6 +22,18 @@ def test_banner_renders():
     assert _render(C.banner("REELS ENCODER", "Premiere")).strip()
 
 
+def test_gradient_text_preserves_content():
+    out = _render(C.gradient_text("REELS"))
+    assert "REELS" in out
+
+
+def test_banner_shows_title_and_subtitle():
+    out = _render(C.banner("REELS ENCODER", "Premiere Workspace"))
+    flat = out.replace(" ", "")
+    assert "REELS" in flat and "ENCODER" in flat
+    assert "Premiere" in out
+
+
 def test_tab_bar_marks_active():
     out = _render(C.tab_bar(["Source", "Color", "Audio"], active=1))
     assert "Color" in out and "Source" in out

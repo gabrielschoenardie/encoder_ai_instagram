@@ -51,15 +51,54 @@ def _short_path(p: str, limit: int = 30) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Header / tabs
 # ──────────────────────────────────────────────────────────────────────────────
+def _lerp_hex(a: str, b: str, t: float) -> str:
+    """Linear interpolate two '#rrggbb' colours; returns '#rrggbb'."""
+    ar, ag, ab = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
+    br, bg, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
+    r = round(ar + (br - ar) * t)
+    g = round(ag + (bg - ag) * t)
+    bl = round(ab + (bb - ab) * t)
+    return f"#{r:02x}{g:02x}{bl:02x}"
+
+
+def gradient_text(text: str, start: Optional[str] = None, end: Optional[str] = None,
+                  bold: bool = True, console=None) -> Text:
+    """Per-character colour gradient (default indigo→violet). Spaces preserved,
+    ramp computed over visible characters only. Truecolour degrades gracefully."""
+    start = start or theme.PALETTE["indigo"]
+    end = end or theme.PALETTE["violet"]
+    out = Text()
+    n = max(len([c for c in text if not c.isspace()]) - 1, 1)
+    i = 0
+    for ch in text:
+        if ch.isspace():
+            out.append(ch)
+            continue
+        col = _lerp_hex(start, end, i / n)
+        out.append(ch, style=f"bold {col}" if bold else col)
+        i += 1
+    return out
+
+
 def banner(title: str, subtitle: str = "", console=None) -> RenderableType:
-    """Top brand banner."""
+    """Bold branded studio-vignette header.
+
+    A DOUBLE-box slate spanning the console width: film-glyph bookends around a
+    letter-spaced title in an indigo→violet per-character gradient, a gradient
+    block bar, and a centered muted subtitle. ASCII/truecolour safe.
+    """
     g = _g(console)
+    spaced = " ".join(title)  # letter-spacing (e.g. "R E E L S   E N C O D E R")
     head = Text()
-    head.append(f"{g['film']} ", style="accent")
-    head.append(title, style="primary")
+    head.append(f"{g['film']}   ", style="accent")
+    head.append_text(gradient_text(spaced, console=console))
+    head.append(f"   {g['film']}", style="accent")
+    bar = gradient_text(g["block_full"] * 28, console=console)
+    parts = [Align.center(head), Align.center(bar)]
     if subtitle:
-        head.append(f"   {subtitle}", style="muted")
-    return Panel(head, box=PANEL_BOX, border_style="panel.border", padding=(0, 1))
+        parts.append(Align.center(Text(subtitle, style="muted")))
+    return Panel(Group(*parts), box=theme.HEAVY_BOX,
+                 border_style="panel.border", padding=(1, 2))
 
 
 def tab_bar(sections: Sequence[str], active: int, console=None) -> RenderableType:
