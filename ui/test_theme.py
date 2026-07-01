@@ -51,3 +51,26 @@ def test_glyphs_ascii_fallback_on_legacy_windows():
 
     g = glyphs(_FakeConsole())  # type: ignore[arg-type]
     assert g["warn"] == "!"
+
+
+def test_theme_has_dim_variants():
+    for name in ("accent.dim", "info.dim", "value.dim"):
+        assert THEME.styles.get(name) is not None, f"missing style: {name}"
+
+
+def test_idle_glyphs_wired_unicode_and_ascii():
+    """The now-wired glyphs must resolve to Unicode on a utf console and
+    downgrade to their ASCII forms on a non-utf (cp1252) console."""
+    u = glyphs(Console())
+    assert u["tab_l"] == "▎"
+    assert u["audio"] == "🎧"
+    assert u["spark"] == "✨"
+
+    class _FakeConsole:
+        legacy_windows = False
+        encoding = "cp1252"
+
+    a = glyphs(_FakeConsole())  # type: ignore[arg-type]
+    assert a["tab_l"] == "|"
+    assert a["audio"] == "[A]"
+    assert a["spark"] == "*"

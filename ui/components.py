@@ -68,7 +68,7 @@ def tab_bar(sections: Sequence[str], active: int, console=None) -> RenderableTyp
     line = Text()
     for i, name in enumerate(sections):
         if i == active:
-            line.append(f" {name} ", style="tab.active")
+            line.append(f" {g['tab_l']} {name} ", style="tab.active")
         else:
             line.append(f" {name} ", style="tab.inactive")
         if i != len(sections) - 1:
@@ -283,7 +283,7 @@ def job_strip(source: str, output: Optional[str] = None,
         try:
             sw, sh = int(src_dims[0]), int(src_dims[1])
             if sw > 0 and sh > 0:
-                line.append(f"   ·  {classify_aspect(sw, sh)} {sw}×{sh}", style="muted")
+                line.append(f"   ·  {classify_aspect(sw, sh)} {sw}×{sh}", style="info.dim")
         except (TypeError, ValueError):
             pass
     return Panel(line, box=GRID_BOX, border_style="panel.border", padding=(0, 1))
@@ -330,6 +330,7 @@ def settings_preview(config, src_dims=None, console=None) -> RenderableType:
     Accepts the EncodeConfig (or anything with the same attributes). Builds a
     Premiere-style card: properties + a quality/feature chip row.
     """
+    g = _g(console)
     pipeline = "Cineon Film" if config.cineon_pipeline == "on" else "FFmpeg Native"
     rows = [
         ("Pipeline", pipeline),
@@ -339,7 +340,7 @@ def settings_preview(config, src_dims=None, console=None) -> RenderableType:
         ("LUT", "Hollywood" if config.lut == "on" else "off"),
         ("HDR", config.hdr),
         ("Tonemap", config.tonemap),
-        ("Audio", f"loudnorm {config.loudnorm} · −14 LUFS"),
+        (f"{g['audio']} Audio", f"loudnorm {config.loudnorm} · −14 LUFS"),
         ("Performance", config.performance),
     ]
     if config.cineon_pipeline == "on":
@@ -347,9 +348,9 @@ def settings_preview(config, src_dims=None, console=None) -> RenderableType:
 
     chips = [
         quality_chip("LUT", config.lut == "on", console),
-        quality_chip("Loudnorm", config.loudnorm == "on", console),
+        quality_chip(f"{g['audio']} Loudnorm", config.loudnorm == "on", console),
         quality_chip("Enhance", config.enhance == "on", console),
-        quality_chip("AI", config.enhance_ai == "on", console),
+        quality_chip(f"{g['spark']} AI", config.enhance_ai == "on", console),
         quality_chip("Dither", config.dither != "off", console),
         quality_chip("EBU Meter", config.ebu_meter == "on", console),
     ]
