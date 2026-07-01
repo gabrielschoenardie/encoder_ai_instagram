@@ -198,3 +198,14 @@ def test_job_strip_shows_source_and_output():
 def test_job_strip_without_output_renders():
     out = _render(C.job_strip("clip.mov"))
     assert "clip.mov" in out
+
+
+def test_tab_bar_active_has_marker():
+    out = _render(C.tab_bar(["Source", "Color", "Audio"], active=1))
+    assert "▎" in out  # active-tab marker glyph (utf console)
+
+
+def test_settings_preview_keeps_labels_with_glyphs():
+    cfg = EncodeConfig(input="clip.mov", loudnorm="on", enhance="on", enhance_ai="on")
+    out = _render(C.settings_preview(cfg))
+    assert "Audio" in out and "Loudnorm" in out and "AI" in out

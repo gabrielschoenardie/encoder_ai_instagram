@@ -52,6 +52,10 @@ THEME = Theme(
         "label":         PALETTE["muted"],
         "value":         f"bold {PALETTE['text']}",
         "seal":          f"bold {PALETTE['gold']}",
+        # dim colour-accent variants for secondary coloured text
+        "accent.dim":    f"dim {PALETTE['violet']}",
+        "info.dim":      f"dim {PALETTE['cyan']}",
+        "value.dim":     f"dim {PALETTE['text']}",
         # tab bar
         "tab.active":    f"bold {PALETTE['ink']} on {PALETTE['indigo']}",
         "tab.inactive":  PALETTE["muted"],
