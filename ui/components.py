@@ -81,7 +81,7 @@ def tab_bar(sections: Sequence[str], active: int, console=None) -> RenderableTyp
 # ──────────────────────────────────────────────────────────────────────────────
 def _aspect_frame(fit: str = "contain", aspect: str = "9:16",
                   dims: str = "1080 x 1920", orientation: str = "portrait",
-                  console=None) -> RenderableType:
+                  title: Optional[str] = None, console=None) -> RenderableType:
     """A 'Program monitor' frame that visualises the source aspect + framing.
 
     The frame's char grid adapts to ``orientation`` so it *looks* the right
@@ -140,8 +140,30 @@ def _aspect_frame(fit: str = "contain", aspect: str = "9:16",
         rows += [line(t, s) for (t, s) in labels]
         rows += [bar] * bars
 
-    return Panel(Group(*rows), border_style="panel.border", box=PANEL_BOX,
+    return Panel(Group(*rows), title=title, title_align="left",
+                 border_style="panel.border", box=PANEL_BOX,
                  padding=(0, 1), width=w + 4)
+
+
+def viewer_frame(fit: str = "contain", src_dims: Optional[tuple] = None,
+                 title: str = "PROGRAM", console=None) -> RenderableType:
+    """The bare 9:16 Program monitor (framing preview), titled for standalone use.
+
+    Reflects the real source aspect/orientation when ``src_dims=(w, h)`` (effective
+    dims) is given; else falls back to the canonical Reels target (9:16 portrait).
+    Reused by the live dashboard to show what is being encoded.
+    """
+    if src_dims and len(src_dims) == 2:
+        try:
+            sw, sh = int(src_dims[0]), int(src_dims[1])
+            if sw > 0 and sh > 0:
+                return _aspect_frame(fit, aspect=classify_aspect(sw, sh),
+                                     dims=f"{sw} x {sh}",
+                                     orientation=orientation_of(sw, sh),
+                                     title=title, console=console)
+        except (TypeError, ValueError):
+            pass
+    return _aspect_frame(fit, title=title, console=console)
 
 
 def program_panel(

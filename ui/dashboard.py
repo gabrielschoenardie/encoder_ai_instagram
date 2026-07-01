@@ -143,22 +143,38 @@ class EncodeDashboard:
         return Panel(grid, title="PERFORMANCE", title_align="left",
                      border_style="panel.border", box=PANEL_BOX, padding=(1, 2))
 
+    def _viewer(self) -> Optional[RenderableType]:
+        if not self.src_dims:
+            return None
+        try:
+            return C.viewer_frame(self.fit, src_dims=self.src_dims, console=self.console)
+        except Exception:
+            return None
+
     def render(self) -> RenderableType:
         g = self._glyphs
         header = Panel(self._progress_bar(), title=f"{g['film']} {self.title}",
                        title_align="left", border_style="accent",
                        box=PANEL_BOX, padding=(0, 2))
+        viewer = self._viewer()
         cols = Table.grid(expand=True)
-        cols.add_column(ratio=1)
-        cols.add_column(ratio=1)
-        cols.add_row(self._metrics_panel(), self._perf_panel())
+        if viewer is not None:
+            cols.add_column(justify="left")   # viewer: natural width
+            cols.add_column(ratio=1)          # timeline
+            cols.add_column(ratio=1)          # performance
+            cols.add_row(viewer, self._metrics_panel(), self._perf_panel())
+        else:
+            cols.add_column(ratio=1)
+            cols.add_column(ratio=1)
+            cols.add_row(self._metrics_panel(), self._perf_panel())
         log_lines = list(self.log_sink) if self.log_sink else []
         log = C.log_panel(log_lines, title="LOG", max_lines=5, console=self.console)
+        parts = []
         if self.source:
-            strip = C.job_strip(self.source, self.output, src_dims=self.src_dims,
-                                console=self.console)
-            return Group(strip, header, cols, log)
-        return Group(header, cols, log)
+            parts.append(C.job_strip(self.source, self.output, src_dims=self.src_dims,
+                                     console=self.console))
+        parts.extend([header, cols, log])
+        return Group(*parts)
 
 
 def make_dashboard(total_frames: int, fps: int = 30,
