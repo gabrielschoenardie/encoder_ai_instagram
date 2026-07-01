@@ -575,10 +575,10 @@ def run_post_encode_qc(
     # O selo certifica o master completo: CONTAINER/VIDEO (do arquivo final) +
     # ÁUDIO (loudness/codec da auditoria EBU acima).
     try:
-        from ui.components import delivery_seal
+        from ui.components import play_delivery_seal
         video_checks = build_video_checks(probe_video_info(output_file))
         audio_checks = build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
-        console.print(delivery_seal(video_checks + audio_checks, console=console))
+        play_delivery_seal(video_checks + audio_checks, console=console)
     except Exception:
         pass
 

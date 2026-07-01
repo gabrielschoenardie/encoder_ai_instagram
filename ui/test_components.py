@@ -130,6 +130,32 @@ def test_delivery_seal_review():
     assert "REVISAR" in out.replace(" ", "")
 
 
+def test_seal_reveal_frame_progresses():
+    checks = [("Loudness", "-14.0 LUFS", True), ("True Peak", "-1.5 dBTP", True)]
+    for prog in (0.0, 0.5, 1.0):
+        out = _render(C._seal_reveal_frame(checks, prog))
+        assert "MASTER QC" in out
+    # fully revealed ready frame shows the letter-spaced seal
+    full = _render(C._seal_reveal_frame(checks, 1.0))
+    assert "DELIVERY" in full.replace(" ", "")
+
+
+def test_seal_reveal_frame_review_state():
+    checks = [("Loudness", "-9.0 LUFS", False)]
+    out = _render(C._seal_reveal_frame(checks, 1.0))
+    assert "REVISAR" in out.replace(" ", "")
+
+
+def test_play_delivery_seal_non_interactive_static():
+    # A record console is non-interactive → static card, deterministic (no sleeps).
+    checks = [("Loudness", "-14.0 LUFS", True), ("True Peak", "-1.5 dBTP", True)]
+    con = get_console(record=True, width=80)
+    C.play_delivery_seal(checks, console=con)
+    out = con.export_text()
+    assert "MASTER QC" in out
+    assert "DELIVERY" in out.replace(" ", "")
+
+
 def test_aspect_frame_contain_vs_cover():
     c = _render(C._aspect_frame("contain"))
     v = _render(C._aspect_frame("cover"))
