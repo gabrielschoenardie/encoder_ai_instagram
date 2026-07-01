@@ -394,6 +394,25 @@ def settings_preview(config, src_dims=None, console=None) -> RenderableType:
 # ──────────────────────────────────────────────────────────────────────────────
 # Delivery seal (post-encode QC certificate)
 # ──────────────────────────────────────────────────────────────────────────────
+def _checks_grid(checks, console=None):
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column()
+    grid.add_column()
+    cells = []
+    for label, value, passed in checks:
+        chip = quality_chip(label, passed, console=console)
+        cell = Text()
+        cell.append_text(chip)
+        cell.append("  ")
+        cell.append(str(value), style="value")
+        cells.append(cell)
+    for i in range(0, len(cells), 2):
+        left = cells[i]
+        right = cells[i + 1] if i + 1 < len(cells) else Text("")
+        grid.add_row(left, right)
+    return grid
+
+
 def delivery_seal(checks, *, ready=None, console=None) -> RenderableType:
     """Hollywood-style 'delivery seal' QC card certifying the final audio.
 
@@ -410,23 +429,7 @@ def delivery_seal(checks, *, ready=None, console=None) -> RenderableType:
     if ready is None:
         ready = not any(p is False for (_, _, p) in checks)
 
-    grid = Table.grid(padding=(0, 3))
-    grid.add_column()
-    grid.add_column()
-
-    cells = []
-    for label, value, passed in checks:
-        chip = quality_chip(label, passed, console=console)
-        cell = Text()
-        cell.append_text(chip)
-        cell.append("  ")
-        cell.append(str(value), style="value")
-        cells.append(cell)
-
-    for i in range(0, len(cells), 2):
-        left = cells[i]
-        right = cells[i + 1] if i + 1 < len(cells) else Text("")
-        grid.add_row(left, right)
+    grid = _checks_grid(checks, console=console)
 
     rule_style = "seal" if ready else "warn"
     if ready:
@@ -444,3 +447,76 @@ def delivery_seal(checks, *, ready=None, console=None) -> RenderableType:
     return Panel(inner, title="MASTER QC", title_align="left",
                  border_style="seal" if ready else "warn",
                  box=theme.HEAVY_BOX, padding=(1, 2))
+
+
+def _seal_reveal_frame(checks, progress, *, ready=None, console=None) -> RenderableType:
+    """One frame of the delivery-seal reveal (progress in [0,1]).
+
+    The checks grid is fixed; the bottom seal line is progressively typed and
+    fades accent.dim → seal (gold), with a ✨ at the leading edge while revealing.
+    Pure — no sleeps. Used by ``play_delivery_seal``.
+    """
+    g = _g(console)
+    checks = list(checks)
+    if ready is None:
+        ready = not any(p is False for (_, _, p) in checks)
+    grid = _checks_grid(checks, console=console)
+    if ready:
+        full = f"{g['star']}  D E L I V E R Y   R E A D Y  {g['star']}"
+    else:
+        full = f"{g['warn']}  R E V I S A R   E N T R E G A  {g['warn']}"
+    p = min(max(float(progress), 0.0), 1.0)
+    k = max(0, min(len(full), int(round(p * len(full)))))
+    if not ready:
+        style = "warn"
+    elif p >= 0.5:
+        style = "seal"
+    else:
+        style = "accent.dim"
+    line = Text()
+    line.append(full[:k], style=style)
+    if ready and 0.0 < p < 1.0:
+        line.append(f" {g['spark']}", style="seal")
+    rule_style = "seal" if ready else "warn"
+    inner = Group(grid, Rule(style=rule_style), Align.center(line))
+    return Panel(inner, title="MASTER QC", title_align="left",
+                 border_style="seal" if ready else "warn",
+                 box=theme.HEAVY_BOX, padding=(1, 2))
+
+
+def play_delivery_seal(checks, *, ready=None, console=None, duration: float = 1.2) -> None:
+    """Render the delivery seal. On an interactive terminal, play a ~1.2s reveal
+    (transient) then leave the static card; otherwise just print the static card.
+    Never raises — degrades to the static print on any failure.
+    """
+    checks = list(checks)
+    if console is None:
+        from .theme import get_console
+        console = get_console()
+    static = delivery_seal(checks, ready=ready, console=console)
+    interactive = False
+    try:
+        interactive = (bool(getattr(console, "is_terminal", False))
+                       and not getattr(console, "is_dumb_terminal", False))
+    except Exception:
+        interactive = False
+    if not interactive:
+        console.print(static)
+        return
+    try:
+        import time
+        from rich.live import Live
+        steps = 24
+        interval = max(float(duration), 0.1) / steps
+        with Live(_seal_reveal_frame(checks, 0.0, ready=ready, console=console),
+                  console=console, transient=True, refresh_per_second=30) as live:
+            for i in range(1, steps + 1):
+                time.sleep(interval)
+                live.update(_seal_reveal_frame(checks, i / steps, ready=ready,
+                                               console=console))
+        console.print(static)
+    except Exception:
+        try:
+            console.print(static)
+        except Exception:
+            pass
