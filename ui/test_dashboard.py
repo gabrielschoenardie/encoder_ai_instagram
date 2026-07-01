@@ -72,3 +72,20 @@ def test_dashboard_shows_job_identity():
 def test_dashboard_without_job_identity_still_renders():
     out = _render(make_dashboard(100))
     assert "TIMELINE" in out and "PERFORMANCE" in out
+
+
+def test_dashboard_shows_live_viewer():
+    dash = make_dashboard(200, fps=30, source="in.mov", output="out.mp4",
+                          src_dims=(1080, 1920), fit="contain")
+    con = get_console(record=True, width=100)
+    con.print(dash.render())
+    out = con.export_text()
+    assert "PROGRAM" in out and "9:16" in out
+    assert "TIMELINE" in out and "PERFORMANCE" in out
+
+
+def test_dashboard_no_srcdims_uses_two_col():
+    # No src_dims → no viewer column, unchanged 2-col layout.
+    out = _render(make_dashboard(100))
+    assert "TIMELINE" in out and "PERFORMANCE" in out
+    assert "PROGRAM" not in out

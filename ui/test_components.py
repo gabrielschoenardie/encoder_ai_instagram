@@ -32,6 +32,18 @@ def test_program_panel_renders():
     assert "in.mov" in out and "out.mp4" in out
 
 
+def test_viewer_frame_portrait_and_landscape():
+    p = _render(C.viewer_frame("contain", src_dims=(1080, 1920)))
+    l = _render(C.viewer_frame("cover", src_dims=(1920, 1080)))
+    assert "PROGRAM" in p and "9:16" in p
+    assert "PROGRAM" in l and "16:9" in l
+
+
+def test_viewer_frame_fallback_without_dims():
+    out = _render(C.viewer_frame())
+    assert "9:16" in out
+
+
 def test_properties_panel_renders():
     out = _render(C.properties_panel([("Resolution", "1080x1920"), ("LUT", "Hollywood")]))
     assert "Resolution" in out and "Hollywood" in out
