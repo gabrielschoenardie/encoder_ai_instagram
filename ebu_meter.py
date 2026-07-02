@@ -33,6 +33,13 @@ import subprocess
 import sys
 from typing import Optional
 
+try:
+    from ui.binaries import FFMPEG, FFPROBE, FFPLAY, available as _bin_available
+    _FFPLAY_OK = _bin_available("ffplay")
+except Exception:
+    FFMPEG, FFPROBE, FFPLAY = "ffmpeg", "ffprobe", "ffplay"
+    _FFPLAY_OK = shutil.which("ffplay") is not None
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Pure builders / parsers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -44,7 +51,7 @@ def build_ebur128_measure_cmd(input_file: str) -> list:
     impresso no stderr ao final.
     """
     return [
-        "ffmpeg",
+        FFMPEG,
         "-hide_banner",
         "-nostats",
         "-i", input_file,
@@ -157,7 +164,7 @@ def build_ffplay_meter_args(
         if geometry.get("top") is not None:
             geom_args += ["-top", str(int(geometry["top"]))]
     return [
-        "ffplay",
+        FFPLAY,
         "-hide_banner",
         "-v", "error",
         "-window_title", title,
@@ -176,7 +183,7 @@ def probe_audio_codec(input_file: str):
     try:
         out = subprocess.check_output(
             [
-                "ffprobe", "-v", "error",
+                FFPROBE, "-v", "error",
                 "-select_streams", "a:0",
                 "-show_entries", "stream=codec_name,sample_rate",
                 "-of", "default=noprint_wrappers=1:nokey=1",
@@ -201,7 +208,7 @@ def probe_video_info(input_file: str) -> dict:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe", "-v", "error",
+                FFPROBE, "-v", "error",
                 "-select_streams", "v:0",
                 "-show_entries",
                 "stream=codec_name,profile,level,width,height,pix_fmt,"
@@ -312,7 +319,7 @@ def launch_meter_window(
 
     Retorna o Popen, ou None se o ffplay não estiver disponível / falhar ao abrir.
     """
-    if shutil.which("ffplay") is None:
+    if not _FFPLAY_OK:
         return None
     args = build_ffplay_meter_args(input_file, target_i, title, geometry=geometry)
     kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -591,7 +598,7 @@ def run_post_encode_qc(
     # ── Janelas FFplay (QC visual) ────────────────────────────────────────────
     if not show_meter:
         return
-    if shutil.which("ffplay") is None:
+    if not _FFPLAY_OK:
         console.print(
             "[yellow]⚠ ffplay não encontrado no PATH — pulando o monitor EBU R128 visual.[/yellow]"
         )

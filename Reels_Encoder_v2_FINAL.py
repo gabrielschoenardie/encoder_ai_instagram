@@ -78,6 +78,7 @@ import tempfile
 import shutil
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Tuple, Optional
@@ -163,6 +164,14 @@ try:
     from ui.aspect import describe_aspect as _describe_source_aspect
 except Exception:
     _describe_source_aspect = None
+
+# FFmpeg binary resolver (bundled ./bin wins, else system PATH). Guarded +
+# additive: if the `ui` package is unavailable we fall back to bare command
+# names — behavior identical to before.
+try:
+    from ui.binaries import FFMPEG, FFPROBE, FFPLAY
+except Exception:
+    FFMPEG, FFPROBE, FFPLAY = "ffmpeg", "ffprobe", "ffplay"
 
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
@@ -526,7 +535,7 @@ def detect_hdr_metadata(input_file: str) -> Optional[dict]:
     console.print("[cyan]🔍 Detectando metadados HDR...[/cyan]")
 
     cmd = [
-        "ffprobe",
+        FFPROBE,
         "-v",
         "error",
         "-select_streams",
@@ -701,7 +710,7 @@ def get_video_duration(input_file: str) -> float:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe",
+                FFPROBE,
                 "-v",
                 "error",
                 "-show_entries",
@@ -726,7 +735,7 @@ def get_total_frames(input_file: str) -> int:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe",
+                FFPROBE,
                 "-v",
                 "error",
                 "-select_streams",
@@ -783,7 +792,7 @@ def get_input_fps(input_file: str) -> int:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe",
+                FFPROBE,
                 "-v",
                 "error",
                 "-select_streams",
@@ -833,7 +842,7 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe",
+                FFPROBE,
                 "-v",
                 "error",
                 "-select_streams",
@@ -928,7 +937,7 @@ def probe_video(input_file: str) -> VideoProbe:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe", "-v", "error",
+                FFPROBE, "-v", "error",
                 "-select_streams", "v:0",
                 "-show_entries",
                 "stream=width,height,r_frame_rate,nb_frames,duration,"
@@ -1182,7 +1191,7 @@ def _build_derotate_cmd(input_file: str, tmp_file: str) -> list:
     e copia os streams sem reencodar. -display_rotation é opção de INPUT, então
     precede o -i; o stream-copy preserva os pixels (já em pé) byte a byte."""
     return [
-        "ffmpeg", "-y", "-v", "error",
+        FFMPEG, "-y", "-v", "error",
         "-display_rotation", "0",
         "-i", input_file,
         "-map", "0", "-c", "copy",
@@ -1236,7 +1245,7 @@ def probe_audio_channels(input_file: str) -> int:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe", "-v", "error",
+                FFPROBE, "-v", "error",
                 "-select_streams", "a:0",
                 "-show_entries", "stream=channels",
                 "-of", "default=noprint_wrappers=1:nokey=1",
@@ -1287,7 +1296,7 @@ def analyze_audio_loudness(
     channels = probe_audio_channels(input_file)
 
     cmd = [
-        "ffmpeg",
+        FFMPEG,
         "-hide_banner",
         "-i",
         input_file,
@@ -1937,10 +1946,18 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
         target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
     )
     t.start()
-    with Live(hud.render(), refresh_per_second=7, console=console) as live:
-        while process.poll() is None:
-            time.sleep(0.1)
-            live.update(hud.render())
+    try:
+        with Live(hud.render(), refresh_per_second=7, console=console) as live:
+            while process.poll() is None:
+                time.sleep(0.1)
+                live.update(hud.render())
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
     # Garante que o reader drenou todo o pipe antes de montar o stderr.
     t.join()
@@ -2573,7 +2590,7 @@ def run_ffmpeg(
         metadata_args = _build_metadata_args(duration, video_bitrate, "crf")
 
         ffmpeg_cmd = [
-            "ffmpeg", "-y",
+            FFMPEG, "-y",
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             "-filter_complex_threads", str(filter_threads),
@@ -2636,7 +2653,7 @@ def run_ffmpeg(
     console.print("[cyan]📊 Pass 1: Analisando complexidade...[/cyan]")
 
     pass1_cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
@@ -2700,7 +2717,7 @@ def run_ffmpeg(
     )
 
     pass2_cmd = [
-        "ffmpeg", "-y",
+        FFMPEG, "-y",
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
@@ -3182,7 +3199,7 @@ def run_ffmpeg_with_cineon(
         _p1_vf = ",".join(_p1_vf_parts) if _p1_vf_parts else None
 
         pass1_cineon_cmd = [
-            "ffmpeg", "-y",
+            FFMPEG, "-y",
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             *_input_color_args,
@@ -3268,7 +3285,7 @@ def run_ffmpeg_with_cineon(
         ffmpeg_input_resolution = f"{effective_width}x{effective_height}"
 
     ffmpeg_cmd = [
-        "ffmpeg",
+        FFMPEG,
         "-y",
         "-f",
         "rawvideo",
@@ -3484,6 +3501,7 @@ def run_ffmpeg_with_cineon(
 
     frame_count = 0
     error_occurred = False
+    interrupted = False
 
     with Live(hud.render(), refresh_per_second=7, console=console) as live:
         try:
@@ -3566,6 +3584,7 @@ def run_ffmpeg_with_cineon(
         except KeyboardInterrupt:
             console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
             error_occurred = True
+            interrupted = True
 
         except Exception as e:
             console.print(f"\n[red]✗ Erro durante processamento: {e}[/red]")
@@ -3647,7 +3666,7 @@ def run_ffmpeg_with_cineon(
             else:
                 # Comando de remux (stream copy, sem re-encode)
                 remux_cmd = [
-                    "ffmpeg",
+                    FFMPEG,
                     "-y",
                     "-i",
                     output_temp,
@@ -3704,6 +3723,8 @@ def run_ffmpeg_with_cineon(
         except Exception:
             ffmpeg_process.kill()
 
+        if interrupted:
+            raise KeyboardInterrupt
         raise RuntimeError("Encoding interrompido por erro no processamento")
 
     # ═══════════════════════════════════════════════════════════════
@@ -3731,7 +3752,7 @@ def run_ffmpeg_with_cineon(
 
     try:
         probe_cmd = [
-            "ffprobe",
+            FFPROBE,
             "-v",
             "error",
             "-select_streams",
@@ -3959,6 +3980,19 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
 # =============================================================================
 # MAIN
 # =============================================================================
+def _print_encode_error(exc: BaseException, debug: bool) -> None:
+    """Render a top-level encode failure. Traceback only when --debug is set."""
+    try:
+        from ui.components import error_card
+        hints = None if debug else ["rode com --debug para ver o traceback técnico completo"]
+        console.print(error_card(f"Erro durante o processamento: {exc}", hints=hints))
+    except Exception:
+        console.print(f"[red]Erro durante o processamento:[/red] {exc}")
+    if debug:
+        import traceback
+        traceback.print_exc()
+
+
 def main():
     console.rule(
         "[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v2.0"
@@ -4163,6 +4197,11 @@ COMPARAÇÃO:
         help="Abre a UI interativa (launcher Premiere). Também abre automaticamente "
              "quando nenhum input/--batch é informado. Requer o pacote 'ui'.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
+    )
     args = parser.parse_args()
 
     # Hardware info mode
@@ -4174,6 +4213,25 @@ COMPARAÇÃO:
             "[dim]Estes parâmetros serão aplicados automaticamente no encode.[/dim]"
         )
         sys.exit(0)
+
+    # Preflight: garante que ffmpeg/ffprobe existam (embarcados em ./bin ou no
+    # PATH) antes de qualquer encode. Best-effort e aditivo.
+    try:
+        from ui.preflight import missing_ffmpeg_binaries
+        from ui.components import dependency_error_card
+        _missing = missing_ffmpeg_binaries()
+        if _missing:
+            console.print(dependency_error_card(_missing))
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception:
+        if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+            console.print(
+                "[red]✗ FFmpeg/ffprobe não encontrado.[/red] Instale o FFmpeg ou "
+                "coloque os binários em ./bin (veja bin/README.md)."
+            )
+            sys.exit(1)
 
     # ─── UI INTERATIVA (aditiva) ────────────────────────────────────────────────
     # Dispara quando --ui é passado, ou quando nenhum trabalho foi especificado
@@ -4301,13 +4359,22 @@ COMPARAÇÃO:
     else:
         output_file = f"{base}_Hollywood_2Pass.mp4"
 
+    output_preexisted = os.path.exists(output_file)
     try:
         _encode_single_file(input_file, output_file, args)
-    except (FileNotFoundError, subprocess.CalledProcessError, OSError, ValueError) as e:
-        console.print(f"[red]Erro durante o processamento:[/red] {e}")
-        import traceback
-
-        traceback.print_exc()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠ Encode interrompido pelo usuário[/yellow]")
+        if not output_preexisted and os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+                console.print(
+                    f"[dim]  ● output parcial removido: {os.path.basename(output_file)}[/dim]"
+                )
+            except OSError:
+                pass
+        sys.exit(130)
+    except Exception as e:
+        _print_encode_error(e, getattr(args, "debug", False))
         sys.exit(1)
 
 

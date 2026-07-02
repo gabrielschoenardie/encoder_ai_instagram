@@ -10,6 +10,11 @@ import json
 import subprocess
 from typing import Optional, Tuple
 
+try:
+    from .binaries import FFPROBE
+except Exception:
+    FFPROBE = "ffprobe"
+
 
 def probe_source_dims(path: str) -> Optional[Tuple[int, int]]:
     """Effective (rotation-corrected) (width, height) of a video, or None.
@@ -21,7 +26,7 @@ def probe_source_dims(path: str) -> Optional[Tuple[int, int]]:
     try:
         out = subprocess.check_output(
             [
-                "ffprobe",
+                FFPROBE,
                 "-v",
                 "error",
                 "-select_streams",

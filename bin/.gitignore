@@ -1,0 +1,4 @@
+# Não versionar os binários do FFmpeg — cada máquina traz os seus.
+*
+!.gitignore
+!README.md

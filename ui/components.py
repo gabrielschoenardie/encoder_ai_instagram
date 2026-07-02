@@ -382,6 +382,39 @@ def notification(message: str, level: str = "info", console=None) -> RenderableT
                  box=GRID_BOX, border_style=style, padding=(0, 1))
 
 
+def error_card(message: str, hints: Optional[Sequence[str]] = None,
+               title: Optional[str] = None, console=None) -> RenderableType:
+    """A themed error panel (red border, ✗ title) with optional muted hint lines."""
+    g = _g(console)
+    parts: list[RenderableType] = [Text(message, style="err")]
+    for h in (hints or []):
+        parts.append(Text(f"{g['arrow']} {h}", style="muted"))
+    return Panel(Group(*parts), title=title or f"{g['err']} ERRO",
+                 title_align="left", border_style="err",
+                 box=PANEL_BOX, padding=(1, 2))
+
+
+def dependency_error_card(missing: Sequence[str], console=None) -> RenderableType:
+    """Startup card shown when required FFmpeg binaries are missing."""
+    g = _g(console)
+    lines: list[RenderableType] = [
+        Text("O encoder precisa de: ffmpeg, ffprobe", style="err"),
+        Text(f"Não encontrado (nem em ./bin, nem no PATH): {', '.join(missing)}",
+             style="warn"),
+        Text(""),
+        Text(f"{g['arrow']} Opção 1  coloque os binários em ./bin", style="info"),
+        Text("           (veja bin/README.md · FFmpeg 6.1)", style="muted"),
+        Text(f"{g['arrow']} Opção 2  instale no sistema:", style="info"),
+        Text("           Windows  winget install -e --id BtbN.FFmpeg.GPL.6.1",
+             style="muted"),
+        Text("           macOS    brew install ffmpeg", style="muted"),
+        Text("           Linux    sudo apt install ffmpeg", style="muted"),
+    ]
+    return Panel(Group(*lines), title=f"{g['err']} DEPENDÊNCIA AUSENTE",
+                 title_align="left", border_style="err",
+                 box=theme.HEAVY_BOX, padding=(1, 2))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Settings preview (shown before encode)
 # ──────────────────────────────────────────────────────────────────────────────
