@@ -34,6 +34,8 @@ AUTOR: Gabriel (Metodologia Gabriel - FASE 26)
 DATA: 2025-01-22
 """
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Tuple, Optional
 import warnings

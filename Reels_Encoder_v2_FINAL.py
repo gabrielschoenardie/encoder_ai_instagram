@@ -68,6 +68,8 @@ VERSÕES:
 - v1.3: Color Preservation Fix (desat=0)
 """
 
+from __future__ import annotations
+
 import argparse
 import collections
 import json
@@ -2127,6 +2129,24 @@ def build_scene_referred_hdr_pipeline(
     return video_filter
 
 
+def _find_data_file(filename: str) -> str:
+    """Locate a bundled data file (e.g. a .cube LUT).
+
+    Search order: alongside this module (source / editable / frozen) -> current
+    working dir -> the installed data dir (``sys.prefix/share/reels-encoder`` for
+    pip installs). Falls back to the module-adjacent path so messages stay sane.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (
+        os.path.join(here, filename),
+        os.path.join(os.getcwd(), filename),
+        os.path.join(sys.prefix, "share", "reels-encoder", filename),
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return os.path.join(here, filename)
+
+
 _HOLLYWOOD_LUT_FILENAME = (
     "HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube"
 )
@@ -2135,8 +2155,7 @@ _HOLLYWOOD_LUT_FILENAME = (
 def _get_hollywood_lut_path() -> str:
     """Valida e retorna o path absoluto da Hollywood LUT v6.7B.
     Levanta FileNotFoundError se o arquivo não existir."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    lut_path = os.path.join(script_dir, _HOLLYWOOD_LUT_FILENAME)
+    lut_path = _find_data_file(_HOLLYWOOD_LUT_FILENAME)
     if not os.path.exists(lut_path):
         console.print(f"[red]✗ LUT não encontrada: {_HOLLYWOOD_LUT_FILENAME}[/red]")
         console.print(f"[yellow]  Execute: python hollywood_lut.py[/yellow]")
@@ -3145,7 +3164,7 @@ def run_ffmpeg_with_cineon(
 
     # Carregar LUT Portra 400
     if cineon_lut_path is None:
-        cineon_lut_path = os.path.join(script_dir, "FilmLook_Portra400_SkinPriority_D65.cube")
+        cineon_lut_path = _find_data_file("FilmLook_Portra400_SkinPriority_D65.cube")
 
     if not os.path.exists(cineon_lut_path):
         console.print(f"[red]✗ LUT Portra 400 não encontrada: {cineon_lut_path}[/red]")

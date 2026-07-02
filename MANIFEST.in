@@ -1,0 +1,6 @@
+include *.cube
+include README.md
+include requirements.txt
+include version.py
+include bin/README.md
+include bin/.gitignore
