@@ -1,5 +1,5 @@
 """
-Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.0.0
+Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.1.0
 
 NOVIDADE v2.0 - PIPELINE DWG/CINEON (2025-01-22):
 Integração completa do pipeline cinematográfico de 5 nodes com film emulation Portra 400.
@@ -48,19 +48,20 @@ COMPARAÇÃO:
 
 USAGE:
   # Modo FFmpeg (default, rápido):
-  python Reels_Encoder_v2.py input.mp4
+  python Reels_Encoder_v2_FINAL.py input.mp4
 
   # Modo Cineon (film emulation):
-  python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on
+  python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on
 
   # Ajustes de grading (Cineon):
-  python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on --exposure +0.5 --saturation 1.1
+  python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on --exposure +0.5 --saturation 1.1
 
 DEPENDENCIES:
   pip install av>=11.0.0  # PyAV (para modo Cineon)
   pip install colour-science>=0.4.7  # Colour (para modo Cineon)
 
 VERSÕES:
+- v2.1.0: FFmpeg embarcável + preflight, Ctrl-C limpo, flags --debug e --version
 - v2.0.0: Integração Pipeline Cineon
 - v1.4.1: CAS Conservador (0.30 para SDR float)
 - v1.4: Float Pipeline (32-bit precision)
@@ -172,6 +173,13 @@ try:
     from ui.binaries import FFMPEG, FFPROBE, FFPLAY
 except Exception:
     FFMPEG, FFPROBE, FFPLAY = "ffmpeg", "ffprobe", "ffplay"
+
+# App version — single source of truth (root version.py). Guarded + additive:
+# a missing/edited file falls back to the literal, never breaks startup.
+try:
+    from version import __version__ as APP_VERSION
+except Exception:
+    APP_VERSION = "2.1.0"
 
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
@@ -3995,7 +4003,7 @@ def _print_encode_error(exc: BaseException, debug: bool) -> None:
 
 def main():
     console.rule(
-        "[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v2.0"
+        f"[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v{APP_VERSION}"
     )
     parser = argparse.ArgumentParser(
         description="Instagram Reels Encoder com suporte a Film Emulation Cineon",
@@ -4004,34 +4012,39 @@ def main():
             """Exemplos de uso:
 
 MODO FFMPEG (default, rápido):
-  python Reels_Encoder_v2.py input.mp4                           # Float 32-bit + LUT v6.6
-  python Reels_Encoder_v2.py 4k_video.mp4                        # 4K 60fps → 1080p 30fps (auto)
-  python Reels_Encoder_v2.py input.mp4 --mode 2pass              # 2-Pass + Loudnorm
-  python Reels_Encoder_v2.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
-  python Reels_Encoder_v2.py input.mp4 --fps 60                  # 60 fps CFR (ação/esportes)
-  python Reels_Encoder_v2.py iphone_dolby.mov                    # HDR→SDR + 4K→1080p automático
+  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT v6.6
+  python Reels_Encoder_v2_FINAL.py 4k_video.mp4                        # 4K 60fps → 1080p 30fps (auto)
+  python Reels_Encoder_v2_FINAL.py input.mp4 --mode 2pass              # 2-Pass + Loudnorm
+  python Reels_Encoder_v2_FINAL.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
+  python Reels_Encoder_v2_FINAL.py input.mp4 --fps 60                  # 60 fps CFR (ação/esportes)
+  python Reels_Encoder_v2_FINAL.py iphone_dolby.mov                    # HDR→SDR + 4K→1080p automático
 
 MODO CINEON (film emulation):
-  python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on                        # Film look Portra 400 (100%)
-  python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on --exposure-offset +0.5 # Ajuste exposure
-  python Reels_Encoder_v2.py input.mp4 --cineon-pipeline on --saturation 1.2       # Ajuste saturation
+  python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on                        # Film look Portra 400 (100%)
+  python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on --exposure-offset +0.5 # Ajuste exposure
+  python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on --saturation 1.2       # Ajuste saturation
 
 BATCH (processar pasta inteira):
-  python Reels_Encoder_v2.py --batch ./clips/
-  python Reels_Encoder_v2.py --batch ./clips/ --cineon-pipeline on
-  python Reels_Encoder_v2.py --batch ./clips/ --output-dir ./output/ --cineon-pipeline on
-  python Reels_Encoder_v2.py --batch ./clips/ --mode 2pass --loudnorm on
+  python Reels_Encoder_v2_FINAL.py --batch ./clips/
+  python Reels_Encoder_v2_FINAL.py --batch ./clips/ --cineon-pipeline on
+  python Reels_Encoder_v2_FINAL.py --batch ./clips/ --output-dir ./output/ --cineon-pipeline on
+  python Reels_Encoder_v2_FINAL.py --batch ./clips/ --mode 2pass --loudnorm on
 
 OUTROS:
-  python Reels_Encoder_v2.py --hardware-info                     # Exibe info de hardware e sai
-  python Reels_Encoder_v2.py input.mp4 --performance speed       # Modo rápido (preview)
-  python Reels_Encoder_v2.py input.mp4 --performance quality     # Máxima qualidade
+  python Reels_Encoder_v2_FINAL.py --hardware-info                     # Exibe info de hardware e sai
+  python Reels_Encoder_v2_FINAL.py input.mp4 --performance speed       # Modo rápido (preview)
+  python Reels_Encoder_v2_FINAL.py input.mp4 --performance quality     # Máxima qualidade
 
 COMPARAÇÃO:
   FFmpeg:  ~30-60 fps (GPU), excelente qualidade
   Cineon:  ~5-15 fps (CPU) ou ~30-60 fps (GPU), film-grade qualidade
 """
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"Instagram Reels Encoder v{APP_VERSION}",
     )
     parser.add_argument(
         "input", nargs="?", default=None, help="Arquivo de vídeo de entrada"

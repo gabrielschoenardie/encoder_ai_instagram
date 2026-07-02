@@ -1,5 +1,5 @@
 # ============================================================================
-# Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.0.0
+# Instagram Reels Encoder - CINEON FILM EMULATION EDITION v2.1.0
 # Requirements.txt - Dependências Completas
 # ============================================================================
 
