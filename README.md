@@ -1,9 +1,8 @@
 <div align="center">
 
-<!-- Substitua pela sua logo ou banner do projeto -->
 <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=Reels%20Encoder%20AI&fontSize=42&fontColor=fff&animation=twinkling&fontAlignY=32&desc=Instagram%20Reels%20%E2%80%94%20Film%20Grade%20%2B%20IA%20Adaptativa&descAlignY=55&descSize=18" width="100%"/>
 
-[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Colour Science](https://img.shields.io/badge/Colour--Science-DWG%2FCineon-8A2BE2?style=for-the-badge)](https://www.colour-science.org/)
 [![Version](https://img.shields.io/badge/Versão-2.1.0-FF6B6B?style=for-the-badge)](https://github.com/gabrielschoenardie/encoder_ai_instagram)
@@ -23,6 +22,7 @@
 - [🎬 Demonstração](#-demonstração)
 - [⚡ Início Rápido](#-início-rápido)
 - [📋 Requisitos](#-requisitos)
+- [📦 Portabilidade — FFmpeg embarcado](#-portabilidade--ffmpeg-embarcado)
 - [🚀 Instalação Completa](#-instalação-completa)
 - [🎛️ Uso & Opções CLI](#️-uso--opções-cli)
 - [🏗️ Arquitetura](#️-arquitetura)
@@ -47,7 +47,7 @@
 | Vídeo fica borrado no Instagram | VBV presets otimizados para cada duração |
 | Cores lavadas após upload | LUT HollywoodCinema v6.7B + pipeline Cineon |
 | Banding visível em gradientes | AI detecta e aplica deband adaptativo |
-| Áudio muito alto/baixo | Normalização automática ITU-R BS.1770 |
+| Áudio muito alto/baixo | Normalização automática EBU R128 (2-pass) |
 | 4K fica pesado demais | Downscale automático para 1080p |
 | Grãos e ruído no resultado | NLMeans/bilateral denoise inteligente |
 
@@ -55,23 +55,18 @@
 
 ## 🎬 Demonstração
 
-> 📸 **Exemplo de uso no terminal:**
+> 📸 **Capturas reais da UI** (renderizadas headless via `tools/gen_readme_assets.py` — Rich `save_svg`):
 
-<!-- Substitua pela captura real do seu terminal -->
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Instagram Reels Encoder v2.1.0 — CINEON FILM EMULATION     │
-├─────────────────────────────────────────────────────────────┤
-│  Input:    meu_video.mp4  (4K, 29.97fps, 45s, SDR)         │
-│  Output:   meu_video_reels.mp4  (1080p, 30fps)              │
-│  Pipeline: Cineon (DWG → Portra 400 LUT)                    │
-│  AI:       MockCNN — denoise 0.12 | sharpen 0.53 | deband 0.24 │
-├─────────────────────────────────────────────────────────────┤
-│  Encoding... ████████████████░░░░ 83%  12.4fps  ETA: 0:04  │
-└─────────────────────────────────────────────────────────────┘
-```
+<p align="center"><img src="docs/assets/banner.svg" alt="Banner do Reels Encoder" width="90%"></p>
 
-> 🎞️ *Coloque aqui um GIF do antes/depois ou screenshot real*
+**Launcher — card de PREVIEW (program 9:16 + quality chips):**
+<p align="center"><img src="docs/assets/preview.svg" alt="Preview do launcher" width="90%"></p>
+
+**Dashboard ao vivo (Program · Timeline · Performance · Log):**
+<p align="center"><img src="docs/assets/dashboard.svg" alt="Dashboard de encode" width="90%"></p>
+
+**Selo de entrega — MASTER QC (auditoria EBU R128 pós-encode):**
+<p align="center"><img src="docs/assets/seal.svg" alt="Selo Delivery Ready" width="70%"></p>
 
 ---
 
@@ -135,31 +130,59 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 
 | Dependência | Versão mínima | Obrigatório |
 |---|---|---|
-| Python | 3.8+ | ✅ |
+| Python | 3.9+ | ✅ |
 | FFmpeg | 4.4+ | ✅ |
 | pymediainfo | 1.0.0+ | ✅ |
 | av (PyAV) | 11.0.0+ | ✅ (modo Cineon) |
 | numpy | 1.24.0+ | ✅ |
+| scipy | 1.10+ | ✅ |
 | Pillow | 10.0.0+ | ✅ |
 | rich | 13.0.0+ | ✅ |
+| pydantic | 2+, <3 | ✅ |
+| psutil | 5.9.0+ | ✅ |
 | colour-science | 0.4.7+ | ✅ (modo Cineon) |
-| psutil | 5.9.0+ | ⚪ opcional |
 | opencv-python | 4.8.0+ | ⚪ opcional (banding detection) |
 | CuPy | qualquer | ⚪ opcional (GPU acceleration) |
 
 > ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico.
 
-### FFmpeg
+### FFmpeg — duas rotas
+
+O encoder aceita o FFmpeg de **duas** formas (veja a seção de Portabilidade abaixo):
 
 ```bash
-# Ubuntu/Debian
-sudo apt install ffmpeg
+# Rota A — FFmpeg no sistema (PATH)
+sudo apt install ffmpeg        # Ubuntu/Debian
+brew install ffmpeg            # macOS (Homebrew)
+# Windows: winget install -e --id BtbN.FFmpeg.GPL.6.1  (ou baixe em https://ffmpeg.org/download.html)
 
-# macOS (Homebrew)
-brew install ffmpeg
-
-# Windows — baixe em https://ffmpeg.org/download.html
+# Rota B — FFmpeg embarcado em ./bin (portátil, sem instalar no sistema)
+./tools/fetch_ffmpeg.ps1       # Windows: baixa/copia o FFmpeg 6.1 para ./bin
+# macOS/Linux: copie ffmpeg/ffprobe (build estático) para ./bin
 ```
+
+---
+
+## 📦 Portabilidade — FFmpeg embarcado
+
+O encoder localiza cada binário do FFmpeg por um **resolvedor de 3 níveis** (`ui/binaries.py`):
+
+1. **`./bin`** — binários embarcados na raiz do projeto (prioridade máxima).
+2. **`PATH`** — instalação do sistema.
+3. **Nome nu** — como fallback final (deixa o SO resolver).
+
+- **`ffmpeg` + `ffprobe`** são **obrigatórios**; **`ffplay`** é **opcional** (usado só pelo monitor EBU visual — sem ele, a auditoria de loudness continua rodando).
+- Os binários em `./bin` são **git-ignored** — cada máquina traz os seus. Veja [`bin/README.md`](bin/README.md).
+
+### Por plataforma
+
+| Plataforma | Automático | Manual |
+|---|---|---|
+| **Windows** | `./tools/fetch_ffmpeg.ps1` (winget `BtbN.FFmpeg.GPL.6.1`, FFmpeg 6.1) | copie `ffmpeg.exe`/`ffprobe.exe`/`ffplay.exe` para `bin/` |
+| **macOS** | `brew install ffmpeg` | copie os binários (build estático) para `bin/` |
+| **Linux** | `sudo apt install ffmpeg` | copie um build estático para `bin/` |
+
+> Se faltar `ffmpeg`/`ffprobe`, a UI mostra um card de dependência ausente com as duas rotas de correção.
 
 ---
 
@@ -221,14 +244,13 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 |---|---|---|---|
 | `--cineon-pipeline` | `on/off` | `off` | Ativa pipeline DWG/Cineon film emulation |
 | `--cineon-lut` | caminho | `FilmLook_Portra400...cube` | LUT .cube para o modo Cineon |
-| `--float` | `on/off` | `on` | Processamento 32-bit (SDR). `off` = legacy 8-bit |
 | `--mode` | `crf/2pass` | `crf` | Modo de encoding |
 
 #### 🎨 Grading & Cor
 
 | Argumento | Valores | Padrão | Descrição |
 |---|---|---|---|
-| `--lut` | `on/off` | `on` | Aplica HollywoodCinema LUT v6.6 |
+| `--lut` | `on/off` | `on` | Aplica HollywoodCinema LUT v6.7B |
 | `--exposure-offset` | `-2.0` a `+2.0` | `0.0` | Ajuste de exposição em stops (EV) |
 | `--saturation` | `0.0` a `2.0` | `1.0` | Ajuste de saturação |
 | `--hdr` | `auto/off` | `auto` | Conversão HDR→SDR automática |
@@ -238,10 +260,10 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 
 | Argumento | Valores | Padrão | Descrição |
 |---|---|---|---|
-| `--enhance` | `on/off` | `off` | Ativa Enhancement Engine (FASE 27) |
-| `--enhance-ai` | `on/off` | `off` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
+| `--enhance` | `on/off` | `on` | Ativa Enhancement Engine (FASE 27) |
+| `--enhance-ai` | `on/off` | `on` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
 | `--dither` | `on/off/auto` | `auto` | Blue-noise dithering anti-banding |
-| `--mctf` | `on/off` | `off` | Máscara MCTF com optical flow anti-flicker |
+| `--mctf` | `on/off` | `on` | Máscara MCTF com optical flow anti-flicker |
 
 #### ⚙️ Qualidade & Vídeo
 
@@ -249,6 +271,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 |---|---|---|---|
 | `--fps` | `auto/24/25/30/60` | `30` | Frame rate do output |
 | `--scale` | `auto/off` | `auto` | Downscale automático 4K→1080p |
+| `--fit` | `contain/cover` | `contain` | Enquadramento 9:16: `contain` preserva tudo (letterbox); `cover` preenche e corta as bordas |
 | `--performance` | `quality/balanced/speed` | `balanced` | Perfil de performance |
 | `--threads` | inteiro | `0` (auto) | Override manual de threads |
 
@@ -294,6 +317,9 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 |---|---|---|---|
 | `--show-hardware` | `on/off` | `on` | Exibe perfil de hardware antes do encode |
 | `--hardware-info` | flag | — | Exibe hardware e sai (sem fazer encode) |
+| `--ui` | flag | — | Abre o launcher interativo (estilo Premiere) |
+| `--debug` | flag | — | Mostra o traceback técnico completo em erros |
+| `--version` | flag | — | Mostra a versão e sai |
 
 ---
 
@@ -303,10 +329,10 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  PIPELINE 1 — FFmpeg Nativo (padrão, v1.4.1)                        │
+│  PIPELINE 1 — FFmpeg Nativo (padrão)                                │
 │                                                                      │
 │  Input ──► Análise AI ──► Filtros FFmpeg ──► libx264 ──► Output     │
-│             (5 frames)     deband → denoise → sharpen → LUT v6.6    │
+│             (5 frames)     deband → denoise → sharpen → LUT v6.7B   │
 │                                                                      │
 │  Performance: ~30-60 fps (GPU)  |  Bitrate: 6.5–12 Mbps             │
 └─────────────────────────────────────────────────────────────────────┘
@@ -320,7 +346,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 │  Node 1: Rec.709 → DaVinci Wide Gamut                               │
 │  Node 2: Primary Grading (exposure + saturation)                    │
 │  Node 3: Tone/Gamut Mapping (100 nits, ACES-derived)                │
-│  Node 4: Passthrough                                                 │
+│  Node 4: Cineon Film Log (Colour-Science certified)                 │
 │  Node 5: Portra 400 LUT (trilinear 3D)                              │
 │                              │                                       │
 │                              ▼                                       │
@@ -365,10 +391,14 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 
 ```
 encoder_ai_instagram/
-├── Reels_Encoder_v2_FINAL.py     # Entry point — 50+ args CLI (4088 linhas)
-├── cineon_pipeline.py             # Pipeline Cineon 5 nodes (976 linhas)
+├── Reels_Encoder_v2_FINAL.py     # Entry point — parsing CLI, hardware, dispatch
+├── cineon_pipeline.py             # Pipeline Cineon 5 nodes
+├── ebu_meter.py                   # Auditoria/monitor EBU R128 pós-encode
 ├── enhance_visualizer.py          # Heatmaps diagnósticos por frame
-├── enhance_ai_log.json            # Log das últimas 5 execuções de IA
+├── version.py                     # Versão única (__version__)
+├── enhance_ai_log.json            # Log das execuções de IA (gerado em runtime)
+├── pyproject.toml                 # Empacotamento pip (comando reels-encoder)
+├── MANIFEST.in                    # Inclusão de LUTs/dados no pacote
 ├── requirements.txt
 ├── MANUAL_INSTALACAO.txt          # Guia completo em português
 ├── *.cube                         # LUTs de cor:
@@ -390,8 +420,31 @@ encoder_ai_instagram/
 │   ├── test_mock_cnn.py           # Testes unitários MockCNN
 │   └── test_processors.py         # Testes de integração filtros
 │
+├── ui/                            # UI interativa estilo Premiere (aditiva)
+│   ├── theme.py                   # Paleta, estilos Rich, glyphs (get_console)
+│   ├── config.py                  # EncodeConfig (Pydantic) ↔ argparse.Namespace
+│   ├── components.py              # Renderáveis: banner, preview, selo, log…
+│   ├── prompts.py                 # Inputs interativos validados
+│   ├── launcher.py                # run_launcher() (wizard de presets/abas)
+│   ├── dashboard.py               # EncodeDashboard ao vivo (make_dashboard)
+│   ├── aspect.py                  # Classificação de aspecto/orientação
+│   ├── probe.py                   # Dimensões efetivas da fonte (ffprobe)
+│   ├── binaries.py                # Resolvedor ./bin → PATH → nome nu
+│   ├── preflight.py               # Checagem de dependências FFmpeg
+│   └── test_*.py                  # Suíte de testes da UI (105 testes)
+│
+├── bin/                           # FFmpeg embarcado (git-ignored)
+│   ├── README.md                  # Como preencher ./bin
+│   └── .gitignore                 # Ignora os binários
+│
+├── docs/
+│   ├── assets/*.svg               # Capturas reais da UI (geradas)
+│   └── terminal-ui-masterplan.md  # Plano/rationale da UI
+│
 └── tools/
     ├── verificador_instalacao.py  # Valida todas as dependências
+    ├── gen_readme_assets.py       # Gera as capturas SVG da UI (headless)
+    ├── fetch_ffmpeg.ps1           # Baixa/copia o FFmpeg 6.1 para ./bin (Windows)
     ├── compare_frames.py          # Comparação antes/depois
     ├── time_to_frame.py           # Navegação por frame
     └── clean_cache.py             # Limpeza de temporários
@@ -544,34 +597,57 @@ python tools/time_to_frame_interactive.py video.mp4
 python tools/clean_cache.py
 ```
 
+### FFmpeg embarcado (Windows)
+
+```powershell
+# Baixa/copia o FFmpeg 6.1 (ffmpeg + ffprobe + ffplay) para ./bin
+./tools/fetch_ffmpeg.ps1
+```
+
+### Capturas da UI para o README
+
+```bash
+# Renderiza banner, preview, dashboard e selo MASTER QC em docs/assets/*.svg
+python tools/gen_readme_assets.py
+```
+
 ---
 
 ## 🧪 Testes
 
 ```bash
-# Testes unitários — MockCNN
-python -m pytest enhance/test_mock_cnn.py -v
+# Todos os testes (IA + UI interativa) — comando canônico
+python -m pytest enhance/ ui/ -v
 
-# Testes de integração — chain de filtros
-python -m pytest enhance/test_processors.py -v
-
-# Todos os testes
+# Só o módulo de IA
 python -m pytest enhance/ -v
+
+# Só a UI interativa (105 testes)
+python -m pytest ui/ -v
+
+# Um arquivo específico
+python -m pytest enhance/test_mock_cnn.py -v
+python -m pytest ui/test_config.py -v
 ```
 
-A suite cobre:
+A suíte cobre:
 - Predições do MockCNN para casos extremos (vídeo limpo, vídeo ruidoso, banding severo)
 - Chain denoise → deband → sharpen (ordem e força dos filtros)
 - Integridade do vetor de features (normalização, limites)
+- UI (`ui/`, 105 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
+  componentes, wiring do launcher e matemática/render do dashboard
 
 ---
 
 ## 🗺️ Roadmap
 
+- [x] **UI interativa estilo Premiere** — launcher com presets, abas e dashboard ao vivo ✓
+- [x] **Perfis de preset** — presets no launcher (menu de configuração rápida) ✓
+- [x] **Portabilidade / FFmpeg embarcado** — resolvedor `./bin` + `fetch_ffmpeg.ps1` ✓
+- [x] **Empacotamento pip** — instalável como pacote com o comando `reels-encoder` ✓
 - [ ] **Modelo ONNX real** — substituir MockCNN por modelo treinado em dataset de vídeos reais
 - [ ] **Suporte a GPU CuPy** — aceleração completa do pipeline Cineon em NVIDIA
 - [ ] **Interface web** — dashboard para configurar e monitorar encodes em lote
-- [ ] **Perfis de preset** — salvar/carregar configurações (ex: "estilo cinema", "lifestyle")
 - [ ] **Suporte a outros formatos** — TikTok, YouTube Shorts (ajuste de VBV/bitrate)
 - [ ] **Treinamento do CNN** — pipeline de data labeling para substituir heurísticas
 - [ ] **Plugin DaVinci Resolve** — integração como plugin de exportação

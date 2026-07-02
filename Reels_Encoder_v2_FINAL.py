@@ -4028,7 +4028,7 @@ def main():
             """Exemplos de uso:
 
 MODO FFMPEG (default, rápido):
-  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT v6.6
+  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT v6.7B
   python Reels_Encoder_v2_FINAL.py 4k_video.mp4                        # 4K 60fps → 1080p 30fps (auto)
   python Reels_Encoder_v2_FINAL.py input.mp4 --mode 2pass              # 2-Pass + Loudnorm
   python Reels_Encoder_v2_FINAL.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
@@ -4075,13 +4075,13 @@ COMPARAÇÃO:
         "--lut",
         choices=["on", "off"],
         default="on",
-        help="Aplicar Hollywood Cinema LUT v6.6 (default: on). off = apenas scale/HDR/sharpen",
+        help="Aplicar Hollywood Cinema LUT v6.7B (default: on). off = apenas scale/HDR/sharpen",
     )
     parser.add_argument(
         "--loudnorm",
         choices=["on", "off"],
         default="on",
-        help="Normalização de áudio EBU R128 (default: on). Target: -14 LUFS, -1 dBTP",
+        help="Normalização de áudio EBU R128 (default: on). Target: -14 LUFS, -1.5 dBTP",
     )
     parser.add_argument(
         "--ebu-meter",
