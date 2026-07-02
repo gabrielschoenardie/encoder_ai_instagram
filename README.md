@@ -184,6 +184,27 @@ python tools/verificador_instalacao.py
 
 A saída do verificador indicará quais dependências estão OK e quais estão faltando.
 
+### Instalação via pip
+
+Também é possível instalar como pacote e obter o comando `reels-encoder`:
+
+```bash
+# Instalação padrão
+pip install .
+
+# Modo desenvolvimento (editável)
+pip install -e .
+
+# Depois, use o comando de console:
+reels-encoder input.mp4
+reels-encoder --version
+
+# Recurso opcional com aceleração OpenCV (há fallback para PIL):
+pip install ".[opencv]"
+```
+
+> Nota: a instalação via pip usa o FFmpeg do sistema (PATH). Para embarcar o FFmpeg em `./bin`, rode a partir do código-fonte (veja `bin/README.md`).
+
 ---
 
 ## 🎛️ Uso & Opções CLI

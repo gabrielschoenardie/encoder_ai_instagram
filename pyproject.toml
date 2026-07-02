@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reels-encoder-ai"
+dynamic = ["version"]
+description = "Instagram Reels Encoder — Cineon Film Emulation Edition"
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["ffmpeg", "instagram", "reels", "video", "encoder", "cineon", "film-emulation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Environment :: Console",
+    "Topic :: Multimedia :: Video :: Conversion",
+]
+dependencies = [
+    "rich>=13.0.0",
+    "pydantic>=2,<3",
+    "numpy>=1.24.0",
+    "av>=11.0.0",
+    "Pillow>=10.0.0",
+    "psutil>=5.9.0",
+    "colour-science>=0.4.7",
+    "pymediainfo>=1.0.0",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+opencv = ["opencv-python>=4.8.0"]
+
+[project.scripts]
+reels-encoder = "Reels_Encoder_v2_FINAL:main"
+
+[tool.setuptools]
+py-modules = ["Reels_Encoder_v2_FINAL", "cineon_pipeline", "ebu_meter", "enhance_visualizer", "version"]
+packages = ["ui", "enhance", "enhance.ai", "enhance.analyzers"]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
+
+[tool.setuptools.data-files]
+"share/reels-encoder" = [
+    "HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube",
+    "FilmLook_Portra400_SkinPriority_D65.cube",
+]

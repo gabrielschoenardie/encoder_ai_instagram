@@ -11,6 +11,7 @@ av>=11.0.0                      # PyAV - Decodificação/Codificação de vídeo
 
 # Processamento de Imagens e Dados
 numpy>=1.24.0                   # Cálculos numéricos
+scipy>=1.10                     # Filtros/estatística (import obrigatório em enhance/analyzers/noise.py)
 Pillow>=10.0.0                  # Processamento de imagens (PIL)
 
 # Interface de Usuário e Logging
