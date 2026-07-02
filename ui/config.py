@@ -90,6 +90,7 @@ class EncodeConfig(BaseModel):
     show_hardware: str = "on"
     hardware_info: bool = False
     ui: bool = False
+    debug: bool = False
 
     # ── validation ────────────────────────────────────────────────────────────
     def model_post_init(self, _ctx) -> None:

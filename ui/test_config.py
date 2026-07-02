@@ -12,7 +12,7 @@ ENGINE_ATTRS = {
     "input", "batch", "output_dir", "mode", "fps", "scale", "fit", "performance",
     "threads", "lut", "hdr", "tonemap", "loudnorm", "ebu_meter", "cineon_pipeline",
     "cineon_lut", "exposure_offset", "saturation", "enhance", "enhance_ai", "mctf",
-    "dither", "show_hardware", "hardware_info", "ui",
+    "dither", "show_hardware", "hardware_info", "ui", "debug",
 }
 
 

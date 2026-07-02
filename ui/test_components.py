@@ -259,3 +259,14 @@ def test_settings_preview_keeps_labels_with_glyphs():
     cfg = EncodeConfig(input="clip.mov", loudnorm="on", enhance="on", enhance_ai="on")
     out = _render(C.settings_preview(cfg))
     assert "Audio" in out and "Loudnorm" in out and "AI" in out
+
+
+def test_error_card_renders():
+    out = _render(C.error_card("algo falhou", hints=["rode com --debug"]))
+    assert "algo falhou" in out
+
+
+def test_dependency_error_card_renders():
+    out = _render(C.dependency_error_card(["ffmpeg", "ffprobe"]))
+    assert "ffmpeg" in out
+    assert "bin" in out
