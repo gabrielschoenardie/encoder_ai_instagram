@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Colour Science](https://img.shields.io/badge/Colour--Science-DWG%2FCineon-8A2BE2?style=for-the-badge)](https://www.colour-science.org/)
-[![Version](https://img.shields.io/badge/Versão-2.0.0-FF6B6B?style=for-the-badge)](https://github.com/gabrielschoenardie/encoder_ai_instagram)
+[![Version](https://img.shields.io/badge/Versão-2.1.0-FF6B6B?style=for-the-badge)](https://github.com/gabrielschoenardie/encoder_ai_instagram)
 [![GitHub last commit](https://img.shields.io/github/last-commit/gabrielschoenardie/encoder_ai_instagram?style=for-the-badge&color=4ECDC4)](https://github.com/gabrielschoenardie/encoder_ai_instagram/commits)
 [![GitHub stars](https://img.shields.io/github/stars/gabrielschoenardie/encoder_ai_instagram?style=for-the-badge&color=FFD700)](https://github.com/gabrielschoenardie/encoder_ai_instagram/stargazers)
 
@@ -60,7 +60,7 @@
 <!-- Substitua pela captura real do seu terminal -->
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Instagram Reels Encoder v2.0.0 — CINEON FILM EMULATION     │
+│  Instagram Reels Encoder v2.1.0 — CINEON FILM EMULATION     │
 ├─────────────────────────────────────────────────────────────┤
 │  Input:    meu_video.mp4  (4K, 29.97fps, 45s, SDR)         │
 │  Output:   meu_video_reels.mp4  (1080p, 30fps)              │

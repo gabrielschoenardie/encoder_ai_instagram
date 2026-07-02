@@ -35,6 +35,11 @@ from .prompts import (
 )
 from .theme import get_console
 
+try:
+    from version import __version__ as _APP_VERSION
+except Exception:
+    _APP_VERSION = "2.1.0"
+
 SECTIONS = ["Source", "Color/LUT", "Audio", "Enhance", "Export"]
 
 PRESETS = [
@@ -60,7 +65,7 @@ def run_launcher(console=None) -> Optional[argparse.Namespace]:
 
 
 def _run_launcher(con) -> Optional[argparse.Namespace]:
-    con.print(C.banner("REELS ENCODER", "Premiere Workspace · UI interativa"))
+    con.print(C.banner("REELS ENCODER", f"Premiere Workspace · UI interativa · v{_APP_VERSION}"))
 
     preset = ask_choice(con, "Selecione um fluxo", PRESETS, default=1)
 

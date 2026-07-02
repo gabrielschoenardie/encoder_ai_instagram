@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=duplicate-code,line-too-long,syntax-error
 """
-VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.0.0
+VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.1.0
 Verifica se todas as dependências estão instaladas e o sistema está pronto
 """
 
@@ -350,7 +350,7 @@ class VerificadorInstalacao:
         """Executa todas as verificações"""
         print(f"\n{Colors.BOLD}{Colors.CYAN}")
         print("╔════════════════════════════════════════════════════════════════════════════════╗")
-        print("║     VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.0.0                 ║")
+        print("║     VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.1.0                 ║")
         print("║     Verifica se todas as dependências estão instaladas                         ║")
         print("╚════════════════════════════════════════════════════════════════════════════════╝")
         print(f"{Colors.RESET}")
