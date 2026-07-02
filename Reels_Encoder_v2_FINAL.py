@@ -4002,9 +4002,6 @@ def _print_encode_error(exc: BaseException, debug: bool) -> None:
 
 
 def main():
-    console.rule(
-        f"[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v{APP_VERSION}"
-    )
     parser = argparse.ArgumentParser(
         description="Instagram Reels Encoder com suporte a Film Emulation Cineon",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4216,6 +4213,10 @@ COMPARAÇÃO:
         help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
     )
     args = parser.parse_args()
+
+    console.rule(
+        f"[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v{APP_VERSION}"
+    )
 
     # Hardware info mode
     if args.hardware_info:
