@@ -2201,9 +2201,6 @@ def build_sdr_float_pipeline(
         target_resolution: Resolução alvo para crop (opcional)
         lut_enabled: Aplicar LUT v6.7 (default: True)
     """
-    console.print("[cyan]🎨 SDR Float Pipeline: IDT (32-bit) → Processing → ODT (8-bit)[/cyan]")
-    console.print("[dim]   DaVinci Intermediate simulado (float precision)[/dim]")
-
     parts = []
 
     # STAGE 1: Scale (se necessário)
@@ -2214,7 +2211,6 @@ def build_sdr_float_pipeline(
     # STAGE 2: IDT - Input Device Transform (8/10-bit → 32-bit float)
     parts.append("format=gbrpf32le")
     console.print("[green]✓ IDT:[/green] 8-bit → 32-bit float planar (gbrpf32le)")
-    console.print("[dim]   Precisão infinita (elimina quantização)[/dim]")
 
     # STAGE 4: LUT v6.7B em Float Space (CONDICIONAL)
     if lut_enabled:
@@ -4232,10 +4228,6 @@ COMPARAÇÃO:
         help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
     )
     args = parser.parse_args()
-
-    console.rule(
-        f"[bold magenta]🎞️ Instagram Reels Encoder - Cineon Film Emulation Edition v{APP_VERSION}"
-    )
 
     # Hardware info mode
     if args.hardware_info:
