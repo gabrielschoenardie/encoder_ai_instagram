@@ -55,9 +55,14 @@ if   (( DURATION_INT <= 30 )); then TARGET=93; PROFILE="Maximum Quality (≤30s)
 elif (( DURATION_INT >= 40 )); then TARGET=90; PROFILE="Safe Premium (≥40s)"
 else                               TARGET=90; PROFILE="Zona de Transição (30–40s)"; fi
 
-# Arquivo de log com timestamp
+# Arquivo de log com timestamp.
+# Windows/Git Bash: o ffmpeg é um binário nativo do Windows, então um caminho
+# POSIX como "/tmp/..." é resolvido contra a raiz do drive atual (C:\tmp), que
+# não existe — e um caminho absoluto (C:\...) traria ':' e '\', que quebram o
+# parser de opções do filtergraph do libvmaf. Por isso o padrão é um nome
+# RELATIVO (sem ':') gravado no diretório atual. Override via VMAF_LOGFILE.
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOGFILE="/tmp/vmaf_${TIMESTAMP}.json"
+LOGFILE="${VMAF_LOGFILE:-vmaf_${TIMESTAMP}.json}"
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════${NC}"

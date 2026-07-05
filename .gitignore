@@ -62,6 +62,9 @@ htmlcov/
 # Generated AI enhancement log
 enhance_ai_log.json
 
+# VMAF measurement logs (measure_vmaf.sh writes these to cwd on Windows)
+vmaf_*.json
+
 # Packaged skill artifacts (source of truth is .claude/skills/)
 *.skill
 
