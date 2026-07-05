@@ -183,9 +183,8 @@ case "$VFR_STATUS" in
   vfr:*)   fail "Frame rate mode" "VFR — ${VFR_STATUS#vfr:}" "CFR obrigatório → A/V sync drift garantido" ;;
 esac
 
-if   (( BITRATE >= 3500 && BITRATE <= 10000 )); then ok   "Bitrate vídeo" "${BITRATE} kbps (zona segura)"
-elif (( BITRATE > 10000 && BITRATE <= 11200 )); then warn "Bitrate vídeo" "${BITRATE} kbps" "≤ 10000 kbps (headroom ativo)"
-elif (( BITRATE > 11200                     )); then fail "Bitrate vídeo" "${BITRATE} kbps" "≤ 11200 kbps → recompressão garantida"
+if   (( BITRATE >= 3500 && BITRATE <= 12000 )); then ok   "Bitrate vídeo" "${BITRATE} kbps (zona segura)"
+elif (( BITRATE > 12000                     )); then fail "Bitrate vídeo" "${BITRATE} kbps" "≤ 12000 kbps médio (maxrate ≤ 15000) → recompressão garantida"
 elif (( BITRATE >= 1 && BITRATE < 3500      )); then warn "Bitrate vídeo" "${BITRATE} kbps" "≥ 3500 kbps mínimo recomendado"
 else                                                 warn "Bitrate vídeo" "não detectado"   "verificar manualmente com ffprobe"; fi
 

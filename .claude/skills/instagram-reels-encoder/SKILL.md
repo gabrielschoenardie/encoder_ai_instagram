@@ -270,7 +270,7 @@ Quando solicitado, gerar relatório estruturado com:
 3. **Nunca omitir `-movflags +faststart`** — quebra o streaming no Instagram.
 4. **Nunca usar `-pix_fmt` diferente de `yuv420p`** — Instagram rejeita 4:2:2 e 4:4:4.
 5. **Sempre preservar BT.709** no output — não usar colorspace sem confirmar source.
-6. **Nunca recomendar bitrate acima de 11200 kbps** — ceiling de ingestão Instagram.
+6. **Nunca recomendar bitrate médio acima de 12000 kbps nem maxrate acima de 15000 kbps** — ceiling de ingestão Instagram.
 7. **Sempre gerar comandos completos** — incluindo áudio, container e faststart.
 8. **Sempre validar com `validate_encode.sh` antes de recomendar upload** — nunca assumir conformidade sem checar.
 9. **Sempre interpretar VMAF harmonic mean**, não só a média — delta > 3 entre mean e hm indica cenas com queda brusca de qualidade.

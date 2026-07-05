@@ -16,7 +16,7 @@ para Reels 9:16. Dados consolidados de engenharia reversa e documentação Meta.
 | Chroma | 4:2:0 | 4:2:2 e 4:4:4 → rejeição |
 | Resolução | 1080×1920 (9:16) | Obrigatório para Reels |
 | FPS | 30 fps (recomendado) | 24/25/60 aceitos; 60fps reduz qualidade percebida pós-upload |
-| Bitrate máximo | ~11200 kbps (prático) | Ceiling documentado: ~10 Mbps; headroom de 12% |
+| Bitrate máximo | 12000 kbps médio · maxrate (pico VBV) ≤ 15000 kbps | IG aceita até ~12 Mbps de média; pico VBV tolerado até 15 Mbps |
 | Bitrate mínimo | 3500 kbps | Abaixo disso → artifact severo pós-upload |
 | Keyframe interval | ≤ 2s (max 60 frames a 30fps) | GOP aberto com keyframes frequentes |
 | B-frames | 2 (recomendado) | Até 4 aceito; acima → risco de artefato |
@@ -74,7 +74,7 @@ com base em bitrate e complexidade mesmo dentro das specs.
 - FPS > 60 ou FPS com frações (ex.: 29.97 em alguns casos)
 
 ### Gatilhos de recompressão provável (bitrate-based):
-- Bitrate > 11200 kbps → Instagram limita ativamente
+- Bitrate médio > 12000 kbps (ou maxrate/pico VBV > 15000 kbps) → Instagram limita ativamente
 - Bitrate < 5000 kbps com cena de alta complexidade → artefato pós-recompressão
 - Variação de bitrate extrema em janelas curtas → buffering → recompressão adaptativa
 
@@ -93,7 +93,7 @@ Verificar após upload via inspeção do arquivo (download do Instagram):
 [ ] Resolução: 1080×1920
 [ ] FPS: 30 (ou 24/25 se intencional)
 [ ] Bit depth: 8-bit yuv420p
-[ ] Bitrate: ≤ 11200 kbps (target ≤ 10000 kbps)
+[ ] Bitrate: ≤ 12000 kbps médio · maxrate (pico VBV) ≤ 15000 kbps
 [ ] Áudio: AAC 128kbps 44100Hz stereo
 [ ] Container: MP4 com faststart
 [ ] Color: BT.709 tagueado corretamente
