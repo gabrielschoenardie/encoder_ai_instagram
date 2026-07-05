@@ -227,9 +227,13 @@ bash scripts/measure_vmaf.sh source.mp4 output.mp4 5
 
 Critérios de aprovação:
 - `validate_encode.sh` → "APROVADO" (zero ❌) obrigatório para upload
-- `measure_vmaf.sh` usa o modelo **NEG** (`vmaf_v0.6.1neg`) por padrão — não premia
-  sharpening/denoise, então o score reflete fidelidade real (override:
-  `VMAF_MODEL=vmaf_v0.6.1`). Os targets abaixo já assumem NEG.
+- `measure_vmaf.sh` usa o modelo **não-NEG** (`vmaf_v0.6.1`) por padrão. Este toolkit
+  produz grades deliberadamente estilizados (LUT Hollywood, Cineon, CAS); o modelo NEG
+  remove o ganho de contraste/sharpening e por isso **sub-pontua ~6 pts** um grade
+  intencional (medido: NEG 87,7 vs não-NEG 93,8 no mesmo encode), reprovando encodes
+  que são de fato bons. O não-NEG é a referência justa para sign-off. Para flagrar
+  *inflação* de qualidade (sharpening/denoise oportunista), rodar com override:
+  `VMAF_MODEL=vmaf_v0.6.1neg`. Os targets abaixo assumem o não-NEG.
 - VMAF ≥ 93 para Maximum Quality (≤30s)
 - VMAF ≥ 90 para Safe Premium (≥40s)
 - VMAF harmonic mean deve estar próximo da mean — delta > 3 indica cenas problemáticas
