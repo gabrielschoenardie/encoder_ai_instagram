@@ -13,10 +13,15 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BOLD='\033[1m'; NC='\033[0m'
 
 SOURCE="${1:-}"; ENCODED="${2:-}"; SUBSAMPLE="${3:-5}"
-# Modelo VMAF: NEG (No Enhancement Gain) por padrão — não premia sharpening/
-# contraste/denoise, então o score reflete fidelidade real e não pode ser inflado.
-# Override: VMAF_MODEL=vmaf_v0.6.1 ./measure_vmaf.sh ... (se o build não tiver o NEG)
-VMAF_MODEL="${VMAF_MODEL:-vmaf_v0.6.1neg}"
+# Modelo VMAF: vmaf_v0.6.1 (NÃO-NEG) por padrão.
+# Motivo: este toolkit produz grades DELIBERADAMENTE estilizados (LUT Hollywood,
+# Cineon, CAS). O modelo NEG (No Enhancement Gain) remove por design o ganho de
+# contraste/sharpening — num grade intencional isso vira SUB-pontuação estrutural
+# (~6 pts a menos; medido: teste_Hollywood NEG 87,7 vs não-NEG 93,8). O não-NEG é
+# a referência justa para sign-off de encode estilizado.
+# Override p/ flagrar INFLAÇÃO de qualidade (sharpening/denoise oportunista):
+#   VMAF_MODEL=vmaf_v0.6.1neg ./measure_vmaf.sh ...
+VMAF_MODEL="${VMAF_MODEL:-vmaf_v0.6.1}"
 
 if [[ -z "$SOURCE" || -z "$ENCODED" ]]; then
   echo ""
@@ -73,7 +78,7 @@ echo -e "  Encoded:   ${BOLD}$(basename "$ENCODED")${NC}"
 echo -e "  Duração:   ${BOLD}${DURATION_INT}s${NC} → perfil: ${BOLD}${PROFILE}${NC}"
 echo -e "  Target:    ${BOLD}VMAF ≥ ${TARGET}${NC}"
 echo -e "  Subsample: 1 a cada ${BOLD}${SUBSAMPLE}${NC} frame(s)"
-echo -e "  Modelo:    ${VMAF_MODEL}  (NEG = sem ganho por sharpening/denoise)"
+echo -e "  Modelo:    ${VMAF_MODEL}  (não-NEG = justo p/ grade estilizado; use ...neg p/ flagrar inflação)"
 echo ""
 echo -e "  ${YELLOW}Calculando... (pode levar alguns minutos)${NC}"
 echo ""
@@ -99,7 +104,7 @@ if [[ ! -f "$LOGFILE" ]]; then
   echo -e "${RED}${BOLD}ERRO: VMAF não calculado.${NC}"
   echo ""
   echo "  Possíveis causas:"
-  echo "  → libvmaf instalado mas modelo ${VMAF_MODEL} não encontrado (tente VMAF_MODEL=vmaf_v0.6.1)"
+  echo "  → libvmaf instalado mas modelo ${VMAF_MODEL} não encontrado (tente VMAF_MODEL=vmaf_v0.6.1neg)"
   echo "  → Resolução incompatível entre source e encoded"
   echo "  → Duração diferente entre os arquivos"
   echo ""
