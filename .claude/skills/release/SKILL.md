@@ -31,25 +31,31 @@ The single source of truth for the version is `version.py`
 2. **Bump the version** in `version.py` — edit only the `__version__` line to
    the new value. Leave `__app_name__` / `__tagline__` untouched.
 
-3. **Generate release notes** from commits since the last tag:
+3. **Generate release notes** from commits since the last tag and **write them
+   to a file** (the release step consumes this file):
    ```bash
-   git log <last-tag>..HEAD --no-merges --pretty="- %s"
+   git log <last-tag>..HEAD --no-merges --pretty="- %s" > /tmp/release-notes.md
    ```
-   Group into **Features / Fixes / Docs / Internal** by conventional-commit
-   prefix. Lead with a one-line summary of the release's theme.
+   Then rewrite `/tmp/release-notes.md` grouped into **Features / Fixes / Docs /
+   Internal** by conventional-commit prefix, led by a one-line summary of the
+   release's theme.
 
-4. **Commit, tag, and draft the release** (confirm the message with the user
-   first):
+4. **Commit and tag** (confirm the message with the user first):
    ```bash
    git add version.py
    git commit -m "release: vX.Y.Z"
    git tag -a vX.Y.Z -m "vX.Y.Z"
    ```
-   Then draft the GitHub release with the generated notes:
-   ```bash
-   gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes> --draft
-   ```
-   Use `--draft` so the user reviews before publishing. Do **not** push or
-   publish without explicit confirmation.
 
-5. **Report** the new version, the tag, the notes, and the draft-release URL.
+5. **Push, then draft the release.** `gh release create` needs the tagged commit
+   on the remote first, so push the branch and the tag *before* creating the
+   release (confirm with the user before pushing — this is the outward step):
+   ```bash
+   git push origin HEAD          # push the release commit
+   git push origin vX.Y.Z        # push the tag it points at
+   gh release create vX.Y.Z --title "vX.Y.Z" --notes-file /tmp/release-notes.md --draft
+   ```
+   `--draft` so the user reviews before publishing. Do **not** publish (or push)
+   without explicit confirmation.
+
+6. **Report** the new version, the tag, the notes, and the draft-release URL.
