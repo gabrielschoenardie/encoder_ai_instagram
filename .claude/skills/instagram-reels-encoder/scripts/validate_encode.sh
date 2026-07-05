@@ -238,7 +238,9 @@ LUFS_RAW=$(ffmpeg -i "$FILE" \
   -f null - 2>&1)
 
 I_LUFS=$(echo "$LUFS_RAW" | awk '/I:/{val=$2} END{print val}')
-TP=$(echo "$LUFS_RAW" | awk '/True peak/{val=$NF} END{print val}')
+# O bloco "True peak:" do ebur128 põe o valor na LINHA SEGUINTE ("Peak: -1.2 dBFS"),
+# não no rótulo. Ancora em "True peak:" e captura o $2 da linha "Peak:" seguinte.
+TP=$(echo "$LUFS_RAW" | awk '/True peak/{f=1} f&&/Peak:/{val=$2} END{print val}')
 
 if [[ -z "$I_LUFS" || "$I_LUFS" == "0" ]]; then
   warn "Loudness integrado" "não detectado" "verificar manualmente"
@@ -262,10 +264,10 @@ else:
 fi
 
 if [[ -n "$TP" && "$TP" != "0" ]]; then
-  TP_OK=$(python3 -c "print('ok' if float('$TP') <= -1.0 else 'fail')" 2>/dev/null || echo "unknown")
+  TP_OK=$(python3 -c "print('ok' if float('$TP') <= -1.5 else 'fail')" 2>/dev/null || echo "unknown")
   case "$TP_OK" in
     ok)   ok   "True Peak" "${TP} dBTP" ;;
-    fail) warn "True Peak" "${TP} dBTP" "≤ -1.0 dBTP — clipping digital pós-normalização" ;;
+    fail) warn "True Peak" "${TP} dBTP" "≤ -1.5 dBTP — headroom contra o transcode AAC do Instagram" ;;
     *)    warn "True Peak" "não detectado" "verificar manualmente" ;;
   esac
 fi
