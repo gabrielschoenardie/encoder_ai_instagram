@@ -37,7 +37,7 @@ DATA: 2025-01-22
 from __future__ import annotations
 
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple
 import warnings
 
 # Verificar disponibilidade de bibliotecas opcionais
@@ -852,14 +852,17 @@ def node5_portra400(frame_cineon: np.ndarray, lut: LUT3D) -> np.ndarray:
 
     Output do LUT (depende do LUT carregado):
     - Portra 400 original: Rec.709 Gamma 2.4
-    - Portra 400 / LUTs gerados localmente: Rec.709 OETF
+    - Portra 400 / LUTs gerados localmente: Rec.709 OETF *unclamped*
+      (baseline baked sem clip — shoulder > 1.0 / toe < 0.0; ver
+      tools/generate_portra400_baseline_lut.py). O clip [0,1] acontece
+      na conversão uint8 do encoder, nunca antes da interpolação.
 
     Args:
         frame_cineon: Frame em Cineon Log (float32, 0.0-1.0)
         lut: Instância de LUT3D carregada
 
     Returns:
-        Frame em display output (float32, 0.0-1.0) com film look
+        Frame em display output (float32, pode exceder [0,1]) com film look
     """
     return lut.apply(frame_cineon)
 
@@ -885,7 +888,7 @@ def process_frame_full_pipeline(
         Node 3 (CST OUT): Cineon Log + Tone/Gamut Mapping →
         Node 4 (Bridge): Passthrough →
         Node 5 (LUT): Portra 400 Film Emulation →
-        Output: Rec.709 Gamma 2.4 (Film Look)
+        Output: Rec.709 8-bit (Film Look)
 
     Args:
         frame_rec709_gamma: Frame de entrada em Rec.709 Gamma (float32, 0-1)
@@ -894,7 +897,8 @@ def process_frame_full_pipeline(
         saturation: Ajuste de saturação (0.0-2.0)
 
     Returns:
-        Frame processado em Rec.709/Gamma 2.4 com film emulation (float32, 0-1)
+        Frame processado em Rec.709 com film emulation (float32, unclamped —
+        o consumidor faz np.clip(frame*255, 0, 255) na conversão uint8)
     """
     # Node 1: Rec.709 → DWG/Intermediate
     frame_dwg = node1_cst_in(frame_rec709_gamma)
