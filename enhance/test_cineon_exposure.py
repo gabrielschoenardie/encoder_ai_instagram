@@ -14,7 +14,7 @@ import pytest
 
 colour = pytest.importorskip("colour")
 
-from cineon_pipeline import (
+from cineon_pipeline import (  # noqa: E402
     eotf_davinci_intermediate,
     node2_primary,
     oetf_davinci_intermediate,

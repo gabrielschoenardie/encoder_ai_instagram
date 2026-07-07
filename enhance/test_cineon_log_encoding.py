@@ -17,7 +17,7 @@ import pytest
 
 colour = pytest.importorskip("colour")
 
-import cineon_pipeline as cp
+import cineon_pipeline as cp  # noqa: E402
 
 
 def test_log_encoding_cineon_matches_colour_science_reference():
