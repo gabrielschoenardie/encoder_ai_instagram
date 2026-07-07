@@ -37,7 +37,7 @@ DATA: 2025-01-22
 from __future__ import annotations
 
 import numpy as np
-from typing import Tuple
+from typing import Optional, Tuple
 import warnings
 
 # Verificar disponibilidade de bibliotecas opcionais
@@ -351,28 +351,22 @@ def log_encoding_cineon(linear: np.ndarray) -> np.ndarray:
 
     Returns:
         Array float32 em Cineon Log (0.0-1.0 range)
+
+    Raises:
+        RuntimeError: colour-science não instalada — é dependência
+            obrigatória do pipeline Cineon (ver requirements.txt). Não há
+            fallback manual: uma versão anterior aproximava a fórmula à mão
+            e mapeava branco linear (1.0) para o próprio black_code (bug),
+            então preferimos falhar alto a produzir cor errada silenciosamente.
     """
-    if COLOUR_AVAILABLE:
-        L = np.clip(linear, 0.0, None)
-        result = colour.models.log_encoding_Cineon(L).astype(np.float32)
-        return np.clip(result, 0.0, 1.0).astype(np.float32)
-    else:
-        # Implementação manual (especificação Kodak oficial)
-        L = np.clip(linear, 0.0, None)  # Clamp negativos
-
-        # Parâmetros Cineon (normalized 10-bit)
-        black_code = 95.0 / 1023.0  # 0.0928
-        gain_factor = 0.9
-        offset = 0.1
-        log_scale = 300.0 / 1023.0  # 0.2932
-
-        # Fórmula oficial Kodak Cineon
-        log_cineon = (np.log10(L * gain_factor + offset) * log_scale) + black_code
-
-        # Clamp para range válido [0, 1]
-        log_cineon = np.clip(log_cineon, 0.0, 1.0)
-
-        return log_cineon.astype(np.float32)
+    if not COLOUR_AVAILABLE:
+        raise RuntimeError(
+            "colour-science é obrigatória para o pipeline Cineon. "
+            "Instale com: pip install colour-science"
+        )
+    L = np.clip(linear, 0.0, None)
+    result = colour.models.log_encoding_Cineon(L).astype(np.float32)
+    return np.clip(result, 0.0, 1.0).astype(np.float32)
 
 
 def log_decoding_cineon(log_encoded: np.ndarray) -> np.ndarray:
@@ -386,17 +380,16 @@ def log_decoding_cineon(log_encoded: np.ndarray) -> np.ndarray:
 
     Returns:
         Array float32 em scene-linear
+
+    Raises:
+        RuntimeError: colour-science não instalada (ver log_encoding_cineon).
     """
-    if COLOUR_AVAILABLE:
-        return colour.models.log_decoding_Cineon(log_encoded).astype(np.float32)
-    else:
-        # Inverse da aproximação
-        black_ref = 95.0 / 1023.0
-        gamma = 0.6
-
-        linear = np.power(10, (log_encoded - black_ref) / gamma)
-
-        return np.maximum(linear, 0).astype(np.float32)
+    if not COLOUR_AVAILABLE:
+        raise RuntimeError(
+            "colour-science é obrigatória para o pipeline Cineon. "
+            "Instale com: pip install colour-science"
+        )
+    return colour.models.log_decoding_Cineon(log_encoded).astype(np.float32)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -437,6 +430,29 @@ def node1_cst_in(frame_rec709_gamma: np.ndarray) -> np.ndarray:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+_EXPOSURE_REF_LINEAR = 0.18  # 18% grey — âncora fotográfica padrão para "stops"
+
+
+def _stops_to_log_offset(stops: float) -> float:
+    """
+    Converte stops de exposure em offset aditivo no espaço DaVinci
+    Intermediate (log), ancorado no 18% grey (padrão fotográfico/industry).
+
+    Não existe fator de conversão constante universal aqui: a curva DI tem
+    offset aditivo no domínio linear (`log(L*a+b)`), então a inclinação
+    log-por-stop varia com L (medido: ~0.0712 no 18% grey, ~0.0729 no
+    branco — ver enhance/test_cineon_exposure.py). Ancorar no 18% grey
+    garante que `exposure_offset=1.0` dobra exatamente a luminância de
+    referência (1 stop real), em vez do fator solto `0.301` (log10(2), que
+    só seria correto para um log10 puro sem offset aditivo — o bug antigo
+    aplicava ~4.1 stops reais para cada stop pedido).
+    """
+    ref = np.array([_EXPOSURE_REF_LINEAR], dtype=np.float32)
+    log_ref = oetf_davinci_intermediate(ref)[0]
+    log_shifted = oetf_davinci_intermediate(ref * np.float32(2.0**stops))[0]
+    return float(log_shifted - log_ref)
+
+
 def node2_primary(
     frame_dwg: np.ndarray,
     exposure_offset: float = 0.0,
@@ -467,9 +483,10 @@ def node2_primary(
     frame = frame_dwg.copy()
 
     # 1. Exposure (Log space offset)
-    # +1 stop = 2x linear = +0.301 em log10
+    # +1 stop = 2x linear no 18% grey, convertido para offset log DI real
+    # (ver _stops_to_log_offset — não é um fator constante como 0.301/log10).
     if exposure_offset != 0.0:
-        log_offset = exposure_offset * 0.301  # Conversão stop → log10
+        log_offset = _stops_to_log_offset(exposure_offset)
         frame = frame + log_offset
 
     # 2. Saturation (operação no espaço log)
@@ -556,7 +573,10 @@ def node3_cst_out(frame_dwg_intermediate: np.ndarray) -> np.ndarray:
 
 
 def apply_tone_mapping_davinci(
-    linear: np.ndarray, max_output_nits: float = 100.0, adaptation: float = 9.0
+    linear: np.ndarray,
+    max_output_nits: float = 100.0,
+    adaptation: float = 9.0,
+    knee: float = 0.8,
 ) -> np.ndarray:
     """
     Tone Mapping DaVinci (método proprietário simulado).
@@ -566,6 +586,11 @@ def apply_tone_mapping_davinci(
     Parâmetros DaVinci Resolve:
     - Max Output: 100 nits (SDR display reference)
     - Adaptation: 9.0 (controle da curva de compressão)
+    - Knee: 0.8 (threshold para iniciar a compressão, < 1.0 — mesmo padrão
+      de apply_gamut_mapping_saturation_compression, que usa knee=0.9 <
+      max_saturation=1.0). Um knee=1.0 zera o termo `(1.0 - knee)` da
+      compressão exponencial, colapsando a curva num hard clip `min(x, 1.0)`
+      independente de `adaptation` — bug corrigido aqui.
 
     Comportamento:
     - Scene linear (unbounded) → Display linear (0.0-1.0)
@@ -576,6 +601,8 @@ def apply_tone_mapping_davinci(
         linear: Frame em scene-linear (float32, 0.0-infinity)
         max_output_nits: Luminância máxima do display (nits)
         adaptation: Força da compressão (0.0-10.0, default 9.0)
+        knee: Threshold de luminância normalizada onde a compressão começa
+            (0.0-1.0, default 0.8)
 
     Returns:
         Frame em display-linear (float32, 0.0-1.0)
@@ -585,7 +612,6 @@ def apply_tone_mapping_davinci(
 
     # Soft-clip usando função sigmoidal (simulação do método DaVinci)
     # Parâmetro adaptation controla a suavidade da curva
-    knee = 1.0  # Threshold para iniciar compressão
     slope = 1.0 / (1.0 + adaptation)  # Inversamente proporcional à adaptation
 
     # Função piecewise:
@@ -918,6 +944,42 @@ def process_frame_full_pipeline(
     frame_output = node5_portra400(frame_cineon_pass, portra_lut)
 
     return frame_output
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUANTIZAÇÃO FINAL (float32 → uint8) COM DITHER RPDF
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def quantize_uint8_dithered(
+    frame: np.ndarray, rng: Optional[np.random.Generator] = None
+) -> np.ndarray:
+    """
+    Quantiza um frame float32 (Rec.709, nominal 0.0-1.0, pode exceder por
+    causa do shoulder/toe unclamped do LUT Portra 400 — ver
+    node5_portra400) para uint8, com dither RPDF opcional.
+
+    Sem dither, o cast float→uint8 tem erro de quantização determinístico
+    (mesmo resíduo repetido pixel a pixel em áreas planas) → banding
+    perceptível. RPDF (ruído uniforme ±0.5 LSB, média zero) quebra essa
+    coerência espacial sem introduzir viés — mesma técnica do filtro
+    `noise=c0s=...:c0f=t+u` usado no pipeline FFmpeg (ver
+    enhance/ffmpeg_filters.py::_build_dither).
+
+    Args:
+        frame: Frame float32, Rec.709, nominal 0.0-1.0.
+        rng: Gerador de números aleatórios para o dither (reaproveitar a
+            mesma instância entre frames para ruído temporal, não estático).
+            None desativa o dither (equivalente a --dither off); ainda assim
+            arredonda em vez de truncar.
+
+    Returns:
+        Frame uint8, mesma shape.
+    """
+    scaled = frame.astype(np.float32) * 255.0
+    if rng is not None:
+        scaled = scaled + rng.uniform(-0.5, 0.5, size=scaled.shape).astype(np.float32)
+    return np.clip(np.round(scaled), 0, 255).astype(np.uint8)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

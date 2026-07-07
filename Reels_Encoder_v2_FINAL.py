@@ -77,11 +77,9 @@ import os
 import platform
 import subprocess
 import sys
-import tempfile
 import shutil
 import threading
 import time
-import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Tuple, Optional
@@ -106,6 +104,7 @@ try:
     from cineon_pipeline import (
         LUT3D,
         process_frame_full_pipeline,
+        quantize_uint8_dithered,
         COLOUR_AVAILABLE,
     )
 
@@ -734,7 +733,7 @@ def get_video_duration(input_file: str) -> float:
         return float(out.decode().strip())
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
         console.print(
-            f"[yellow]Aviso: ffprobe falhou, usando duração padrão 30s[/yellow]"
+            "[yellow]Aviso: ffprobe falhou, usando duração padrão 30s[/yellow]"
         )
         return 30.0
 
@@ -842,7 +841,7 @@ def get_input_fps(input_file: str) -> int:
         ZeroDivisionError,
     ):
         console.print(
-            f"[yellow]Aviso: Não foi possível detectar fps, usando 30 fps[/yellow]"
+            "[yellow]Aviso: Não foi possível detectar fps, usando 30 fps[/yellow]"
         )
         return 30
 
@@ -900,7 +899,7 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
         if width > 0 and height > 0:
             return width, height
 
-        console.print(f"[yellow]Aviso: Não foi possível detectar resolução[/yellow]")
+        console.print("[yellow]Aviso: Não foi possível detectar resolução[/yellow]")
         return 0, 0
 
     except (
@@ -911,7 +910,7 @@ def get_input_resolution(input_file: str) -> Tuple[int, int]:
         KeyError,
         IndexError,
     ):
-        console.print(f"[yellow]Aviso: Não foi possível detectar resolução[/yellow]")
+        console.print("[yellow]Aviso: Não foi possível detectar resolução[/yellow]")
         return 0, 0
 
 
@@ -1167,7 +1166,7 @@ def build_scale_filter(
             f"[cyan]📐 Scale (cover): {input_width}x{input_height} → "
             f"{final_width}x{final_height} → crop {target_width}x{target_height}[/cyan]"
         )
-        console.print(f"[dim]   Filtro: zscale + Lanczos + center crop (aspect-fill)[/dim]")
+        console.print("[dim]   Filtro: zscale + Lanczos + center crop (aspect-fill)[/dim]")
         return cover_filter
 
     if final_width == input_width and final_height == input_height:
@@ -1179,7 +1178,7 @@ def build_scale_filter(
     scale_filter = f"zscale=w={final_width}:h={final_height}:filter=lanczos"
 
     console.print(f"[cyan]📐 Scale ({direction}): {input_width}x{input_height} → {final_width}x{final_height}[/cyan]")
-    console.print(f"[dim]   Filtro: zscale + Lanczos[/dim]")
+    console.print("[dim]   Filtro: zscale + Lanczos[/dim]")
 
     return scale_filter
 
@@ -1535,7 +1534,7 @@ def _x264_params_string(duration_seconds: float = 30, threads: int = 0, lookahea
                 f"[yellow]⚠️ ATENÇÃO: Caractere '{char}' detectado em x264-params[/yellow]"
             )
             console.print(
-                f"[yellow]   Isso pode causar problemas no Windows subprocess[/yellow]"
+                "[yellow]   Isso pode causar problemas no Windows subprocess[/yellow]"
             )
 
     return params_string
@@ -2158,7 +2157,7 @@ def _get_hollywood_lut_path() -> str:
     lut_path = _find_data_file(_HOLLYWOOD_LUT_FILENAME)
     if not os.path.exists(lut_path):
         console.print(f"[red]✗ LUT não encontrada: {_HOLLYWOOD_LUT_FILENAME}[/red]")
-        console.print(f"[yellow]  Execute: python hollywood_lut.py[/yellow]")
+        console.print("[yellow]  Execute: python hollywood_lut.py[/yellow]")
         raise FileNotFoundError(f"LUT não encontrada: {lut_path}")
     return lut_path
 
@@ -2218,7 +2217,7 @@ def build_sdr_float_pipeline(
         parts.append(f"lut3d=file={_HOLLYWOOD_LUT_FILENAME}:interp=trilinear")
         console.print(f"[green]✓ LUT v6.7:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)")
     else:
-        console.print(f"[dim]○ LUT desativada (--lut off)[/dim]")
+        console.print("[dim]○ LUT desativada (--lut off)[/dim]")
 
     # STAGE 5: ODT - Output Device Transform (32-bit float → 8-bit com dither)
     parts.append("zscale=t=bt709:m=bt709:r=tv:p=bt709")
@@ -2668,7 +2667,7 @@ def run_ffmpeg(
 
     # 2-PASS MODE
     console.print(f"[yellow]📊 Bitrate:[/yellow] {video_bitrate}k")
-    console.print(f"[dim]📐 Profile: High@4.1 | Color: BT.709 TV | Container: MP4 (ISO Base Media)[/dim]")
+    console.print("[dim]📐 Profile: High@4.1 | Color: BT.709 TV | Container: MP4 (ISO Base Media)[/dim]")
 
     logfile = f"{output_file}_2pass"
 
@@ -2964,6 +2963,7 @@ def run_ffmpeg_with_cineon(
     enhance_enabled: bool = False,
     enhance_ai: bool = False,
     fit: str = "contain",
+    dither_enabled: bool = True,
 ):
     """
     Encoding com pipeline Cineon (PyAV + 5 nodes + Portra 400).
@@ -2989,6 +2989,8 @@ def run_ffmpeg_with_cineon(
         performance_mode: "quality", "balanced", "speed"
         cineon_lut_path: Caminho customizado para LUT Portra 400
         post_lut_gain: Linear-light gain applied AFTER LUT (1.6738 for Portra 400)
+        dither_enabled: Dither RPDF na quantização final float32→uint8 (quebra
+            banding em áreas planas). Default True (equivalente a --dither auto).
     """
     console.rule("[bold magenta]🎬 Encode Cineon Film Emulation Pipeline")
 
@@ -3017,7 +3019,7 @@ def run_ffmpeg_with_cineon(
             f"[bold yellow]📱 iPhone Rotation Detected: {rotation_degrees}°[/bold yellow]"
         )
         console.print(
-            f"[dim]   Frames will be rotated automatically during processing[/dim]"
+            "[dim]   Frames will be rotated automatically during processing[/dim]"
         )
         console.print(
             f"[dim]📐 Physical dimensions: {physical_width}×{physical_height}[/dim]"
@@ -3151,7 +3153,7 @@ def run_ffmpeg_with_cineon(
         "[bold magenta]🎬 Inicializando Cineon Film Emulation Pipeline[/bold magenta]"
     )
     console.print(
-        f"[dim]   5 Nodes: DWG Transform → Grading → Gamut Map → Log → Portra 400[/dim]"
+        "[dim]   5 Nodes: DWG Transform → Grading → Gamut Map → Log → Portra 400[/dim]"
     )
     console.print(
         f"[dim]   Exposure: {exposure_offset:+.1f} stops | Saturation: {saturation:.2f}[/dim]"
@@ -3181,6 +3183,11 @@ def run_ffmpeg_with_cineon(
     console.print(
         f"[dim]   Domain: [{portra_lut.domain_min[0]:.2f}, {portra_lut.domain_max[0]:.2f}][/dim]"
     )
+
+    # Dither RPDF (ruído temporal — mesma instância reaproveitada entre frames)
+    _dither_rng = np.random.default_rng() if dither_enabled else None
+    if dither_enabled:
+        console.print("[dim]   Dither: RPDF ±0.5 LSB ativo (quantização uint8)[/dim]")
 
     # ═══════════════════════════════════════════════════════════════
     # FIX 2: METADADOS DE COR COM +write_colr
@@ -3562,8 +3569,8 @@ def run_ffmpeg_with_cineon(
                     frame_processed = np.ascontiguousarray(frame_processed)
 
                 if frame_processed.dtype != np.uint8:
-                    frame_processed = np.clip(frame_processed * 255.0, 0, 255).astype(
-                        np.uint8
+                    frame_processed = quantize_uint8_dithered(
+                        frame_processed, rng=_dither_rng
                     )
 
                 # Validar dimensões esperadas (após rotação + downscale)
@@ -3685,7 +3692,7 @@ def run_ffmpeg_with_cineon(
                 console.print(
                     f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
                 )
-                console.print(f"[yellow]   Continuando sem remux...[/yellow]")
+                console.print("[yellow]   Continuando sem remux...[/yellow]")
             else:
                 # Comando de remux (stream copy, sem re-encode)
                 remux_cmd = [
@@ -3962,6 +3969,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             enhance_enabled=(args.enhance == "on"),
             enhance_ai=enhance_ai,
             fit=args.fit,
+            dither_enabled=_dither_active,
         )
     else:
         run_ffmpeg(
