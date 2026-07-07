@@ -97,6 +97,18 @@ Two `.cube` files in root:
 - `FilmLook_Portra400_SkinPriority_D65.cube` — used in Cineon pipeline (Node 5, trilinear 3D interpolation). Identity baseline baked **unclamped** (shoulder >1.0/toe <0.0; clip happens at the encoder's uint8 conversion) — a clamped bake creates a hard knee at the off-grid Cineon white reference (0.6696) that mutes peak highlights by ~-7.5 8-bit codes via interpolation error. Regenerate with `python tools/generate_portra400_baseline_lut.py`; round-trip locked by `enhance/test_cineon_lut.py`.
 - `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` — used in FFmpeg pipeline (`--lut on`)
 
+### Cineon exposure & tone-mapping (Node 2 / Node 3)
+
+`node2_primary()`'s `exposure_offset` (stops) is converted to a DWG Intermediate log-space offset via `_stops_to_log_offset()` (`cineon_pipeline.py`), which evaluates the real `oetf_davinci_intermediate` curve at 18%-grey and at `18%-grey × 2^stops` and uses the difference — **not** a fixed constant. The DI curve has an additive black offset (`log(L·a+b)`), so log-per-stop isn't constant across levels (~0.071–0.073 in the useful range); anchoring at 18% grey (the photographic reference) guarantees `--exposure 1.0` doubles scene-linear luminance exactly, unlike the old `× 0.301` (log10(2)) constant, which only holds for a pure log10 curve with no offset and silently applied ~4.1 real stops per requested stop.
+
+`apply_tone_mapping_davinci()`'s soft-knee (`cineon_pipeline.py`) needs `knee < 1.0` to actually compress: the curve is `knee + (1.0 - knee) · (1 - exp(-slope · (normalized - knee)))` above the knee, so `knee=1.0` zeroes the `(1.0 - knee)` term and collapses the curve to a hard clip `min(x, 1.0)` regardless of `adaptation`. Default is now `knee=0.8` (exposed as a parameter), matching the same knee-below-ceiling pattern already used by `apply_gamut_mapping_saturation_compression` (`knee=0.9 < max_saturation=1.0`). Test coverage: `enhance/test_cineon_exposure.py`, `enhance/test_cineon_tonemap.py`.
+
+`log_encoding_cineon()`/`log_decoding_cineon()` now require `colour-science` (a hard dependency of the Cineon pipeline per `requirements.txt`) and raise `RuntimeError` if it's missing — the previous manual fallback formula was wrong (mapped linear white to the black code) and has been removed rather than fixed, since it was unreachable in any correctly configured environment. Test coverage: `enhance/test_cineon_log_encoding.py`.
+
+### Final quantization (float32 → uint8)
+
+Both pipelines dither before the final 8-bit cast to break the deterministic quantization error that causes banding in flat areas. Pipeline 1 uses `_build_dither()` (`enhance/ffmpeg_filters.py`) — an FFmpeg `noise=c0s=...:c0f=t+u` filter (RPDF, temporal) wired into the ODT stage; controlled by `--dither` (`auto`/`on`/`off`, default `auto` = active unless explicitly `off`). Pipeline 2 (Cineon) uses `quantize_uint8_dithered()` (`cineon_pipeline.py`) — adds NumPy RPDF noise (uniform ±0.5 LSB, one `np.random.Generator` reused across frames for temporal variation, not a static pattern) before rounding; same `--dither` flag threads into `run_ffmpeg_with_cineon(dither_enabled=...)`. `rng=None` disables the dither but still rounds instead of truncating (the old bug: a plain `astype(np.uint8)` truncates, biasing every value down by up to 1 LSB). Test coverage in `enhance/test_cineon_dither.py`.
+
 ### Entry point
 
 `Reels_Encoder_v2_FINAL.py` (~4000 lines) owns all CLI argument parsing, hardware detection, VBV bitrate selection, and dispatches to either the FFmpeg subprocess path or the Cineon pipeline in `cineon_pipeline.py`.

@@ -12,8 +12,8 @@ automaticamente** qual modo, qual LUT e se rolloff é necessário.
 |---|---|---|
 | Processamento | 8-bit YUV, filtros FFmpeg | float32 RGB, PyAV + NumPy |
 | LUT padrão | `HollywoodCinema_Ultimate_v6.7B_`<br>`1.5IRE_Instagram8bit_NeutralShadows.cube` | `FilmLook_Portra400_`<br>`SkinPriority_D65.cube` |
-| Pipeline | `denoise → rolloff? → lut3d → scale → fps` | 5 nós: DWG → tone map → gamut → Cineon log → LUT |
-| Rolloff | `curves` filter adaptativo (derivado de `highlight_load`) | Nó 2 — S-curve Hable adaptativa |
+| Pipeline | `denoise → rolloff? → lut3d → scale → fps` | 5 nós: DWG → primary → tone/gamut map + Cineon log → bridge → LUT |
+| Rolloff | `curves` filter adaptativo (derivado de `highlight_load`) | Nó 3 — soft-knee exponencial (`apply_tone_mapping_davinci`, não Hable) |
 | Referência técnica | Este arquivo | `references/cineon-pipeline.md` |
 
 > Para o Cineon Mode completo (fórmulas, colour-science API, código por nó):
@@ -80,17 +80,23 @@ Source em Log (S-Log, C-Log, V-Log)
 - **NeutralShadows**: sem lift artificial de sombras — o que se exporta é o que aparece
 
 ```bash
-# Aplicação padrão no FFmpeg Mode
--vf "...,lut3d=HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube:interp=tetrahedral,..."
+# Aplicação padrão no FFmpeg Mode (build_sdr_float_pipeline, Reels_Encoder_v2_FINAL.py:2217)
+-vf "...,lut3d=file=HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube:interp=trilinear,..."
 ```
 
 ### Interpolação de LUT
 
 | Método | Uso |
 |---|---|
-| `tetrahedral` | **sempre** — mais preciso, custo mínimo |
-| `trilinear` | nunca em produção — erro visível em LUTs com curvas agressivas |
+| `trilinear` | usado por `build_sdr_float_pipeline()` em `Reels_Encoder_v2_FINAL.py` (encoder real) e pelo `LUT3D.apply()` custom do Cineon Mode |
+| `tetrahedral` | usado pelo comando sugerido por `scripts/analyze_source.py` — **diverge** do encoder real; não reconciliado ainda |
 | `pyramid` | apenas para debug/comparação |
+
+> **Nota:** `analyze_source.py` e `Reels_Encoder_v2_FINAL.py` constroem a
+> string do filtro `lut3d` de forma independente e hoje discordam no valor de
+> `interp`. Isso é ortogonal à auditoria do Cineon pipeline (que cobre só
+> `cineon_pipeline.py`/`LUT3D.apply()`) — sinalizado aqui para uma reconciliação
+> futura, não corrigido nesta passada.
 
 ---
 

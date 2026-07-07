@@ -1,685 +1,276 @@
 # Cineon Pipeline — Referência Técnica Completa
 
-Pipeline de 5 nós do `Reels_Encoder_v2_FINAL.py` — Cineon Mode.
-Processamento per-frame em float32 via PyAV + NumPy, estilo DaVinci Resolve.
+Pipeline de 5 nós do `Reels_Encoder_v2_FINAL.py` — Cineon Mode (`--cineon-pipeline on`).
+Processamento per-frame em float32, implementado em `cineon_pipeline.py`.
 
-**Stack obrigatório:** `colour-science`, `numpy`, `opencv-python`, `av` (PyAV), `scipy`
+**Stack:** `numpy` (obrigatório), `colour-science` (obrigatório — sem fallback manual,
+ver Nó 3), `cupy` (opcional, GPU). PyAV faz a decodificação de frames em
+`Reels_Encoder_v2_FINAL.py`, fora deste módulo.
+
+> Este documento descreve o código real em `cineon_pipeline.py`. Se você notar
+> qualquer divergência entre este texto e o código, o código é a fonte da
+> verdade — atualize este arquivo, não o contrário.
 
 ---
 
 ## Visão geral do fluxo
 
 ```
-Frame uint8 (PyAV decode)
+Frame uint8 (PyAV decode, em Reels_Encoder_v2_FINAL.py)
         │
         ▼
 [uint8 → float32 normalizado 0–1]
         │
         ▼
-[Nó 1] DWG Input Transform
-  BT.709 gamma decode → linear scene-referred
-  Linear BT.709 → ACEScg (wide gamut working space)
+[Node 1] CST IN — node1_cst_in()
+  Rec.709 gamma decode (eotf_rec709) → Rec.709 linear
+  Matriz Rec.709 → DWG (MATRIX_REC709_TO_DWG)
+  DWG linear → DWG Intermediate log (oetf_davinci_intermediate)
         │
         ▼
-[Nó 2] Tone & Gamut Mapping
-  S-curve adaptativa (skin_ratio + color_temp_proxy do analyze_source)
-  Soft-clip out-of-gamut
-  ACEScg → linear BT.709
+[Node 2] Primary — node2_primary()
+  Exposure (stops, ancorado no 18% grey — _stops_to_log_offset)
+  Saturation (split luma/chroma no espaço log)
+  Lift / Gamma / Gain (log wheels, opcionais)
         │
         ▼
-[Nó 3] Cineon Log Encoding
-  Linear → Cineon log (intermediário para compatibilidade da LUT)
+[Node 3] CST OUT — node3_cst_out()
+  DWG Intermediate → DWG linear (eotf_davinci_intermediate)
+  Tone mapping (apply_tone_mapping_davinci — soft-knee, 100 nits, knee=0.8, adaptation=9.0)
+  Matriz DWG → Rec.709 (MATRIX_DWG_TO_REC709)
+  Gamut mapping (apply_gamut_mapping_saturation_compression — knee=0.9)
+  Rec.709 linear → Cineon Log (log_encoding_cineon)
         │
         ▼
-[Nó 4] LUT Application
-  FilmLook_Portra400_SkinPriority_D65.cube (tetrahedral)
-  colour-science: LUT3D.apply()
+[Node 4] Bridge — node4_cst_bridge()
+  Passthrough (Node 3 já produz Cineon Log — nó preservado por arquitetura)
         │
         ▼
-[MCTF] Temporal Consistency (Farneback + EMA)
-  Alinhamento óptico + blend EMA com frame anterior
+[Node 5] Portra 400 LUT — node5_portra400()
+  FilmLook_Portra400_SkinPriority_D65.cube via LUT3D.apply() (trilinear)
+  Output pode exceder [0,1] (shoulder/toe unclamped — ver color-pipeline.md)
         │
         ▼
-[Nó 5] Output
-  RPDF dithering (_build_dither())
-  float32 → uint8 [0–255]
-  → PyAV encode → libx264 → MP4
+[Consumidor — Reels_Encoder_v2_FINAL.py, fora do pipeline de 5 nós]
+  quantize_uint8_dithered(): clip [0,1] → ×255 → dither RPDF opcional → round → uint8
+        │
+        ▼
+FFmpeg pipe (stdin) → libx264 → MP4
 ```
+
+**Sem estado entre frames:** cada frame é processado independentemente por
+`process_frame_full_pipeline()`. Não há blending temporal, MCTF, optical flow
+ou EMA — cada chamada recebe só o frame atual e os parâmetros de grading
+(`exposure_offset`, `saturation`), não um objeto de estado.
 
 ---
 
-## Estado entre frames
+## Backend: NumPy vs CuPy
 
-O pipeline é **stateful** — o MCTF precisa do frame anterior graded.
-Reinicializar ao começar um novo Reel (não entre frames do mesmo clipe).
-
-```python
-@dataclass
-class CineonState:
-    prev_graded: np.ndarray | None = None   # último frame pós-LUT, float32
-    lut3d:       object           = None    # colour LUT3D carregada uma vez
-    features:    dict             = None    # saída de analyze_source.analyze()
-    ema_alpha:   float            = 0.7     # derivado de temporal_noise
-
-def reset_state() -> CineonState:
-    return CineonState()
-```
+`get_array_backend()` (linhas 70-81) retorna CuPy se instalado e uma GPU CUDA
+estiver disponível, senão NumPy. `xp`/`backend_name` no nível de módulo
+expõem o backend ativo. Nenhuma das funções do pipeline abaixo dependem
+diretamente disso — são escritas em NumPy puro; o backend serve para uso
+externo/futuro, não é injetado automaticamente nas funções de nó.
 
 ---
 
-## Pré-processamento: uint8 → float32
+## Cor: matrizes e transfer functions
 
-```python
-import av
-import numpy as np
+### DaVinci Wide Gamut (DWG) — não ACEScg
 
-def frame_to_float32(av_frame: av.VideoFrame) -> np.ndarray:
-    """
-    Converte frame PyAV para array float32 normalizado [0.0, 1.0].
-    Formato de trabalho: RGB float32 HWC.
-    """
-    bgr_uint8 = av_frame.to_ndarray(format="bgr24")
-    rgb_uint8 = bgr_uint8[..., ::-1]                        # BGR → RGB
-    return (rgb_uint8.astype(np.float32) / 255.0)
+O espaço de trabalho intermediário é **DWG (DaVinci Wide Gamut)**, não ACEScg.
+Primárias e whitepoint (`DWG_PRIMARIES`, `DWG_WHITEPOINT_D65`, linhas 91-98,
+fonte: DaVinci Resolve Color Management Technical Guide):
+
 ```
+Red:   (0.8000,  0.3130)
+Green: (0.1682,  0.9877)
+Blue:  (0.0790, -0.1155)
+White: D65 (0.3127, 0.3290)
+```
+
+`build_rgb_to_xyz_matrix()` (linha 109) deriva RGB→XYZ a partir de primárias +
+whitepoint; `MATRIX_REC709_TO_DWG` / `MATRIX_DWG_TO_REC709` (linhas 151-159)
+são pré-computadas uma vez no import via `XYZ` como espaço intermediário.
+
+### Transfer functions
+
+| Função | Linha | Direção | Notas |
+|---|---|---|---|
+| `oetf_rec709` / `eotf_rec709` | 167 / 191 | Rec.709 gamma ↔ linear | `colour.models.oetf_BT709`/`oetf_inverse_BT709`; fallback manual (piecewise ITU-R) se colour-science ausente |
+| `oetf_davinci_intermediate` / `eotf_davinci_intermediate` | 253 / 296 | DWG Intermediate log ↔ linear | `colour.models.oetf_DaVinciIntermediate` (ou `log_encoding_DaVinciIntermediate` em versões antigas); fallback manual aproximado |
+| `log_encoding_cineon` / `log_decoding_cineon` | 330 / (após) | Cineon Log ↔ Rec.709 linear | `colour.models.log_encoding_Cineon`/`log_decoding_Cineon` — **exige colour-science**, levanta `RuntimeError` sem ela (sem fallback manual, ver nota abaixo) |
+| `eotf_gamma_24` / `oetf_gamma_24` | 214 / 234 | Gamma 2.4 (BT.1886) ↔ linear | Utilitário definido mas **não usado** pelo pipeline de 5 nós ativo |
+
+**Nota sobre `log_encoding_cineon`/`log_decoding_cineon`:** uma versão anterior
+tinha um fallback manual para quando `colour-science` não estava instalada,
+mas a fórmula estava errada (mapeava branco linear para o próprio black code
+— produzia imagem preta). Como `colour-science` é dependência obrigatória do
+pipeline Cineon (`requirements.txt`), o fallback foi removido: as funções
+agora falham alto com `RuntimeError` em vez de produzir cor incorreta
+silenciosamente. Ver `enhance/test_cineon_log_encoding.py`.
+
+**Fórmula Cineon Log (via colour-science, Kodak standard):**
+```
+y = (685 + 300 · log10(x · (1 - black_offset) + black_offset)) / 1023
+black_offset = 10^((95 - 685) / 300) ≈ 0.005012
+```
+Pontos de referência: `lin=0.0 → log≈0.0928` (black), `lin=0.18 → log≈0.457`
+(18% grey), `lin=1.0 → log≈0.6697` (white reference — este é o valor que a
+LUT Portra 400 espera como pico de branco, ver `CLAUDE.md` seção LUTs).
 
 ---
 
-## Nó 1 — DWG Input Transform
-
-### Objetivo
-Linearizar o gamma BT.709 e expandir para o espaço de trabalho wide gamut
-(ACEScg / AP1). O wide gamut evita clipping de primárias saturadas durante
-as operações de tone mapping e gamut mapping que vêm a seguir.
-
-### Fórmulas
-
-**BT.709 gamma decode (OETF inversa):**
+## Node 1 — CST IN (`node1_cst_in`, linha 407)
 
 ```
-Para V ≤ 0.081:    L = V / 4.5
-Para V > 0.081:    L = ((V + 0.099) / 1.099)^(1/0.45)
+Rec.709 Gamma → [eotf_rec709] → Rec.709 Linear
+              → [MATRIX_REC709_TO_DWG] → DWG Linear
+              → [oetf_davinci_intermediate] → DWG Intermediate (log, unbounded)
 ```
 
-**Matrix BT.709 → ACEScg (via colour-science):**
-
-```
-M_BT709_to_ACES = colour.matrix_RGB_to_RGB(
-    colour.RGB_COLOURSPACES['ITU-R BT.709'],
-    colour.RGB_COLOURSPACES['ACEScg']
-)
-```
-
-Valores da matrix (referência, D65 → D60 adapt. Bradford):
-```
-[ 0.6131,  0.3395,  0.0474 ]
-[ 0.0701,  0.9163,  0.0136 ]
-[ 0.0206,  0.1096,  0.8698 ]
-```
-
-### Implementação
-
-```python
-import colour
-import numpy as np
-
-# Cache da matrix — calcular uma vez, reusar
-_M_BT709_TO_ACES: np.ndarray | None = None
-
-def _get_bt709_to_aces_matrix() -> np.ndarray:
-    global _M_BT709_TO_ACES
-    if _M_BT709_TO_ACES is None:
-        _M_BT709_TO_ACES = colour.matrix_RGB_to_RGB(
-            colour.RGB_COLOURSPACES['ITU-R BT.709'],
-            colour.RGB_COLOURSPACES['ACEScg'],
-            chromatic_adaptation_transform='Bradford',
-        )
-    return _M_BT709_TO_ACES
-
-
-def node1_dwg_input(rgb_nonlinear: np.ndarray) -> np.ndarray:
-    """
-    Nó 1: BT.709 gamma decode + expansão para ACEScg (DWG proxy).
-
-    Input:  RGB float32 [0, 1] com gamma BT.709
-    Output: RGB float32 scene-linear em ACEScg (pode exceder [0,1])
-    """
-    # 1a. BT.709 OETF inversa → linear (colour-science)
-    rgb_linear = colour.cctf_decoding(rgb_nonlinear, function='ITU-R BT.709')
-    rgb_linear = np.maximum(rgb_linear, 0.0)   # eliminar negativos de rounding
-
-    # 1b. Matriz BT.709 linear → ACEScg
-    M  = _get_bt709_to_aces_matrix()
-    out = np.einsum('...c,dc->...d', rgb_linear, M)
-
-    return out.astype(np.float32)
-```
-
-### Notas de log footage
-
-Se o source for S-Log2, S-Log3, C-Log, V-Log: substituir o decode BT.709
-pela função de decode específica antes da matrix. colour-science suporta:
-
-```python
-# S-Log2 (Sony)
-colour.cctf_decoding(v, function='S-Log2')
-
-# S-Log3 (Sony)
-colour.cctf_decoding(v, function='S-Log3')
-
-# C-Log (Canon) — usar LogC3 como proxy
-colour.cctf_decoding(v, function='Log3G10')  # aproximação
-```
+Input: Rec.709 gamma float32 `[0, 1]`. Output: DWG Intermediate log, pode
+exceder `[0, 1]` (highlights).
 
 ---
 
-## Nó 2 — Tone & Gamut Mapping
+## Node 2 — Primary (`node2_primary`, linha 440)
 
-### Objetivo
-Comprimir highlights HDR que excedem [0, 1] após a expansão de gamut, aplicar
-S-curve adaptativa baseada nos features do `analyze_source.py`, e mapear de
-volta para BT.709 linear (ready para o Cineon log no Nó 3).
+Ajustes de grading no espaço DWG Intermediate (log), na ordem:
 
-### S-curve adaptativa
+1. **Exposure** — `_stops_to_log_offset(stops)` (linha ~440) converte stops
+   fotográficos em offset aditivo no log, ancorado no 18% grey: avalia
+   `oetf_davinci_intermediate` em `0.18` e em `0.18 · 2^stops` e usa a
+   diferença. Não é um fator constante — a curva DI tem offset aditivo, então
+   a inclinação log-por-stop varia com o nível (~0.071-0.073 no range útil).
+   `exposure_offset=1.0` dobra exatamente a luminância no 18% grey.
+2. **Saturation** — separa luma (`frame.mean(axis=2)`) e chroma no espaço
+   log, multiplica o chroma por `saturation`.
+3. **Lift / Gamma / Gain** — color wheels clássicos (opcionais, default
+   neutro): lift soma nas sombras, gamma aplica `power` preservando sinal,
+   gain multiplica.
 
-A S-curve usa a fórmula de Hable (Uncharted 2), com parâmetros derivados das
-features de análise:
-
-```
-f(x) = (x * (A*x + C*B) + D*E) / (x * (A*x + B) + D*F) - E/F
-
-Onde A-F são parâmetros que controlam shoulder (highlights) e toe (shadows).
-```
-
-Os parâmetros são ajustados dinamicamente:
-
-```python
-def _hable_partial(x: np.ndarray, A: float, B: float, C: float,
-                   D: float, E: float, F: float) -> np.ndarray:
-    return (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F
-
-
-def _build_tone_params(skin_ratio: float, color_temp_proxy: float) -> dict:
-    """
-    Deriva parâmetros da S-curve Hable a partir de features de análise.
-    skin_ratio alto → shoulder mais suave (preserva gradiente de pele).
-    color_temp_proxy > 1.3 → compensação de white balance warm.
-    """
-    # Shoulder strength: reduz com skin_ratio (menos compressão de highlights perto de pele)
-    shoulder = max(0.10, 0.22 - skin_ratio * 0.08)
-
-    # Toe strength: fixo — sombras sempre preservadas
-    toe_strength = 0.30
-
-    params = {
-        "A": shoulder,           # shoulder strength
-        "B": 0.50,               # linear strength
-        "C": 0.10,               # linear angle
-        "D": toe_strength,       # toe strength
-        "E": 0.02,               # toe numerator
-        "F": 0.30,               # toe denominator
-        "W": 11.2,               # linear white point
-    }
-
-    # Compensação de white balance para fonte quente (warm shift)
-    if color_temp_proxy > 1.3:
-        # Leve resfriamento proporcional ao desvio
-        wb_shift = min((color_temp_proxy - 1.3) * 0.05, 0.08)
-        params["wb_r_gain"] = 1.0 - wb_shift
-        params["wb_b_gain"] = 1.0 + wb_shift * 0.7
-    else:
-        params["wb_r_gain"] = 1.0
-        params["wb_b_gain"] = 1.0
-
-    return params
-
-
-def _soft_clip(x: np.ndarray, limit: float = 1.0, softness: float = 0.05) -> np.ndarray:
-    """
-    Soft clip: comprime suavemente acima de (limit - softness) em vez de hard clip.
-    Preserva detalhe de highlight sem clipping abrupto.
-    """
-    knee = limit - softness
-    above = x > knee
-    x_soft = x.copy()
-    # Curva quadrática suave no shoulder
-    t = (x[above] - knee) / softness
-    x_soft[above] = knee + softness * (2 * t - t * t) / 2.0
-    return np.clip(x_soft, 0.0, limit)
-```
-
-### Gamut mapping ACEScg → BT.709
-
-```python
-_M_ACES_TO_BT709: np.ndarray | None = None
-
-def _get_aces_to_bt709_matrix() -> np.ndarray:
-    global _M_ACES_TO_BT709
-    if _M_ACES_TO_BT709 is None:
-        _M_ACES_TO_BT709 = colour.matrix_RGB_to_RGB(
-            colour.RGB_COLOURSPACES['ACEScg'],
-            colour.RGB_COLOURSPACES['ITU-R BT.709'],
-            chromatic_adaptation_transform='Bradford',
-        )
-    return _M_ACES_TO_BT709
-```
-
-### Implementação do Nó 2
-
-```python
-def node2_tone_gamut(rgb_aces: np.ndarray, features: dict) -> np.ndarray:
-    """
-    Nó 2: Tone mapping (Hable adaptativo) + gamut mapping ACEScg → BT.709 linear.
-
-    Input:  RGB float32 ACEScg scene-linear (pode exceder [0,1])
-    Output: RGB float32 BT.709 linear [0, 1]
-    """
-    skin_ratio      = features.get("skin_ratio",       0.0)
-    color_temp_proxy = features.get("color_temp_proxy", 1.0)
-
-    p = _build_tone_params(skin_ratio, color_temp_proxy)
-
-    # Correção de white balance antes do tone map
-    rgb_wb = rgb_aces.copy()
-    rgb_wb[..., 0] *= p["wb_r_gain"]
-    rgb_wb[..., 2] *= p["wb_b_gain"]
-
-    # S-curve Hable
-    A, B, C, D, E, F, W = p["A"], p["B"], p["C"], p["D"], p["E"], p["F"], p["W"]
-    rgb_tm = _hable_partial(rgb_wb, A, B, C, D, E, F)
-    white  = _hable_partial(np.full_like(rgb_wb, W), A, B, C, D, E, F)
-    rgb_tm = rgb_tm / (white + 1e-10)   # normalizar pelo white point
-
-    # Soft clip (previne hard-clip em highlights residuais)
-    rgb_tm = _soft_clip(rgb_tm, limit=1.0, softness=0.04)
-
-    # Gamut mapping ACEScg → BT.709 linear
-    M   = _get_aces_to_bt709_matrix()
-    out = np.einsum('...c,dc->...d', rgb_tm, M)
-
-    # Garantir range válido pós-matrix (out-of-gamut residual → soft clip)
-    return np.clip(out, 0.0, 1.0).astype(np.float32)
-```
+Ver `enhance/test_cineon_exposure.py` para a cobertura de regressão do
+exposure.
 
 ---
 
-## Nó 3 — Cineon Log Encoding
-
-### Objetivo
-Converter de linear BT.709 para Cineon log antes de aplicar a LUT. A
-`FilmLook_Portra400_SkinPriority_D65.cube` foi construída esperando input
-em Cineon log — aplicá-la em linear produziria resultado incorreto.
-
-### Fórmula
-
-A fórmula Cineon log normalizada usada neste pipeline:
+## Node 3 — CST OUT (`node3_cst_out`, linha 512)
 
 ```
-Encode (linear → log):
-    out = log10(max(lin, 1e-10)) / (0.002 × 1023) + 0.669
-
-Decode (log → linear):
-    lin = 10^((log - 0.669) × 0.002 × 1023)
+DWG Intermediate → [eotf_davinci_intermediate] → DWG Linear
+                 → [apply_tone_mapping_davinci] → DWG Linear (comprimido, ≤1.0)
+                 → [MATRIX_DWG_TO_REC709] → Rec.709 Linear
+                 → [apply_gamut_mapping_saturation_compression] → Rec.709 Linear (in-gamut)
+                 → [log_encoding_cineon] → Cineon Log [0, 1]
 ```
 
-**Derivação dos constantes:**
-- `0.669` = ponto de referência de brancos (code value 685 / 1023 ≈ 0.669)
-- `0.002` = incremento de densidade de referência do filme Cineon original
-- `1023` = range 10-bit normalizado para [0, 1]
+### Tone mapping (`apply_tone_mapping_davinci`, linha 582)
 
-**Pontos de controle (derivados da fórmula acima — slope = 0.002×1023 = 2.046):**
+Soft-knee exponencial: abaixo de `knee` (default `0.8`, normalizado para
+`max_output_nits=100`), passthrough linear; acima, compressão que se
+aproxima assintoticamente de `1.0`:
+
 ```
-lin = 0.0    → log = 0.000  (black point, após np.clip — fórmula crua dá negativo)
-lin = 0.18   → log ≈ 0.305  (18% grey)
-lin = 1.0    → log = 0.669  (white reference)
-lin = 2.0    → log ≈ 0.816  (1 stop acima do branco)
+normalized = linear / (max_output_nits / 100.0)
+slope = 1.0 / (1.0 + adaptation)
+tone_mapped = normalized                                              se normalized <= knee
+            = knee + (1.0 - knee) · (1 - exp(-slope · (normalized - knee)))   se normalized > knee
 ```
 
-> **Nota de reconciliação:** versões anteriores deste documento listavam
-> 0.18→0.435 e 2.0→0.718, valores que **não** seguem da fórmula `log10(lin)/2.046
-> + 0.669` (que produz 0.305 e 0.816). Os asserts de `_validate_cineon_constants()`
-> abaixo foram alinhados aos valores corretos — antes disso, a função abortava o
-> pipeline na inicialização com `AssertionError`. Esta é a fórmula/curva para a
-> qual a `FilmLook_Portra400_SkinPriority_D65.cube` foi construída.
+`knee` precisa ser `< 1.0` para a compressão ter efeito (`(1.0 - knee)` é o
+"tamanho" da faixa de compressão disponível) — um `knee=1.0` colapsa a curva
+num hard clip `min(x, 1.0)` independente de `adaptation` (bug corrigido, ver
+`enhance/test_cineon_tonemap.py`).
 
-### Implementação
+### Gamut mapping (`apply_gamut_mapping_saturation_compression`, linha 603)
 
-```python
-# Constantes Cineon log
-_CINEON_REF_WHITE  = 0.669        # code value normalizado para lin=1.0
-_CINEON_DENSITY    = 0.002        # incremento de densidade de referência
-_CINEON_RANGE      = 1023.0       # range 10-bit (normalizado para [0,1])
-_CINEON_SLOPE      = _CINEON_DENSITY * _CINEON_RANGE   # = 2.046
-
-
-def cineon_encode(linear: np.ndarray) -> np.ndarray:
-    """
-    Nó 3: Linear BT.709 [0, 1] → Cineon log [0, 1].
-    Clip suave abaixo de 1e-10 para evitar log10(0).
-    """
-    lin_safe = np.maximum(linear, 1e-10)
-    log      = np.log10(lin_safe) / _CINEON_SLOPE + _CINEON_REF_WHITE
-    return np.clip(log, 0.0, 1.0).astype(np.float32)
-
-
-def cineon_decode(log: np.ndarray) -> np.ndarray:
-    """Inverso: Cineon log [0, 1] → linear [0, 1]."""
-    return np.power(10.0, (log - _CINEON_REF_WHITE) * _CINEON_SLOPE).astype(np.float32)
-
-
-# Checkpoint de validação
-def _validate_cineon_constants():
-    """Verificar pontos de controle da fórmula. Chamar uma vez na inicialização."""
-    checks = [(0.18, 0.305, 0.005), (1.0, 0.669, 0.001), (2.0, 0.816, 0.005)]
-    for lin, expected_log, tol in checks:
-        got = float(cineon_encode(np.array([lin], dtype=np.float32))[0])
-        assert abs(got - expected_log) < tol, \
-            f"Cineon constant error: lin={lin} → log={got:.4f} (expected {expected_log}±{tol})"
-```
+Mesmo formato de soft-knee, aplicado à **magnitude do chroma** (não à
+luminância) para comprimir saturação fora do gamut Rec.709 preservando hue:
+`knee=0.9`, `max_saturation=1.0`.
 
 ---
 
-## Nó 4 — LUT Application (Portra400)
+## Node 4 — Bridge (`node4_cst_bridge`, linha 688)
 
-### Objetivo
-Aplicar a `FilmLook_Portra400_SkinPriority_D65.cube` via interpolação tetraédrica.
-A LUT foi construída para input em **Cineon log** — é exatamente o que o Nó 3 produz.
-
-### Carregamento da LUT (uma vez, não por frame)
-
-```python
-import colour
-
-def load_lut(lut_path: str) -> colour.LUT3D:
-    """
-    Carrega a LUT 3D uma vez na inicialização do pipeline.
-    colour-science suporta .cube (Adobe/Resolve), .3dl e .clf.
-    """
-    lut = colour.io.read_LUT(lut_path)
-
-    if not isinstance(lut, colour.LUT3D):
-        # Converter LUT1D ou LUT sequence se necessário
-        if hasattr(lut, 'LUTs'):
-            lut = colour.LUTSequence(*lut.LUTs).as_LUT(colour.LUT3D)
-        else:
-            raise TypeError(f"LUT não é 3D: {type(lut)}")
-
-    return lut
-```
-
-### Aplicação por frame
-
-```python
-def node4_lut(cineon_frame: np.ndarray, lut3d: colour.LUT3D) -> np.ndarray:
-    """
-    Nó 4: Aplicar LUT 3D Portra400 com interpolação tetraédrica.
-
-    Input:  RGB float32 Cineon log [0, 1]
-    Output: RGB float32 graded [0, 1]
-    """
-    # colour-science: LUT3D.apply() aceita array HWC float32
-    graded = lut3d.apply(
-        cineon_frame,
-        interpolator=colour.algebra.table_interpolation_tetrahedral,
-    )
-    return np.clip(graded, 0.0, 1.0).astype(np.float32)
-```
-
-### Validação da LUT antes do pipeline
-
-```python
-def validate_lut_gamut(lut3d: colour.LUT3D, n_samples: int = 1000) -> dict:
-    """
-    Verifica se a LUT tem output fora de [0, 1] (indica construção incorreta).
-    Amostras aleatórias no domain da LUT.
-    """
-    samples = np.random.uniform(0.0, 1.0, (n_samples, 3)).astype(np.float32)
-    output  = lut3d.apply(samples,
-                          interpolator=colour.algebra.table_interpolation_tetrahedral)
-    out_of_gamut = (output < 0.0) | (output > 1.0)
-    ratio = float(out_of_gamut.any(axis=1).mean())
-    return {
-        "out_of_gamut_ratio": ratio,
-        "max_value":  float(output.max()),
-        "min_value":  float(output.min()),
-        "status":     "OK" if ratio < 0.01 else "WARNING — LUT tem output fora de gamut",
-    }
-```
+Passthrough puro — `return frame_cineon.astype(np.float32)`. Existe apenas
+para preservar a arquitetura de 5 nós; historicamente (Fase 26) o tone/gamut
+mapping foi realocado do Nó 5 para o Nó 3 (evitando um roundtrip de Gamma 2.4
+que causava quantização), e o Nó 4 ficou como ponto de transição vazio entre
+o CST e a aplicação da LUT.
 
 ---
 
-## MCTF — Temporal Consistency
+## Node 5 — Portra 400 LUT (`node5_portra400` + `LUT3D`, linhas 714-899)
 
-### Posição no pipeline
-O MCTF é aplicado **após o Nó 4** (pós-LUT, pré-output). Trabalha no espaço
-graded para que a consistência temporal preserve a aparência final, não o linear.
+`LUT3D` (linha 714) é um parser/aplicador de `.cube` próprio (não usa
+`colour.LUT3D`):
+- `_load_cube_file()`: lê `LUT_3D_SIZE` + pontos RGB, valida contagem
+  (`lut_size³`), reshape `(N, N, N, 3)` — ordem Adobe `.cube` (R varia mais
+  rápido, B mais devagar).
+- `apply()`: clipa a **coordenada de lookup** de entrada para `[0, 1]`
+  (domínio da LUT), interpola **trilinear** (8 vértices vizinhos, sem
+  interpolador tetraédrico), retorna o resultado **sem clipar a saída** — o
+  output pode exceder `[0, 1]` se a LUT foi baked unclamped (é o caso da
+  `FilmLook_Portra400_SkinPriority_D65.cube` — ver `CLAUDE.md` seção LUTs
+  para o porquê).
 
-### Derivação do peso EMA a partir de `temporal_noise`
-
-O peso EMA é derivado do `temporal_noise` do `analyze_source.py` uma única vez
-na inicialização, não por frame:
-
-```python
-def derive_ema_alpha(temporal_noise: float) -> float:
-    """
-    Mapeia temporal_noise do analyze_source para peso EMA do MCTF.
-    temporal_noise baixo = source estável → EMA agressiva (mais smoothing).
-    temporal_noise alto  = muita variação  → EMA suave (preservar transições).
-    """
-    if temporal_noise < 5.0:
-        return 0.90    # fonte muito estável (tripé, pouca variação)
-    elif temporal_noise < 12.0:
-        return 0.70    # variação moderada (handheld leve, vento)
-    else:
-        return 0.50    # variação alta (movimento, flash, cortes rápidos)
-```
-
-### Alinhamento com Farneback optical flow
-
-```python
-import cv2
-
-def _farneback_warp(frame_curr: np.ndarray,
-                    frame_prev: np.ndarray) -> np.ndarray:
-    """
-    Alinha frame_curr para frame_prev via Farneback optical flow + remap.
-    Ambos os frames: float32 RGB [0, 1].
-    Retorna frame_curr warpado para o espaço de frame_prev.
-    """
-    # Converter para uint8 gray para optical flow (mais rápido e suficiente)
-    curr_gray = (frame_curr[..., 0] * 0.2126 +
-                 frame_curr[..., 1] * 0.7152 +
-                 frame_curr[..., 2] * 0.0722)
-    prev_gray = (frame_prev[..., 0] * 0.2126 +
-                 frame_prev[..., 1] * 0.7152 +
-                 frame_prev[..., 2] * 0.0722)
-
-    curr_u8 = np.clip(curr_gray * 255, 0, 255).astype(np.uint8)
-    prev_u8 = np.clip(prev_gray * 255, 0, 255).astype(np.uint8)
-
-    flow = cv2.calcOpticalFlowFarneback(
-        prev_u8, curr_u8, None,
-        pyr_scale=0.5, levels=3, winsize=15,
-        iterations=3, poly_n=5, poly_sigma=1.2,
-        flags=cv2.OPTFLOW_FARNEBACK_GAUSSIAN,
-    )
-
-    h, w = frame_curr.shape[:2]
-    grid_x, grid_y = np.meshgrid(np.arange(w, dtype=np.float32),
-                                  np.arange(h, dtype=np.float32))
-
-    map_x = np.clip(grid_x + flow[..., 0], 0, w - 1)
-    map_y = np.clip(grid_y + flow[..., 1], 0, h - 1)
-
-    warped = cv2.remap(frame_curr, map_x, map_y,
-                       interpolation=cv2.INTER_LINEAR,
-                       borderMode=cv2.BORDER_REPLICATE)
-    return warped.astype(np.float32)
-
-
-def mctf_ema(frame_graded: np.ndarray,
-             state: 'CineonState') -> tuple[np.ndarray, 'CineonState']:
-    """
-    MCTF: alinha frame anterior e aplica EMA para consistência temporal.
-
-    Desativar se motion_magnitude > 25 (Farneback falha com movimento extremo).
-    """
-    if state.prev_graded is None:
-        # Primeiro frame — sem referência, retornar sem blend
-        state.prev_graded = frame_graded.copy()
-        return frame_graded, state
-
-    # Alinhar frame anterior para o frame atual
-    prev_aligned = _farneback_warp(state.prev_graded, frame_graded)
-
-    # EMA blend
-    alpha  = state.ema_alpha
-    blended = alpha * prev_aligned + (1.0 - alpha) * frame_graded
-
-    state.prev_graded = blended.copy()
-    return blended.astype(np.float32), state
-```
-
-### Quando desativar o MCTF
-
-```python
-def should_use_mctf(features: dict) -> bool:
-    """
-    MCTF é contraproducente com muito movimento — Farneback gera ghosting.
-    """
-    motion = features.get("motion_magnitude", 0.0)
-    return motion <= 25.0
-```
+`node5_portra400()` é `return lut.apply(frame_cineon)` — nenhum
+processamento adicional.
 
 ---
 
-## Nó 5 — Output com RPDF Dithering
-
-### Objetivo
-Converter float32 [0, 1] para uint8 [0, 255] com dithering RPDF para prevenir
-banding em gradientes suaves.
-
-### RPDF vs TPDF
+## Orquestração (`process_frame_full_pipeline`, linha 901)
 
 ```
-RPDF (Rectangular): ruído uniforme ±0.5 LSB — mais simples, menos correlacionado
-TPDF (Triangular):  soma de dois RPDF — espectro mais plano, preferido em áudio
+frame_dwg          = node1_cst_in(frame_rec709_gamma)
+frame_dwg_graded    = node2_primary(frame_dwg, exposure_offset, saturation)
+frame_cineon        = node3_cst_out(frame_dwg_graded)
+frame_cineon_pass   = node4_cst_bridge(frame_cineon)
+frame_output        = node5_portra400(frame_cineon_pass, portra_lut)
 ```
 
-Para vídeo 8-bit com conteúdo cinematográfico, RPDF é suficiente e tem overhead
-menor. `_build_dither()` usa RPDF conforme implementado no encoder.
-
-### Implementação
-
-```python
-def _build_dither(shape: tuple) -> np.ndarray:
-    """
-    RPDF dithering: noise uniforme ±0.5 LSB no espaço [0, 1].
-    Chamar por frame — novo noise a cada frame (não reusar).
-    """
-    half_lsb = 0.5 / 255.0
-    return np.random.uniform(-half_lsb, half_lsb, shape).astype(np.float32)
-
-
-def node5_output(frame_graded: np.ndarray) -> np.ndarray:
-    """
-    Nó 5: float32 [0, 1] → uint8 [0, 255] com RPDF dithering.
-
-    Output: BGR uint8 HWC (formato para PyAV VideoFrame)
-    """
-    # Dithering antes do clip e cast
-    dither    = _build_dither(frame_graded.shape)
-    dithered  = frame_graded + dither
-
-    # Clip e conversão
-    rgb_uint8 = np.clip(dithered * 255.0, 0, 255).astype(np.uint8)
-
-    # RGB → BGR para PyAV (que espera bgr24)
-    return rgb_uint8[..., ::-1]
-```
+Chamado uma vez por frame a partir do loop de decode PyAV em
+`Reels_Encoder_v2_FINAL.py` (`run_ffmpeg_with_cineon`).
 
 ---
 
-## Orquestração completa do pipeline
+## Quantização final (fora deste módulo)
 
-```python
-def process_frame_cineon(av_frame:    av.VideoFrame,
-                         state:       CineonState,
-                         use_mctf:    bool = True) -> tuple[np.ndarray, CineonState]:
-    """
-    Pipeline completo: PyAV frame → BGR uint8 graded.
-    Retorna (bgr_uint8, state_atualizado).
+`quantize_uint8_dithered()` vive em `cineon_pipeline.py` mas é chamada pelo
+consumidor em `Reels_Encoder_v2_FINAL.py`, não faz parte dos 5 nós:
 
-    Integração no Reels_Encoder_v2_FINAL.py:
-        state = CineonState()
-        state.lut3d    = load_lut(LUT_CINEON)
-        state.features = analyze("input.mp4").features.__dict__
-        state.ema_alpha = derive_ema_alpha(state.features["temporal_noise"])
-        use_mctf = should_use_mctf(state.features)
-
-        for frame in container.decode(video_stream):
-            bgr, state = process_frame_cineon(frame, state, use_mctf)
-            # escrever bgr no output container via PyAV
-    """
-    # Pré-processamento
-    rgb_f32 = frame_to_float32(av_frame)
-
-    # Nó 1: DWG Input Transform
-    rgb_aces = node1_dwg_input(rgb_f32)
-
-    # Nó 2: Tone & Gamut Mapping
-    rgb_lin_bt709 = node2_tone_gamut(rgb_aces, state.features or {})
-
-    # Nó 3: Cineon Log Encoding
-    cineon_log = cineon_encode(rgb_lin_bt709)
-
-    # Nó 4: LUT Application
-    graded = node4_lut(cineon_log, state.lut3d)
-
-    # MCTF (entre Nó 4 e 5)
-    if use_mctf:
-        graded, state = mctf_ema(graded, state)
-
-    # Nó 5: Output com dithering
-    bgr_out = node5_output(graded)
-
-    return bgr_out, state
 ```
+scaled = frame_float32 * 255.0
+scaled += uniform(-0.5, +0.5, size=scaled.shape)   # RPDF, se rng != None
+uint8_out = clip(round(scaled), 0, 255).astype(uint8)
+```
+
+`rng=None` desativa o dither (equivalente a `--dither off`) mas ainda
+arredonda em vez de truncar. Controlado pela flag `--dither` (`auto`/`on`/
+`off`, default `auto`). Ver `CLAUDE.md` seção "Final quantization" e
+`enhance/test_cineon_dither.py`.
 
 ---
 
-## Inicialização do pipeline
+## O que NÃO existe neste pipeline
 
-```python
-def init_cineon_pipeline(lut_path: str,
-                         analysis_result) -> tuple[CineonState, bool]:
-    """
-    Inicializa o estado do pipeline Cineon para um novo Reel.
-    Chamar uma vez por arquivo — nunca entre frames do mesmo clipe.
+Versões anteriores deste documento descreviam uma arquitetura que nunca foi
+implementada. Para evitar recomendar algo inexistente numa sessão futura:
 
-    analysis_result: AnalysisResult de scripts/analyze_source.py
-    """
-    features = analysis_result.features.__dict__
-
-    # Validar LUT antes de processar
-    lut3d = load_lut(lut_path)
-    lut_check = validate_lut_gamut(lut3d)
-    if lut_check["out_of_gamut_ratio"] > 0.01:
-        import warnings
-        warnings.warn(f"LUT gamut warning: {lut_check['status']}")
-
-    # Validar constantes Cineon log
-    _validate_cineon_constants()
-
-    state = CineonState(
-        lut3d    = lut3d,
-        features = features,
-        ema_alpha = derive_ema_alpha(features.get("temporal_noise", 5.0)),
-    )
-    use_mctf = should_use_mctf(features)
-
-    return state, use_mctf
-```
+- **Sem ACEScg** — o espaço de trabalho wide-gamut é DWG (DaVinci Wide
+  Gamut), não ACEScg.
+- **Sem curva de Hable** — o tone mapping é o soft-knee exponencial de
+  `apply_tone_mapping_davinci` (acima), não a S-curve de Uncharted 2.
+- **Sem MCTF / consistência temporal** — não há optical flow (Farneback),
+  EMA, nem qualquer estado entre frames. Cada frame é processado isolado.
+- **Sem dithering por nó** — o dither RPDF acontece uma única vez, na
+  quantização final (`quantize_uint8_dithered`), não dentro do Nó 5.
+- **Sem `_validate_cineon_constants()`** — não há checkpoint de validação de
+  constantes chamado na inicialização. As constantes Cineon vêm direto de
+  `colour.models.log_encoding_Cineon`, não de constantes locais reimplementadas.
+- **Sem interpolação tetraédrica** — `LUT3D.apply()` é trilinear.
 
 ---
 
@@ -688,17 +279,12 @@ def init_cineon_pipeline(lut_path: str,
 | Operação | Custo por frame 1080×1920 |
 |---|---|
 | float32 RGB array | ~25 MB |
-| Farneback optical flow | ~15 MB (buffers internos) |
-| LUT3D.apply() tetrahedral | ~8 MB temporário |
-| Peak total por frame | ~60–70 MB |
+| `LUT3D.apply()` (trilinear, 8 vértices) | ~8 MB temporário |
+| Peak total por frame | ~35–45 MB |
 
-**Para batches maiores:** processar frame a frame, não em batch. O overhead de
-memória por frame é manejável; em batch de 30 frames seria ~1.8 GB só de buffers.
-
-**Bottleneck real:** `node2_tone_gamut` (einsum + Hable) e `_farneback_warp`
-(Farneback é O(pixels × levels)). Ambos podem ser acelerados com:
-- `node2`: `np.dot` em lugar de `einsum` para a matrix (marginalmente mais rápido)
-- `_farneback_warp`: reduzir `levels` de 3 para 2 se `motion_magnitude < 5`
+Processamento é sempre frame a frame (sem batching) — o loop em
+`Reels_Encoder_v2_FINAL.py` escreve cada frame no pipe do FFmpeg assim que
+`process_frame_full_pipeline()` retorna.
 
 ---
 
@@ -712,15 +298,15 @@ def debug_frame_stats(label: str, arr: np.ndarray) -> None:
           f"mean={arr.mean():.4f} std={arr.std():.4f}")
 
 # Uso:
-# debug_frame_stats("Nó1 out (ACEScg)",     rgb_aces)
-# debug_frame_stats("Nó2 out (BT.709 lin)", rgb_lin_bt709)
-# debug_frame_stats("Nó3 out (Cineon log)", cineon_log)
-# debug_frame_stats("Nó4 out (graded)",     graded)
+# debug_frame_stats("Node1 out (DWG intermediate)", frame_dwg)
+# debug_frame_stats("Node2 out (DWG graded)",        frame_dwg_graded)
+# debug_frame_stats("Node3 out (Cineon log)",        frame_cineon)
+# debug_frame_stats("Node5 out (LUT, unclamped)",    frame_output)
 
 # Valores esperados:
-# Nó 1: max pode exceder 1.0 (wide gamut — normal)
-# Nó 2: range [0.0, 1.0] após soft-clip
-# Nó 3: range [0.0, 1.0] — Cineon log normalizado
-# Nó 4: range [0.0, 1.0] — LUT output válida
-# Nó 5: uint8 [0, 255]
+# Node 1: pode exceder 1.0 (DWG wide gamut — normal)
+# Node 2: mesma faixa do Node 1, deslocada por exposure/saturation
+# Node 3: range [0.0, 1.0] — Cineon log normalizado (log_encoding_cineon clipa)
+# Node 5: pode exceder [0.0, 1.0] — shoulder/toe unclamped da LUT; o clip
+#         final acontece só em quantize_uint8_dithered()
 ```

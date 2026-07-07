@@ -14,8 +14,8 @@ exatamente este documento — código e documentação estão em sincronia.
 | Processamento | Native FFmpeg filter chain | PyAV + NumPy float32 per-frame |
 | Precisão de cor | 8-bit YUV ao longo do pipeline | float32 → 8-bit apenas na saída |
 | LUT padrão | `HollywoodCinema_Ultimate_v6.7B` | `FilmLook_Portra400_SkinPriority_D65` |
-| Consistência temporal | Filtros FFmpeg stateless | MCTF (Farneback + EMA) |
-| Dithering | Não aplicado | RPDF via `_build_dither()` — sempre ativo |
+| Consistência temporal | Filtros FFmpeg stateless | Também stateless — sem MCTF, cada frame é processado isolado |
+| Dithering | RPDF via `_build_dither()` (`enhance/ffmpeg_filters.py`), ativo por padrão via `--dither` | RPDF via `quantize_uint8_dithered()` (`cineon_pipeline.py`), ativo por padrão via `--dither` |
 | Melhor para | BT.709 controlado, batch, alto movimento | Log footage, skin crítico, highlights complexos |
 
 ---
@@ -59,8 +59,8 @@ O `recommend_mode()` direciona para FFmpeg quando:
 ```
 
 ### Limitações
-- Gradientes muito suaves podem ter banding em 8-bit (use dithering manual se crítico)
-- Sem MCTF: cintilação temporal em fontes de baixa qualidade não é suprimida
+- Gradientes muito suaves podem ter banding em 8-bit se `--dither off`
+- Sem consistência temporal explícita (nenhum modo tem — ambos processam frame a frame)
 - Highlights acima de ~235 IRE clipam sem recovery possível
 
 ---
@@ -87,68 +87,38 @@ operação de cor introduza quantization error acumulado antes do encode final.
 ```
 Frame float32
     ↓
-[Nó 1] DWG Input Transform
-  BT.709 gamma decode → linear scene-referred
-  Linear BT.709 → ACEScg (wide gamut de trabalho)
+[Node 1] CST IN — Rec.709 gamma → linear → DWG (DaVinci Wide Gamut) → DWG Intermediate log
     ↓
-[Nó 2] Tone & Gamut Mapping
-  S-curve Hable adaptativa (skin_ratio + color_temp_proxy do analyze_source.py):
-    - skin_ratio alto → shoulder mais suave (preserva gradiente de pele)
-    - color_temp_proxy > 1.3 → warm shift compensado
-  Soft-clip out-of-gamut + ACEScg → BT.709 linear
+[Node 2] Primary — exposure (stops, ancorado 18% grey) + saturation + lift/gamma/gain
     ↓
-[Nó 3] Cineon Log Encoding (intermediário p/ compatibilidade da LUT)
-  Fórmula: out = log10(max(lin, 1e-10)) / (0.002×1023) + 0.669   (slope = 2.046)
-  Ver pontos de controle em references/cineon-pipeline.md (Nó 3)
+[Node 3] CST OUT — DWG linear → soft-knee tone mapping (knee=0.8) → matrix → BT.709 linear
+  → gamut mapping (saturation compression, knee=0.9) → Cineon Log
     ↓
-[Nó 4] LUT Application
-  FilmLook_Portra400_SkinPriority_D65.cube (tetraédrica)
+[Node 4] Bridge — passthrough (arquitetura de 5 nós preservada)
     ↓
-[MCTF] Temporal Consistency (Farneback + EMA) — estágio entre Nó 4 e Nó 5
+[Node 5] LUT — FilmLook_Portra400_SkinPriority_D65.cube via LUT3D.apply() (trilinear)
     ↓
-[Nó 5] Output
-  RPDF dithering (_build_dither()) → float32 → uint8 [0–255]
+[Consumidor, fora dos 5 nós] quantize_uint8_dithered() — dither RPDF opcional + round → uint8
 ```
 
-### MCTF — Temporal Consistency (Farneback + EMA)
+Sem MCTF, sem ACEScg, sem curva de Hable — ver `references/cineon-pipeline.md`
+para as fórmulas e a seção "O que NÃO existe neste pipeline". O processamento
+é **stateless**: cada frame passa por `process_frame_full_pipeline()`
+isoladamente, sem blending temporal nem estado entre frames.
 
-O MCTF (Motion-Compensated Temporal Filtering) usa optical flow Farneback para
-alinhar frames consecutivos e um filtro EMA para suprimir variação temporal.
+### Dithering RPDF (`quantize_uint8_dithered()`)
 
-**O peso EMA é derivado de `temporal_noise` pelo `analyze_source.py`:**
-
-```python
-# Lógica MCTF em Cineon Mode
-temporal_noise = features.temporal_noise
-
-if temporal_noise < 5:
-    ema_alpha = 0.9    # muito smoothing — source estável
-elif temporal_noise < 12:
-    ema_alpha = 0.7    # smoothing moderado
-else:
-    ema_alpha = 0.5    # mínimo smoothing — preserva transições bruscas
-
-# Fórmula EMA por canal float32:
-# frame_out = ema_alpha * frame_prev_aligned + (1 - ema_alpha) * frame_current
-```
-
-**Quando desativar MCTF:** se `motion_magnitude > 25` — optical flow Farneback
-falha em cenas de movimento extremo e introduz ghosting.
-
-### Dithering RPDF (`_build_dither()`)
-
-Sempre ativo na conversão float32 → uint8 final. Previne banding em gradientes
-suaves que seriam visíveis com quantization direta.
+Ativo por padrão (`--dither auto`) na conversão float32 → uint8 final. Previne
+o viés de truncamento e o banding que a quantização direta produziria em
+gradientes suaves.
 
 ```python
-# RPDF (Rectangular Probability Density Function)
-def _build_dither(shape):
-    """Noise uniforme ±0.5 LSB para dithering antes de conversão 8-bit."""
-    return np.random.uniform(-0.5 / 255.0, 0.5 / 255.0, shape).astype(np.float32)
-
-# Aplicar antes do clip + cast
-frame_dithered = frame_float32 + _build_dither(frame_float32.shape)
-frame_uint8    = np.clip(frame_dithered * 255.0, 0, 255).astype(np.uint8)
+# RPDF (Rectangular Probability Density Function) — cineon_pipeline.py
+def quantize_uint8_dithered(frame, rng=None):
+    scaled = frame.astype(np.float32) * 255.0
+    if rng is not None:
+        scaled = scaled + rng.uniform(-0.5, 0.5, size=scaled.shape).astype(np.float32)
+    return np.clip(np.round(scaled), 0, 255).astype(np.uint8)
 ```
 
 ### Quando usar Cineon Mode
@@ -222,9 +192,9 @@ result_custom = analyze("input.mp4", lut_override="/path/to/custom.cube")
 - Confirmar que a LUT `HollywoodCinema_Ultimate_v6.7B` está no path correto
 
 **Cineon Mode:**
-- Nunca desativar o dithering RPDF — banding é garantido em gradientes sem ele
-- Desativar MCTF se `motion_magnitude > 25` — ghosting em movimento extremo
-- O pipeline é stateful (MCTF mantém estado entre frames) — não processar clips
-  fora de ordem; reinicializar o estado entre Reels distintos
-- Monitorar memória: float32 1080×1920 por frame = ~8MB — batch de frames simultâneos
-  deve respeitar disponibilidade de RAM
+- Nunca desativar o dithering RPDF (`--dither off`) sem motivo — banding é garantido
+  em gradientes sem ele
+- O pipeline é stateless (sem MCTF) — cada frame é independente, não há estado para
+  reinicializar entre Reels
+- Monitorar memória: float32 1080×1920 por frame = ~25MB — processamento é sempre
+  frame a frame, nunca em batch
