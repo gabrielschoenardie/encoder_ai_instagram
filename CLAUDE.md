@@ -94,7 +94,7 @@ All failure modes degrade gracefully (no audio / unparseable `-inf` silence → 
 ### LUTs
 
 Two `.cube` files in root:
-- `FilmLook_Portra400_SkinPriority_D65.cube` — used in Cineon pipeline (Node 5, trilinear 3D interpolation)
+- `FilmLook_Portra400_SkinPriority_D65.cube` — used in Cineon pipeline (Node 5, trilinear 3D interpolation). Identity baseline baked **unclamped** (shoulder >1.0/toe <0.0; clip happens at the encoder's uint8 conversion) — a clamped bake creates a hard knee at the off-grid Cineon white reference (0.6696) that mutes peak highlights by ~-7.5 8-bit codes via interpolation error. Regenerate with `python tools/generate_portra400_baseline_lut.py`; round-trip locked by `enhance/test_cineon_lut.py`.
 - `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` — used in FFmpeg pipeline (`--lut on`)
 
 ### Entry point
