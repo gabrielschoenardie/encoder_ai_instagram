@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
+import sys
 from typing import Optional
 
-from rich.prompt import Confirm
+from rich.prompt import Confirm, Prompt
 
 from . import components as C
 from .config import EncodeConfig
@@ -46,8 +48,19 @@ PRESETS = [
     "Encode rápido (FFmpeg)",
     "Film look (Cineon)",
     "Batch de pasta",
+    "Tools (utilitários)",
     "Configurar avançado…",
 ]
+
+TOOLS = [
+    ("Verificador de instalação", [sys.executable, "tools/verificador_instalacao.py"]),
+    ("Comparar frames (interativo)", [sys.executable, "tools/compare_frames_interactive.py"]),
+    ("Timestamp → frame (interativo)", [sys.executable, "tools/time_to_frame_interactive.py"]),
+    ("Limpar cache", [sys.executable, "tools/clean_cache.py"]),
+    ("Instalar FFmpeg completo", ["powershell", "-ExecutionPolicy", "Bypass", "-File", "tools/fetch_ffmpeg.ps1"]),
+]
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def run_launcher(console=None) -> Optional[argparse.Namespace]:
@@ -67,16 +80,21 @@ def run_launcher(console=None) -> Optional[argparse.Namespace]:
 def _run_launcher(con) -> Optional[argparse.Namespace]:
     con.print(C.banner("REELS ENCODER", f"Premiere Workspace · UI interativa · v{_APP_VERSION}"))
 
-    preset = ask_choice(con, "Selecione um fluxo", PRESETS, default=1)
+    while True:
+        preset = ask_choice(con, "Selecione um fluxo", PRESETS, default=1)
 
-    if preset == 1:
-        cfg = _flow_quick(con)
-    elif preset == 2:
-        cfg = _flow_cineon(con)
-    elif preset == 3:
-        cfg = _flow_batch(con)
-    else:
-        cfg = _flow_advanced(con)
+        if preset == 1:
+            cfg = _flow_quick(con)
+        elif preset == 2:
+            cfg = _flow_cineon(con)
+        elif preset == 3:
+            cfg = _flow_batch(con)
+        elif preset == 4:
+            _flow_tools(con)
+            continue
+        else:
+            cfg = _flow_advanced(con)
+        break
 
     if cfg is None:
         return None
@@ -129,6 +147,22 @@ def _flow_batch(con) -> Optional[EncodeConfig]:
         cfg.output_dir = ask_folder(con, "Pasta de saída", must_exist=False)
     cfg.cineon_pipeline = ask_toggle(con, "Usar film look (Cineon)?", default_on=False)
     return cfg
+
+
+def _flow_tools(con) -> None:
+    labels = [name for name, _ in TOOLS] + ["Voltar"]
+    while True:
+        choice = ask_choice(con, "Ferramentas", labels, default=len(labels))
+        if choice == len(labels):
+            return
+        name, cmd = TOOLS[choice - 1]
+        con.print(f"[primary]Executando:[/primary] {name}…")
+        try:
+            subprocess.run(cmd, cwd=_REPO_ROOT)
+        except Exception as exc:
+            con.print(f"[err]Falha ao executar {name}:[/err] {exc}")
+        Prompt.ask("[dim]Pressione Enter para continuar[/dim]", default="", console=con,
+                   show_default=False)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
