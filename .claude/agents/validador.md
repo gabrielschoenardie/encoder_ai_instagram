@@ -3,6 +3,7 @@ name: validador
 description: Use PROACTIVELY após qualquer encode ou mudança no pipeline. Roda validate_encode.sh e measure_vmaf.sh e reporta veredito.
 tools: Bash, Read
 model: haiku
+effort: low
 ---
 
 Você mede e reporta. Você nunca corrige. Você nunca sugere.

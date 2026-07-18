@@ -3,3 +3,92 @@
 
 | ID | status | arquivo tocado | resultado |
 |----|--------|----------------|-----------|
+| A2 | done | audit_tmp/audit_cineon_math.py | 3 pontos de referencia + 3 round-trips, todos \|Δ\|≤1e-3 (fwd) / ≤1e-4 (rt) — PASS |
+| B1 | done | audit_tmp/audit_cineon_math.py | MATRIX_REC709_TO_DWG max\|Δ\|=4.96e-8, MATRIX_DWG_TO_REC709 max\|Δ\|=2.54e-7 vs colour-science — PASS |
+| B2 | done | audit_tmp/audit_cineon_math.py | M_709→DWG·M_DWG→709 max\|Δ\| vs identidade = 6.79e-8 — PASS |
+| D2 | done | audit_tmp/audit_cineon_math.py | continuidade no knee Δ=1.19e-8 (PASS), monotonicidade min-derivada=1.31e-5≥0 (PASS), assintota=1.0 (PASS) |
+| D3 | done | audit_tmp/audit_cineon_math.py | 7 amostras fora de gamut, max Δhue=1.91e-6° (tolerancia 0.5°) — PASS |
+| D4 | done | audit_tmp/audit_cineon_math.py | razao linear (+1 stop, ancora 18% grey) = 2.0000004, \|Δ\|=4.11e-7 — PASS |
+| F1 | done | audit_tmp/audit_lut.py | neutralidade max\|canal-media\|=4.44e-16 (PASS); branco Cineon (t=0.6696) saida=1.00164, erro=1.64e-3 (PASS) |
+| F2 | done | audit_tmp/audit_lut.py | output(0)=-0.025429, FORA de [0,0.05] — FAIL pelo criterio estrito (toe unclamped abaixo de zero); output(0)≤output(0.0928) sem crush — PASS |
+| F3 | done | audit_tmp/audit_lut.py | monotonicidade eixo neutro e R/G/B: min derivada discreta=3.35e-3 (todas ≥0) — PASS |
+| F4 | done | audit_tmp/audit_lut.py | 9 amostras skin (grade R×G ±0.03 em torno de (0.55,0.48,0.42), B fixo), Δhue entre -0.86° e -4.40° (tolerancia 5°) — PASS |
+| F5 | done | audit_tmp/audit_lut.py | 2a derivada max no highlight [0.9,1.0]=+0.932 (convexo, nao-compressivo) — FAIL pelo criterio estrito; sem hard-clip antes de t=0.95 — PASS; erro no peak (branco Cineon)=1.64e-3 vs tolerancia 3.5e-2 — PASS |
+| F6 | done | audit_tmp/audit_lut.py | LUT_3D_SIZE=33 coerente com 35937 pontos, DOMAIN=[0,1], sem NaN/Inf; LUT3D do encoder vs parser proprio em 5 pontos aleatorios, max\|Δ\|=9.54e-8 — PASS |
+
+## Auditoria matematica Cineon + LUT Portra400 — 2026-07-18 14:57:56 -0300
+
+Scripts em `audit_tmp/` (nao commitados): `audit_cineon_math.py` (A2, B1, B2, D2, D3, D4),
+`audit_lut.py` (F1-F6). Ambos importam as funcoes reais de `cineon_pipeline.py`
+(modulo importado por `Reels_Encoder_v2_FINAL.py` em runtime, linhas 104/3171 —
+nao ha argparse/CLI em module-level, import direto seguro). `colour-science`
+0.4.7 disponivel, nenhum erro de import. Nenhuma correcao aplicada (fora de escopo
+deste ciclo).
+
+Nota de divergencia de escopo (nao bloqueante): o PLAN.md descreve
+`_validate_cineon_constants` como parte do escopo em `Reels_Encoder_v2_FINAL.py`;
+essa funcao nao foi encontrada no codebase (grep sem match fora de PLAN.md e da
+propria skill doc). Isso e tarefa do `leitor` (A3), registrado aqui apenas como
+observacao de suporte, sem impacto nos itens do executor.
+
+### Tabela 1 — audit_cineon_math.py (A2, B1, B2, D2, D3, D4)
+
+| ID | medido | esperado | Delta | PASS/FAIL |
+|----|--------|----------|-------|-----------|
+| A2 (lin=0.0) | 0.09286412596702576 | 0.0928 | 6.412596702576323e-05 | PASS |
+| A2 (lin=0.18) | 0.45731961727142334 | 0.457 | 0.0003196172714233225 | PASS |
+| A2 (lin=1.0) | 0.6695992350578308 | 0.6697 | -0.00010076494216915144 | PASS |
+| A2 roundtrip (lin=0.0) | 0.09286412596702576 | 0.09286412596702576 | 0.0 | PASS |
+| A2 roundtrip (lin=0.18) | 0.45731961727142334 | 0.45731961727142334 | 0.0 | PASS |
+| A2 roundtrip (lin=1.0) | 0.6695992350578308 | 0.6695992350578308 | 0.0 | PASS |
+| B1 MATRIX_REC709_TO_DWG | [[0.562767505645752, 0.3235165476799011, 0.11371593177318573], [0.07775465399026871, 0.7495773434638977, 0.17266802489757538], [0.06466921418905258, 0.1919986605644226, 0.7433321475982666]] | [[0.5627674560071076, 0.32351658870395933, 0.1137159552889327], [0.07775463528504596, 0.7495773461632221, 0.17266801855173203], [0.06466919991632825, 0.19199869204629894, 0.743332108037373]] | 4.9638644306071456e-08 | PASS |
+| B1 MATRIX_DWG_TO_REC709 | [[1.8986146450042725, -0.7921761870384216, -0.10643871128559113], [-0.16894882917404175, 1.4889757633209229, -0.3200269937515259], [-0.12153918296098709, -0.3156757652759552, 1.437214970588684]] | [[1.8986148993059058, -0.7921761834040436, -0.10643871590186224], [-0.16894878647615938, 1.4889757541181161, -0.32002696764195643], [-0.12153916060431863, -0.31567585305224316, 1.4372150136565618]] | 2.543016333067527e-07 | PASS |
+| B2 roundtrip M_709->DWG . M_DWG->709 | [[0.9999999403953552, -6.786452644291785e-08, -4.240636286567678e-08], [-1.254998860389378e-08, 1.0, -2.207577587398646e-08], [-1.4807612913614321e-08, -6.466514435032877e-09, 1.0]] | [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] | 6.786452644291785e-08 | PASS |
+| D2 continuidade no knee | 0.800000011920929 | 0.8 | 1.1920928910669204e-08 | PASS |
+| D2 monotonicidade (min derivada discreta) | 1.3113021850585938e-05 | 0.0 | 0.0 | PASS (derivada negativa = nao-monotonico) |
+| D2 assintota <= 1.0 | 1.0 | 1.0 | 0.0 | PASS (output > 1.0 = falha) |
+| D3 hue sample [1.600000023841858, 0.05000000074505806, 0.05000000074505806] | 0.0 | 0.0 | 0.0 | PASS |
+| D3 hue sample [0.05000000074505806, 1.600000023841858, 0.05000000074505806] | 120.00000000000001 | 119.99999809189768 | 1.9081023197031755e-06 | PASS |
+| D3 hue sample [0.05000000074505806, 0.05000000074505806, 1.600000023841858] | -120.00000000000001 | -120.00000000000001 | 0.0 | PASS |
+| D3 hue sample [1.399999976158142, -0.30000001192092896, 0.10000000149011612] | -13.003911772115497 | -13.003912130010072 | 3.5789457797363866e-07 | PASS |
+| D3 hue sample [-0.20000000298023224, 1.2999999523162842, 0.4000000059604645] | 143.41322679063668 | 143.41322392750058 | 2.8631361033149005e-06 | PASS |
+| D3 hue sample [0.8999999761581421, 0.8999999761581421, -0.5] | 60.00000000000001 | 60.00000000000001 | 0.0 | PASS |
+| D3 hue sample [1.2000000476837158, 0.6000000238418579, -0.4000000059604645] | 38.21321160375636 | 38.213210098154796 | 1.5056015740810835e-06 | PASS |
+| D4 razao linear (+1 stop, ancora 18%) | 2.000000410609775 | 2.0 | 4.106097750700144e-07 | PASS |
+
+### Tabela 2 — audit_lut.py (F1-F6)
+
+| ID | medido | esperado | Delta | PASS/FAIL |
+|----|--------|----------|-------|-----------|
+| F1 neutralidade max\|canal-media\| (todo t) | 4.440892098500626e-16 | 0.0 | 4.440892098500626e-16 | PASS (pior em t=0.9206) |
+| F1 branco Cineon (t=0.6696) saida | [1.0016447381591795, 1.0016447381591798, 1.0016447381591795] | [1.0, 1.0, 1.0] | 0.0016447381591797594 | PASS |
+| F2 output(0) em [0, 0.05] | -0.025428999999999997 | [0, 0.05] | -0.025428999999999997 | FAIL (FAIL se fora do intervalo) |
+| F2 output(0) <= output(0.0928) | -0.025428999999999997 | 1.5804799999997864e-05 | 0.0 | PASS (FAIL se output(0) > output(0.0928)) |
+| F3 monotonicidade eixo neutro (min derivada) | 0.0033467936507936454 | 0.0 | 0.0 | PASS |
+| F3 monotonicidade eixo R (min derivada canal R) | 0.003346793650793649 | 0.0 | 0.0 | PASS |
+| F3 monotonicidade eixo G (min derivada canal G) | 0.003346793650793649 | 0.0 | 0.0 | PASS |
+| F3 monotonicidade eixo B (min derivada canal B) | 0.003346793650793649 | 0.0 | 0.0 | PASS |
+| F4 skin hue (R-0.03/G-0.03) | 14.903286460718608 | 16.996088057177158 | -2.0928015964585427 | PASS |
+| F4 skin hue (R-0.03/G+0.00) | 33.96362625814996 | 36.586775553629444 | -2.623149295479493 | PASS |
+| F4 skin hue (R-0.03/G+0.03) | 53.92661159687444 | 54.79128089714489 | -0.8646693002704637 | PASS |
+| F4 skin hue (R+0.00/G-0.03) | 10.553034470217638 | 12.730527788398271 | -2.1774933181806375 | PASS |
+| F4 skin hue (R+0.00/G+0.00) | 23.95671978553881 | 27.457076095938245 | -3.5003563103994395 | PASS |
+| F4 skin hue (R+0.00/G+0.03) | 39.487677211135946 | 42.51982979723962 | -3.0321525861036775 | PASS |
+| F4 skin hue (R+0.03/G-0.03) | 7.960192835702878 | 10.158329786241994 | -2.198136950539123 | PASS |
+| F4 skin hue (R+0.03/G+0.00) | 17.883863270860022 | 21.786789298261795 | -3.902926027401776 | PASS |
+| F4 skin hue (R+0.03/G+0.03) | 29.73147843239113 | 34.12781030451268 | -4.39633187212155 | PASS |
+| F5 roll-off: max segunda derivada (deve ser <=0, compressivo) | 0.9319800000001042 | 0.0 | 0.9319800000001042 | FAIL (positivo = curva convexa (nao-compressiva) nos highlights) |
+| F5 sem hard-clip antes de t=0.95 (min derivada 1a, t<0.95) | 8.533759999999816 | >0 | 0.0 | PASS (FAIL se derivada ~0 (clip) antes de t=0.95) |
+| F5 erro no peak (branco Cineon t=0.6696) | 1.0016447381591798 | 1.0 | 0.0016447381591797594 | PASS (historico documentado: 2.93e-2 pre-fix) |
+| F6 LUT_3D_SIZE coerente com n pontos | 35937 | 35937 | 0 | PASS |
+| F6 DOMAIN_MIN/MAX (LUT_3D_INPUT_RANGE) | (0.0, 1.0) | (0.0, 1.0) | 0 | PASS |
+| F6 sem NaN | False | False | 0 | PASS |
+| F6 sem Inf | False | False | 0 | PASS |
+| F6 LUT3D encoder vs parser proprio (pt=[0.7739560604095459, 0.43887844681739807, 0.8585979342460632]) | [1.4960952997207642, 0.3750569522380829, 2.0553667545318604] | [1.4960953067016602, 0.3750569361562729, 2.055366659109116] | 9.54227443727973e-08 | PASS |
+| F6 LUT3D encoder vs parser proprio (pt=[0.6973680257797241, 0.09417735040187836, 0.9756223559379578]) | [1.1160802841186523, 0.0005311025306582451, 3.159249782562256] | [1.1160802547531126, 0.0005311025528907775, 3.159249692350387] | 9.021186864188735e-08 | PASS |
+| F6 LUT3D encoder vs parser proprio (pt=[0.7611396908760071, 0.7860643267631531, 0.12811362743377686]) | [1.4256491661071777, 1.565720558166504, 0.015849702060222626] | [1.4256491575164796, 1.5657204682712555, 0.015849701885223385] | 8.9895248356342e-08 | PASS |
+| F6 LUT3D encoder vs parser proprio (pt=[0.4503859281539917, 0.3707980215549469, 0.926764965057373]) | [0.3966781198978424, 0.2653389275074005, 2.6428868770599365] | [0.3966781126899719, 0.26533893525886537, 2.6428869611511234] | 8.409118690266837e-08 | PASS |
+| F6 LUT3D encoder vs parser proprio (pt=[0.6438651084899902, 0.822761595249176, 0.44341421127319336]) | [0.9048219323158264, 1.7981548309326172, 0.3835791051387787] | [0.9048219253845216, 1.7981548368453981, 0.38357909327697753] | 1.1861801152424079e-08 | PASS |
+
+Erros de execucao: nenhum. `colour` importado com sucesso (0.4.7); `cineon_pipeline`
+importado sem efeitos colaterais (guard `if __name__ == "__main__"` na linha 989).

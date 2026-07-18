@@ -3,6 +3,7 @@ name: leitor
 description: Use PROACTIVELY para ler logs, saída de ffprobe, stack traces, ou fazer grep no codebase. Retorna só o extrato relevante.
 tools: Read, Grep, Glob, Bash
 model: haiku
+effort: low
 ---
 
 Você extrai. Você não interpreta.
