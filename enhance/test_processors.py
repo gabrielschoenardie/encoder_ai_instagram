@@ -45,10 +45,11 @@ Run:
 
 from __future__ import annotations
 
-import sys
-import os
-import time
 import ast
+import os
+import sys
+import time
+
 import numpy as np
 
 # ── Path setup ────────────────────────────────────────────────────────────────
@@ -75,16 +76,15 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 # ── Imports ───────────────────────────────────────────────────────────────────
+from enhance.ffmpeg_filters import build_pre_lut_filtergraph  # noqa: E402
+from enhance.processor import get_enhance_fn  # noqa: E402
 from enhance.profile import (  # noqa: E402
-    EnhanceProfile,
-    NoiseAgg,
     BandingAgg,
     DetailAgg,
+    EnhanceProfile,
+    NoiseAgg,
     build_enhance_profile_from_metrics,
 )
-from enhance.processor import get_enhance_fn  # noqa: E402
-from enhance.ffmpeg_filters import build_pre_lut_filtergraph  # noqa: E402
-
 
 # ── Synthetic frame factories ─────────────────────────────────────────────────
 
@@ -656,7 +656,11 @@ class TestBluenoiseDither:
 
     def test_dither_c0s_range(self):
         """c0s deve estar no range [_DITHER_C0S_MIN, _DITHER_C0S_MAX] para todos os strengths."""
-        from enhance.ffmpeg_filters import _build_dither, _DITHER_C0S_MIN, _DITHER_C0S_MAX
+        from enhance.ffmpeg_filters import (
+            _DITHER_C0S_MAX,
+            _DITHER_C0S_MIN,
+            _build_dither,
+        )
         for strength in [0.0, 0.25, 0.5, 0.75, 1.0]:
             result = _build_dither(strength)
             # Extrai c0s do string "noise=c0s=N:c0f=..."

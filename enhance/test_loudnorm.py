@@ -31,7 +31,6 @@ if _PROJECT_ROOT not in sys.path:
 
 import Reels_Encoder_v2_FINAL as R  # noqa: E402
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 def _stats(**overrides) -> dict:

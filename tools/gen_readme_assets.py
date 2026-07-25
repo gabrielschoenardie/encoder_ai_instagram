@@ -17,11 +17,11 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 import version
+from ebu_meter import build_delivery_checks
 from ui import components as C
 from ui.config import EncodeConfig
 from ui.dashboard import make_dashboard
 from ui.theme import get_console
-from ebu_meter import build_delivery_checks
 
 _TITLE = "Reels Encoder"
 

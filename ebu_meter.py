@@ -34,7 +34,8 @@ import sys
 from typing import Optional
 
 try:
-    from ui.binaries import FFMPEG, FFPROBE, FFPLAY, available as _bin_available
+    from ui.binaries import FFMPEG, FFPLAY, FFPROBE
+    from ui.binaries import available as _bin_available
     _FFPLAY_OK = _bin_available("ffplay")
 except Exception:
     FFMPEG, FFPROBE, FFPLAY = "ffmpeg", "ffprobe", "ffplay"
@@ -523,8 +524,8 @@ def run_post_encode_qc(
     if console is None:
         from rich.console import Console
         console = Console()
-    from rich.table import Table
     from rich import box
+    from rich.table import Table
 
     if targets is None:
         try:

@@ -18,6 +18,7 @@ Upgrade notes (v2):
 """
 
 from __future__ import annotations
+
 import functools
 from dataclasses import dataclass
 

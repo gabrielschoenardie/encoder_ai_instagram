@@ -6,9 +6,9 @@ VERIFICADOR DE INSTALAÇÃO - Instagram Reels Encoder v2.1.0
 Verifica se todas as dependências estão instaladas e o sistema está pronto
 """
 
-import sys
-import subprocess
 import platform
+import subprocess
+import sys
 from pathlib import Path
 
 # ============================================================================

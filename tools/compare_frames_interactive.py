@@ -6,8 +6,8 @@ Uso: python compare_frames_interactive.py
 """
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 

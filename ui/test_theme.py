@@ -4,7 +4,6 @@ from rich.console import Console
 
 from ui.theme import PALETTE, THEME, get_console, glyphs
 
-
 REQUIRED_STYLES = {
     "primary", "accent", "info", "ok", "warn", "err", "muted", "title",
     "label", "value", "seal", "tab.active", "tab.inactive", "panel.border",

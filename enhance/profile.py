@@ -18,9 +18,9 @@ from typing import List
 
 import numpy as np
 
-from .analyzers.noise import NoiseResult, analyze_noise
 from .analyzers.banding import BandingResult, analyze_banding
 from .analyzers.detail import DetailResult, analyze_detail
+from .analyzers.noise import NoiseResult, analyze_noise
 
 # ── Thresholds (heurística Fase 1) ───────────────────────────────────────────
 

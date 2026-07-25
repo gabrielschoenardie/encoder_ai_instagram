@@ -41,6 +41,19 @@ Evidência: leitor (extratos verbatim) + executor (audit_tmp/audit_cineon_math.p
   pula o guard silenciosamente. Correto por convenção de chamada, não por construção.
   Mover para o topo de `run_ffmpeg_with_cineon()`.
 
+## Achado — 2026-07-25 (ciclo infra/CI)
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| I-a | débito de lint pré-existente | `tools/` (37), `.claude/skills/.../scripts` (7), `ui/` (6), raiz (8) | 58 erros E4/E7/E9/F fora de `enhance/`; só 17 auto-fixáveis | S4 | esperado: 0; medido: 58 |
+
+- **I-a (S4):** aparecem porque `[tool.ruff.lint] select` (ciclo I, item I2) passou a valer
+  repo-wide com regras explícitas. **Não são regressão** — já existiam sob o default do
+  ruff; ninguém viu porque o CI só roda `ruff check enhance/`, e `enhance/` está limpo de
+  E/F. Fora do escopo do ciclo I, que trata só de `I001`. Decidir em ciclo próprio: pagar
+  os 58, ou estreitar `select` por diretório via `[tool.ruff.lint.per-file-ignores]`.
+  Enquanto não decidido, o CI segue verde — ele não olha esses diretórios.
+
 ### Status (2026-07-25)
 
 | ID | status | onde |

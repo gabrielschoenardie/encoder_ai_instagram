@@ -47,3 +47,6 @@ version = { attr = "version.__version__" }
     "HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube",
     "FilmLook_Portra400_SkinPriority_D65.cube",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

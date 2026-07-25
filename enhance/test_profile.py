@@ -33,6 +33,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 
+from enhance.analyzers.banding import BandingResult
+from enhance.analyzers.detail import DetailResult
+from enhance.analyzers.noise import NoiseResult
 from enhance.profile import (
     BANDING_LIGHT_THR,
     NOISE_KILLS_SHARPEN,
@@ -50,10 +53,6 @@ from enhance.profile import (
     _weights_to_profile,
     build_enhance_profile_from_metrics,
 )
-from enhance.analyzers.noise import NoiseResult
-from enhance.analyzers.banding import BandingResult
-from enhance.analyzers.detail import DetailResult
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

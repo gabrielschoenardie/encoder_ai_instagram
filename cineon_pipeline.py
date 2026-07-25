@@ -36,9 +36,10 @@ DATA: 2025-01-22
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Optional, Tuple
 import warnings
+from typing import Optional, Tuple
+
+import numpy as np
 
 # Verificar disponibilidade de bibliotecas opcionais
 try:

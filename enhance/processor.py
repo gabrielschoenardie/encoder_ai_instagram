@@ -80,7 +80,7 @@ def _banding_heatmap(luma: np.ndarray) -> np.ndarray:
     - percentile p99 normalisation (robust to outliers)
     - pre-smoothed luma to isolate banding vs noise
     """
-    from scipy.ndimage import sobel, uniform_filter, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel, uniform_filter
 
     luma_sm = gaussian_filter(luma, sigma=_ADAPTIVE_DEBAND_GRAD_SIGMA)
 
@@ -215,7 +215,7 @@ def _apply_deband_smooth(
     Returns:
         Frame with adaptive heatmap-guided deband applied (same shape, float32 [0,1]).
     """
-    from scipy.ndimage import gaussian_filter, convolve
+    from scipy.ndimage import convolve, gaussian_filter
 
     luma = (0.2126 * frame[..., 0]
             + 0.7152 * frame[..., 1]

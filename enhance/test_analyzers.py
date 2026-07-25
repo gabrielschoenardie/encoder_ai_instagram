@@ -26,10 +26,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 
-from enhance.analyzers.noise import NoiseResult, analyze_noise, _fft_mask
 from enhance.analyzers.banding import BandingResult, analyze_banding
 from enhance.analyzers.detail import DetailResult, analyze_detail
-
+from enhance.analyzers.noise import NoiseResult, _fft_mask, analyze_noise
 
 # ── Synthetic frame builders ─────────────────────────────────────────────────
 

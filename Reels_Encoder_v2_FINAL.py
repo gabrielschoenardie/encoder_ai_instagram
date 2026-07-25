@@ -75,14 +75,14 @@ import collections
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
-import shutil
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 try:
     import psutil
@@ -91,21 +91,21 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
+from rich import box
 from rich.console import Console
 from rich.live import Live
-from rich.table import Table
 from rich.panel import Panel
-from rich import box
+from rich.table import Table
 
 # =============================================================================
 # CINEON PIPELINE IMPORTS
 # =============================================================================
 try:
     from cineon_pipeline import (
+        COLOUR_AVAILABLE,
         LUT3D,
         process_frame_full_pipeline,
         quantize_uint8_dithered,
-        COLOUR_AVAILABLE,
     )
 
     CINEON_AVAILABLE = True
@@ -115,14 +115,14 @@ except ImportError:
 
 # ── ENHANCE MODULE IMPORT ─────────────────────────────────────────────────────
 try:
+    from enhance.ffmpeg_filters import build_pre_lut_filtergraph
+    from enhance.processor import get_enhance_fn
     from enhance.profile import (
         build_enhance_profile,
         build_enhance_profile_from_metrics,
-        print_enhance_report,
         enhance_pipeline_report,
+        print_enhance_report,
     )
-    from enhance.processor import get_enhance_fn
-    from enhance.ffmpeg_filters import build_pre_lut_filtergraph
     ENHANCE_AVAILABLE = True
 except ImportError:
     ENHANCE_AVAILABLE = False
@@ -171,7 +171,7 @@ except Exception:
 # additive: if the `ui` package is unavailable we fall back to bare command
 # names — behavior identical to before.
 try:
-    from ui.binaries import FFMPEG, FFPROBE, FFPLAY
+    from ui.binaries import FFMPEG, FFPLAY, FFPROBE
 except Exception:
     FFMPEG, FFPROBE, FFPLAY = "ffmpeg", "ffprobe", "ffplay"
 
@@ -4254,8 +4254,8 @@ COMPARAÇÃO:
     # Preflight: garante que ffmpeg/ffprobe existam (embarcados em ./bin ou no
     # PATH) antes de qualquer encode. Best-effort e aditivo.
     try:
-        from ui.preflight import missing_ffmpeg_binaries
         from ui.components import dependency_error_card
+        from ui.preflight import missing_ffmpeg_binaries
         _missing = missing_ffmpeg_binaries()
         if _missing:
             console.print(dependency_error_card(_missing))

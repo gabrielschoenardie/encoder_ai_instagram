@@ -435,8 +435,13 @@ def generate_mctf_mask_video(
     """
     import subprocess
     from typing import Optional
+
     from rich.progress import (
-        Progress, SpinnerColumn, BarColumn, TimeRemainingColumn, TextColumn,
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeRemainingColumn,
     )
 
     cap = cv2.VideoCapture(video_path)

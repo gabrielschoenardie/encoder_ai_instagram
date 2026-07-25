@@ -577,6 +577,7 @@ def play_delivery_seal(checks, *, ready=None, console=None, duration: float = 1.
         return
     try:
         import time
+
         from rich.live import Live
         steps = 24
         interval = max(float(duration), 0.1) / steps

@@ -30,7 +30,6 @@ if _PROJECT_ROOT not in sys.path:
 
 import ebu_meter as E  # noqa: E402
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 _SUMMARY_OK = """\

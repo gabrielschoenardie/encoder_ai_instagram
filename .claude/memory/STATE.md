@@ -113,3 +113,68 @@ importado sem efeitos colaterais (guard `if __name__ == "__main__"` na linha 989
 | H2c | done | enhance/test_cineon_constants_guard.py | Novo teste `test_run_ffmpeg_with_cineon_calls_guard_before_touching_disk_or_ffmpeg`: monkeypatch em `cp._validate_cineon_constants` para levantar `RuntimeError` e em `R.probe_video` para levantar `AssertionError` se chamado; chama `R.run_ffmpeg_with_cineon(input_file="nonexistent-input-does-not-exist.mp4", output_file="nonexistent-output-does-not-exist.mp4")` e afirma `pytest.raises(RuntimeError, match="adulterado para o teste")` — prova que o guard dispara antes de `probe_video` (e, por transitividade, antes de qualquer LUT3D/FFmpeg mais adiante no corpo da função). `python -m pytest enhance/test_cineon_constants_guard.py -q` → `8 passed in 2.61s`. Regressão: `python -m pytest enhance/ ui/ -q` → `4 failed, 342 passed` (as 4 falhas batem exatamente com o baseline pré-existente documentado no PLAN — 2 em `enhance/test_ebu_meter.py`, 2 de encoding de console em `ui/test_readme_assets.py`/`ui/test_theme.py`). |
 
 Nota para FINDINGS.md (fora de escopo, nao investigado): `references/cineon-pipeline.md` linha 117 tem `black_offset = 10^((95-685)/300) ≈ 0.005012` — o valor correto da mesma formula e ≈0.010798 (confirmado batendo com `colour.models.log_encoding_Cineon` default e com os 3 pontos de referencia do proprio doc). Parece typo aritmetico isolado, distinto do bug E3d (linha 55, ja corrigido em G4).
+
+## Ciclo infra/CI — pin ruff + config explicita — 2026-07-25
+
+| I1 | done | .github/workflows/ci.yml | pin `ruff==0.14.10` na linha 22, nenhuma outra linha alterada |
+| I2 | done | pyproject.toml | secao `[tool.ruff.lint]` select=[E4,E7,E9,F,I] acrescentada; `python -m ruff check enhance/` (0.14.10) agora reporta 14 erros incluindo I001 |
+| I3 | done | 23 arquivos `.py` (lista abaixo) | `python -m ruff check . --fix --select I` → `Found 33 errors (33 fixed, 0 remaining)`; suite pos-fix identica ao baseline (`4 failed, 342 passed`) |
+
+### I3 — evidencia de verificacao (comandos rodados, saida real)
+
+Pre-condicoes conferidas antes de rodar o fix: `python -m ruff --version` → `ruff 0.14.10`
+(bate com o pin do I1); `.github/workflows/ci.yml` linha 22 → `run: pip install ruff==0.14.10`;
+`pyproject.toml` linhas 51-52 → `[tool.ruff.lint]` / `select = ["E4", "E7", "E9", "F", "I"]`.
+Ordem obrigatoria (I1 e I2 antes do I3) respeitada.
+
+Baseline antes do fix:
+- `python -m ruff check . --select I --statistics` → `33  I001  [*] unsorted-imports` /
+  `Found 33 errors.` / `[*] 33 fixable with the --fix option.` (exit 1) — bate com os 33 do PLAN.
+- `python -m pytest enhance/ ui/ -q` → `4 failed, 342 passed in 5.54s`, exatamente as 4 do
+  baseline documentado: `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
+  `enhance/test_ebu_meter.py::test_ffplay_args_basic`,
+  `ui/test_readme_assets.py::test_anchor_strings_present`,
+  `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`.
+
+Fix: `python -m ruff check . --fix --select I` → `Found 33 errors (33 fixed, 0 remaining)` (exit 0).
+`--select I` usado literalmente conforme a nota do PLAN; **nenhum** `--fix` sem `--select` foi
+executado, logo os 58 erros pre-existentes de E4/E7/E9/F (tools/, .claude/scripts, ui/)
+permanecem intocados.
+
+Criterios de done:
+- `python -m ruff check . --select I` → `All checks passed!` (exit 0). **PASS**
+- `python -m pytest enhance/ ui/ -q` → `4 failed, 342 passed in 6.03s`, mesmas 4 falhas
+  nominais do baseline, zero regressao. **PASS**
+
+Verificacoes extras (nao exigidas, para descartar quebra de import condicional/lazy):
+- Comando exato do CI: `python -m ruff check enhance/ --output-format=github` → exit 0, sem output.
+- `ast.parse` em todo `.py` do repo (excluindo `audit_tmp/`) → `SYNTAX BAD: []`.
+- Import real dos 10 modulos tocados com maior risco (`cineon_pipeline`, `Reels_Encoder_v2_FINAL`,
+  `ebu_meter`, `enhance_visualizer`, `ui.components`, `ui.binaries`, `enhance.profile`,
+  `enhance.processor`, `enhance.analyzers`, `enhance.ffmpeg_filters`) → todos `OK`, exit 0.
+- `python -m py_compile` nos 4 scripts de `tools/` + `analyze_source.py` → `PYCOMPILE OK`.
+
+Revisao manual do diff em `Reels_Encoder_v2_FINAL.py` (o arquivo de risco citado no PLAN):
+todas as 20 linhas sao reordenacao dentro de blocos contiguos — stdlib (`shutil` acima de
+`subprocess`, `Optional, Tuple`), bloco `rich` (`box` acima de `Console`), os simbolos dentro
+do `from cineon_pipeline import (...)` no `try`, os 3 `from enhance.*` no `try`,
+`from ui.binaries import FFMPEG, FFPLAY, FFPROBE`, e o par de imports lazy dentro do preflight
+(`ui.components` antes de `ui.preflight`). Nenhum import atravessou barreira de codigo:
+os blocos `try/except ImportError` que definem `PSUTIL_AVAILABLE`, `CINEON_AVAILABLE` e
+`ENHANCE_AVAILABLE` continuam com o mesmo escopo e a mesma ordem relativa entre si.
+Em `cineon_pipeline.py`, `import numpy as np` desceu para o grupo third-party depois de
+`warnings`/`typing`, com `from __future__ import annotations` intocado no topo.
+As unicas insercoes liquidas (`enhance/analyzers/banding.py` +2, `detail.py` +2, `noise.py` +1,
+`ui/components.py` +1) sao linhas em branco de separacao de grupo, nao codigo.
+
+Arquivos `.py` alterados pelo fix (23): `.claude/skills/instagram-reels-encoder/scripts/analyze_source.py`,
+`Reels_Encoder_v2_FINAL.py`, `cineon_pipeline.py`, `ebu_meter.py`, `enhance_visualizer.py`,
+`enhance/analyzers/__init__.py`, `enhance/analyzers/banding.py`, `enhance/analyzers/detail.py`,
+`enhance/analyzers/noise.py`, `enhance/processor.py`, `enhance/profile.py`,
+`enhance/test_analyzers.py`, `enhance/test_ebu_meter.py`, `enhance/test_loudnorm.py`,
+`enhance/test_processors.py`, `enhance/test_profile.py`, `tools/compare_frames_interactive.py`,
+`tools/gen_readme_assets.py`, `tools/time_to_frame_interactive.py`,
+`tools/verificador_instalacao.py`, `ui/components.py`, `ui/test_config.py`, `ui/test_theme.py`.
+`git diff --stat` total: `28 files changed, 129 insertions(+), 97 deletions(-)` — os 5 nao-`.py`
+sao `.github/workflows/ci.yml` (I1), `pyproject.toml` (I2) e os 3 markdown de `.claude/memory/`.
+Nada commitado, nada revertido.

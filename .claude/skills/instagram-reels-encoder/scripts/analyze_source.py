@@ -19,7 +19,7 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import av
@@ -27,10 +27,10 @@ import cv2
 import numpy as np
 
 try:
+    from rich import box
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
-    from rich import box
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False

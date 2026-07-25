@@ -1,68 +1,69 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — H1 (valor canônico errado no doc) + H2 (placement do guard)
+# PLAN — Pinar ruff no CI e tornar a seleção de regras explícita (com I001)
 
-Data: 2026-07-25 | Ciclo: correção | Origem: `.claude/memory/FINDINGS.md` § "Achado novo — 2026-07-25 (ciclo G)"
+Data: 2026-07-25 | Ciclo: infra/CI | Origem: CI vermelho desde 2026-07-25
 
-**Objetivo:** corrigir os dois achados que o ciclo G destapou. H1 é um número errado
-que circulou a auditoria inteira como canônico. H2 é o guard do ciclo G morando no
-lugar errado — funciona hoje por convenção de chamada, não por construção.
+**Objetivo:** o CI está vermelho por causa de `pip install ruff` sem pin em
+`.github/workflows/ci.yml:22`. CI pegou **ruff 0.16.0**, a máquina local roda
+**0.14.10**, e o repo não tem nenhuma config de ruff — então o conjunto de regras é o
+default de quem for instalado. O `I001` entrou no default do 0.16.0 e expôs débito de
+lint pré-existente. Nenhuma linha de Python mudou entre o último CI verde (`27504cc`,
+18/07) e o primeiro vermelho.
 
-**Estado de entrada:** o working tree tem as mudanças do ciclo G (G1–G4) **não
-commitadas**. Não commitar nem reverter nada; trabalhar por cima.
+Pinar sozinho só adia o problema para o próximo bump. A correção real é a config
+explícita: **a seleção de regras vira decisão do repo, não default de versão.**
 
 **Escopo fechado (arquivos permitidos):**
-- `.claude/skills/instagram-reels-encoder/references/cineon-pipeline.md` — só a linha 117
-- `cineon_pipeline.py` — só o docstring da linha ~342 e a remoção do call site na linha ~801
-- `Reels_Encoder_v2_FINAL.py` — só a inserção do call site em `run_ffmpeg_with_cineon` (linha 2950)
-- `enhance/test_cineon_constants_guard.py` — só acréscimo de teste
+- `.github/workflows/ci.yml` — só a linha 22 (`pip install ruff`)
+- `pyproject.toml` — só acrescentar a seção `[tool.ruff.lint]` (já existe o arquivo; **não** criar `ruff.toml`)
+- Qualquer `.py` do repo — **exclusivamente** o que `ruff check --fix --select I` alterar
 
-**Fora de escopo:** a matemática do guard (auditada, PASS), qualquer LUT, os 7 testes
-existentes do ciclo G (não reescrever), F2 (fechado). Bug fora do escopo → uma linha
-em `FINDINGS.md`, sem investigar.
-
-## Fonte dos valores canônicos
-
-> `skill: instagram-reels-encoder` → `references/cineon-pipeline.md` § "Fórmula Cineon Log"
-
-**Atenção — a fonte contém o próprio bug H1.** A *fórmula* nessa seção está correta e
-bate com `colour.models.log_encoding_Cineon`; o valor `≈ 0.005012` escrito ao lado dela
-está errado. Onde fórmula e valor divergirem, **a fórmula ganha**. Verificado:
-`10^((95−685)/300) = 0.0107977`, e `log_encoding_Cineon(0.0) = 0.092864` ⇔
-`(685 + 300·log10(0.0107977))/1023`.
+**Fora de escopo:** ampliar o escopo do CI (hoje ele checa só `enhance/`; fica assim),
+adicionar regras além das listadas em I2, mexer em lógica de qualquer arquivo.
+Bug fora do escopo → uma linha em `FINDINGS.md`, sem investigar.
 
 ## Tabela de tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|------------------|
-| H1a | Corrigir o valor do `black_offset` na linha 117: `≈ 0.005012` → `≈ 0.010798`. A fórmula na mesma linha está certa — não tocar nela. | `executor` | `references/cineon-pipeline.md` | `grep -rn "0.005012" .claude/skills/` sem match; só a linha 117 alterada |
-| H1b | Mesmo valor errado replicado no docstring da linha ~342. Corrigir. | `executor` | `cineon_pipeline.py` | `grep -n "0.005012" cineon_pipeline.py` sem match |
-| H2a | Remover a chamada de `_validate_cineon_constants()` de `LUT3D.__init__` (linha ~801) e o comentário que a justifica (~795-800). A função `_validate_cineon_constants` e as constantes de módulo **ficam onde estão**. | `executor` | `cineon_pipeline.py` | `grep -n "_validate_cineon_constants" cineon_pipeline.py` mostra só a definição, nenhuma chamada |
-| H2b | Chamar `_validate_cineon_constants()` no topo de `run_ffmpeg_with_cineon()` (`Reels_Encoder_v2_FINAL.py:2950`), antes de qualquer I/O — antes de resolver o path da LUT, antes de instanciar `LUT3D`, antes de abrir o FFmpeg. Importar do `cineon_pipeline`. | `executor` | `Reels_Encoder_v2_FINAL.py` | chamada é a primeira instrução executável do corpo da função (depois do docstring) |
-| H2c | Teste novo: com `_validate_cineon_constants` adulterada para levantar, `run_ffmpeg_with_cineon` deve falhar **antes** de tocar disco ou spawnar FFmpeg. Ver nota abaixo antes de escrever. | `executor` | `enhance/test_cineon_constants_guard.py` | `python -m pytest enhance/test_cineon_constants_guard.py -q` verde, ≥8 testes |
+| I1 | Pinar: `pip install ruff` → `pip install ruff==0.14.10`. Essa é a versão da máquina local, logo CI e o hook `PostToolUse` do `settings.json` passam a rodar o mesmo binário. | `executor` | `.github/workflows/ci.yml` | linha 22 com o pin; nenhuma outra linha do arquivo alterada |
+| I2 | Acrescentar ao `pyproject.toml`: `[tool.ruff.lint]` com `select = ["E4", "E7", "E9", "F", "I"]`. São os defaults históricos do ruff **mais** o `I` (isort) que o usuário pediu. Nada além disso. | `executor` | `pyproject.toml` | `ruff check enhance/` passa a reportar os erros de `I001` também na 0.14.10 local |
+| I3 | Rodar `ruff check . --fix --select I` no repo inteiro (33 erros, todos auto-fixáveis) e verificar que nada quebrou. Ver as três notas abaixo antes de rodar. | `executor-pesado` | vários `.py` | `ruff check . --select I` → `All checks passed!` **e** `python -m pytest enhance/ ui/ -q` → `4 failed, N passed` com as mesmas 4 do baseline |
 
 ## Notas de execução
 
-- **H2c é o item que dá valor ao H2.** Sem ele, mover a chamada é só estética: os 7
-  testes do ciclo G exercitam a *função*, nenhum exercita o *call site* — foi essa
-  lacuna que deixou o placement errado passar. O teste tem de provar que o guard
-  dispara no caminho do Cineon Mode.
-- **Se `run_ffmpeg_with_cineon` não puder ser entrada num teste sem spawnar FFmpeg**
-  (é uma função grande, com I/O), registre `blocked` em H2c com a razão exata e o que
-  faltaria. **Não** escreva um teste que só inspeciona o código-fonte à procura da
-  string da chamada — isso passa verde sem provar nada. Um `blocked` honesto vale mais.
-- **Carregue `superpowers:verification-before-completion` antes de marcar qualquer ID
-  como `done`** e cole no STATE.md a saída real do comando do critério.
-- **Não rode a suíte inteira como critério.** Há 4 falhas pré-existentes
-  (2 `enhance/test_ebu_meter.py`, 2 de encoding de console em `ui/`) que não são deste
-  ciclo. Se rodar `pytest enhance/ ui/`, o esperado é `4 failed, N passed` — qualquer
-  falha **além** dessas 4 é regressão sua.
+- **Por que o repo inteiro e não só `enhance/` (14 erros).** O CI checa só `enhance/`,
+  então bastariam 14. Mas a config do I2 vale repo-wide, e o hook `PostToolUse` do
+  `settings.json` roda `ruff check --fix` em **todo** arquivo `.py` editado. Se os
+  outros 19 ficarem, o próximo commit que tocar qualquer um desses arquivos vem com
+  reordenação de import de carona, poluindo um diff que não tem nada a ver. Melhor
+  pagar os 33 de uma vez, num commit que só faz isso.
+- **Por que `executor-pesado` no I3.** É refactor multi-arquivo cruzando `enhance/` +
+  pipeline — o gatilho literal do CLAUDE.md. E o risco não é nulo: `Reels_Encoder_v2_FINAL.py`
+  tem imports condicionais e lazy. O isort do ruff só reordena **blocos contíguos**, e
+  código entre imports funciona como barreira, então a probabilidade de quebra é baixa
+  — mas se a suíte quebrar, diagnosticar qual reordenação causou exige julgamento.
+  Nesse caso, carregue `superpowers:systematic-debugging`; **não** reverta o arquivo
+  inteiro às cegas.
+- **`--select I` no comando do I3 não é opcional.** Com a config do I2 no lugar,
+  `ruff check .` (sem `--select`) reporta **91** erros: os 33 de import sorting mais
+  **58 de E4/E7/E9/F pré-existentes**, concentrados em `tools/` (37), `.claude/scripts`
+  (7) e `ui/` (6) — nenhum em `enhance/`, que é o único diretório que o CI checa.
+  Desses 58, só 17 são auto-fixáveis. Eles **não são deste ciclo**: já estavam lá antes
+  da config e o CI nunca os cobrou. Não os toque; estão registrados em `FINDINGS.md`.
+  Rodar `--fix` sem `--select I` sairia do escopo e mexeria em 17 arquivos alheios.
+- **Ordem obrigatória:** I1 e I2 antes de I3. Rodar o `--fix` antes da config existir
+  usa a seleção default e pode tocar o que não deve.
+- **Baseline da suíte:** 4 falhas pré-existentes (2 em `enhance/test_ebu_meter.py`,
+  2 de encoding de console em `ui/test_readme_assets.py` e `ui/test_theme.py`).
+  Qualquer falha **além** dessas 4 é regressão do I3 — nesse caso o item volta
+  `blocked` com o teste e o arquivo identificados.
+- **Carregue `superpowers:verification-before-completion`** antes de marcar qualquer ID
+  como `done` e cole no STATE.md a saída real do comando.
 - Retorno: uma linha por ID. Detalhe no STATE.md.
 
-## Nota de roteamento (decisão do Orquestrador)
+## Nota sobre bumps futuros (não é tarefa — é a consequência do desenho)
 
-H2 cruza `cineon_pipeline.py` + `Reels_Encoder_v2_FINAL.py` + `enhance/`, o que pela
-tabela do CLAUDE.md sugeriria `executor-pesado`. Mantenho **`executor`**: o gatilho de
-`executor-pesado` é complexidade e ausência de supervisão, não contagem de arquivos.
-Aqui a mudança é mover uma chamada de linha conhecida para linha conhecida, com escopo
-fechado e critério de done mecânico. O único item com risco real é H2c, e para ele o
-caminho previsto é `blocked`, não improviso.
+Com o pin + `select` explícito, subir o ruff vira um ato deliberado de três passos:
+trocar a versão no `ci.yml`, rodar `ruff check . --fix`, commitar. Uma release nova
+do ruff não pode mais mudar o que o CI cobra sem alguém decidir.

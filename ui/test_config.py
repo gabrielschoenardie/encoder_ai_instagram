@@ -6,7 +6,6 @@ import pytest
 
 from ui.config import DEFAULT_CINEON_LUT, EncodeConfig
 
-
 # The complete set of argparse dest names the engine reads off `args`.
 ENGINE_ATTRS = {
     "input", "batch", "output_dir", "mode", "fps", "scale", "fit", "performance",
