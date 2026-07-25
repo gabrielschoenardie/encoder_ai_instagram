@@ -22,6 +22,22 @@ Evidência: leitor (extratos verbatim) + executor (audit_tmp/audit_cineon_math.p
 - **E3d (S3):** código está correto; o bug é do documento. Corrigir a linha do fluxo em
   cineon-pipeline.md num ciclo de docs.
 
+### Status (2026-07-25)
+
+| ID | status | onde |
+|----|--------|------|
+| A3 | em correção | PLAN.md 2026-07-25, itens G1–G3 |
+| E3d | em correção | PLAN.md 2026-07-25, item G4 |
+| F2 | **fechado — limitação aceita** | ver abaixo |
+
+**F2 não será corrigido.** A entrada real da LUT neste pipeline é ≥ 0.0928
+(`log_encoding_cineon` clipa em [0,1]; lin=0 → 0.0928) e `output(0.0928) = +1.58e-05`,
+são. O toe negativo só é alcançável usando a `.cube` standalone (Resolve, `lut3d` do
+FFmpeg) fora deste pipeline; corrigi-lo alteraria o grade Portra em toda a faixa baixa
+para consertar um caso que o pipeline nunca produz.
+**Condição de reabertura:** se a `.cube` passar a ser distribuída para uso standalone,
+F2 volta a valer.
+
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
 - **F5 convexidade:** 2ª derivada +0.932 em t∈[0.9,1.0] (não-compressiva), mas critério da
