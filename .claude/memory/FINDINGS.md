@@ -72,6 +72,12 @@ para consertar um caso que o pipeline nunca produz.
 **Condição de reabertura:** se a `.cube` passar a ser distribuída para uso standalone,
 F2 volta a valer.
 
+## Achado — 2026-07-25 (ciclo infra/CI, PLAN J)
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| J-a | config duplicada à mão | `requirements.txt` vs `[project] dependencies` (pyproject.toml) | mesmos 9 pacotes em 2 arquivos; após J2 CI só lê pyproject, requirements.txt vira doc sem execução | S4 | esperado: 1 fonte de verdade; medido: 2 listas mantidas à mão, mesma classe de defeito do ciclo I |
+
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
 - **F5 convexidade:** 2ª derivada +0.932 em t∈[0.9,1.0] (não-compressiva), mas critério da

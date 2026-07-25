@@ -178,3 +178,23 @@ Arquivos `.py` alterados pelo fix (23): `.claude/skills/instagram-reels-encoder/
 `git diff --stat` total: `28 files changed, 129 insertions(+), 97 deletions(-)` — os 5 nao-`.py`
 sao `.github/workflows/ci.yml` (I1), `pyproject.toml` (I2) e os 3 markdown de `.claude/memory/`.
 Nada commitado, nada revertido.
+
+## Ciclo infra/CI — instalar do pyproject e rodar a suite inteira — 2026-07-25
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| J1 | done | pyproject.toml | Acrescentado `dev = ["pytest>=7", "pytest-timeout"]` em `[project.optional-dependencies]`, extra `opencv` intocado. `python -m pip install --dry-run -e ".[opencv,dev]"` -> resolve sem erro, `Would install pytest-timeout-2.4.0 reels-encoder-ai-2.1.0` (demais ja satisfeitos). Ambiente local e Python 3.12 (nao 3.9/3.11 da matriz) — nao prova a perna 3.9 citada nas notas de risco; sem erro de resolucao observado aqui. |
+| J2 | done | .github/workflows/ci.yml | Linha 54: `pip install numpy>=1.24.0 Pillow>=10.0.0 rich>=13.0.0 psutil>=5.9.0 opencv-python>=4.8.0 scipy pytest pytest-timeout` -> `pip install -e ".[opencv,dev]"`; linha 53 (`python -m pip install --upgrade pip`) intocada. |
+| J3 | done | .github/workflows/ci.yml | Linha 47: `hashFiles('requirements.txt')` -> `hashFiles('pyproject.toml')`. |
+| J4 | done | .github/workflows/ci.yml | Linha 57: lista de 4 arquivos -> `python -m pytest enhance/ ui/ -v --timeout=60`. |
+| J5 | done | — | `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); print('OK')"` -> `OK`, exit 0. |
+
+Nota (nao bloqueante, conforme instrucoes do PLAN): esta maquina nao roda o CI real
+(ubuntu-latest, matriz 3.9/3.11); os criterios de done acima sao de sintaxe/resolucao
+local, nao de execucao do runner. Verificacao real do resultado do CI e do Orquestrador
+apos push.
+
+Achado registrado (fora de escopo, nao investigado): `requirements.txt` mantem os mesmos
+9 pacotes do `[project] dependencies` do `pyproject.toml` a mao; apos J2 o CI deixa de ler
+`requirements.txt`, que passa a ser documentacao sem execucao — mesma classe de defeito do
+ciclo I (config duplicada divergindo sem deteccao). Registrar consolidacao em ciclo proprio.

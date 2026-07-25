@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 opencv = ["opencv-python>=4.8.0"]
+dev = ["pytest>=7", "pytest-timeout"]
 
 [project.scripts]
 reels-encoder = "Reels_Encoder_v2_FINAL:main"
