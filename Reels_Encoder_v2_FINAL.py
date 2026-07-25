@@ -2992,6 +2992,10 @@ def run_ffmpeg_with_cineon(
         dither_enabled: Dither RPDF na quantização final float32→uint8 (quebra
             banding em áreas planas). Default True (equivalente a --dither auto).
     """
+    from cineon_pipeline import _validate_cineon_constants
+
+    _validate_cineon_constants()
+
     console.rule("[bold magenta]🎬 Encode Cineon Film Emulation Pipeline")
 
     input_file = os.path.abspath(input_file)

@@ -22,12 +22,33 @@ Evidência: leitor (extratos verbatim) + executor (audit_tmp/audit_cineon_math.p
 - **E3d (S3):** código está correto; o bug é do documento. Corrigir a linha do fluxo em
   cineon-pipeline.md num ciclo de docs.
 
+## Achado novo — 2026-07-25 (ciclo G)
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| H1 | doc: valor canônico errado | `references/cineon-pipeline.md:117` | Fórmula e valor declarado se contradizem; o valor está errado desde sempre | S2 | fórmula `10^((95−685)/300)` = **0.0107977**; doc declara "≈ 0.005012" |
+| H2 | placement de guard | `cineon_pipeline.py:801` | Guard do node3 vive no loader do node5, sob `if lut_file_path is not None` | S3 | esperado: guard no entry do Cineon Mode; medido: `LUT3D.__init__` |
+
+- **H1 (S2):** a fórmula do doc está certa e bate com `colour-science`
+  (`log_encoding_Cineon(0.0) = 0.092864` ⇔ `(685 + 300·log10(0.0107977))/1023`); o número
+  `0.005012` ao lado dela é que está errado. O valor errado foi copiado para o PLAN.md do
+  ciclo de 2026-07-18 (linha 29) e circulou a auditoria inteira como canônico — não foi
+  pego porque a auditoria comparou o **código** contra `colour-science`, nunca contra esta
+  linha do doc. O código sempre esteve certo. Corrigir a linha 117 do doc.
+- **H2 (S3):** funciona hoje — `Reels_Encoder_v2_FINAL.py:3164-3176` garante que o path da
+  LUT existe antes de instanciar `LUT3D`, então o guard roda no Cineon Mode antes do 1º
+  frame. Mas a assinatura é `__init__(self, lut_file_path=None)`: um `LUT3D()` sem path
+  pula o guard silenciosamente. Correto por convenção de chamada, não por construção.
+  Mover para o topo de `run_ffmpeg_with_cineon()`.
+
 ### Status (2026-07-25)
 
 | ID | status | onde |
 |----|--------|------|
-| A3 | em correção | PLAN.md 2026-07-25, itens G1–G3 |
-| E3d | em correção | PLAN.md 2026-07-25, item G4 |
+| A3 | corrigido | ciclo G (G1–G3); call site movido em H2 |
+| E3d | corrigido | ciclo G (G4) |
+| H1 | corrigido | ciclo H (H1a doc, H1b docstring) |
+| H2 | corrigido | ciclo H (H2a/b guard no topo de `run_ffmpeg_with_cineon`, H2c teste do call site) |
 | F2 | **fechado — limitação aceita** | ver abaixo |
 
 **F2 não será corrigido.** A entrada real da LUT neste pipeline é ≥ 0.0928

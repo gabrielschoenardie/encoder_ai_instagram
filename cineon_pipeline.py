@@ -339,7 +339,7 @@ def log_encoding_cineon(linear: np.ndarray) -> np.ndarray:
 
     Fórmula colour-science (padrão da indústria):
     y = (685 + 300 * log10(x * (1 - black_offset) + black_offset)) / 1023
-    black_offset = 10^((95 - 685) / 300) ≈ 0.005012
+    black_offset = 10^((95 - 685) / 300) ≈ 0.010798
 
     Valores de referência (colour-science):
     - L = 0.0   → log = 0.0928 (black reference)
@@ -367,6 +367,64 @@ def log_encoding_cineon(linear: np.ndarray) -> np.ndarray:
     L = np.clip(linear, 0.0, None)
     result = colour.models.log_encoding_Cineon(L).astype(np.float32)
     return np.clip(result, 0.0, 1.0).astype(np.float32)
+
+
+# Constantes canônicas da fórmula Cineon Log (Kodak standard, via
+# colour-science). Fonte:
+# `.claude/skills/instagram-reels-encoder/references/cineon-pipeline.md`,
+# seção "Fórmula Cineon Log". Expostas no nível de módulo (em vez de locais
+# à função) para que `_validate_cineon_constants` possa detectar a
+# adulteração de cada uma individualmente.
+CINEON_REF_BLACK = 95
+CINEON_REF_WHITE = 685
+CINEON_GAIN = 300
+CINEON_EXPECTED_BLACK_OFFSET = 0.010798
+CINEON_REFERENCE_POINTS = (
+    ("black (lin=0.0)", 0.0, 0.0928),
+    ("18% grey (lin=0.18)", 0.18, 0.457),
+    ("white (lin=1.0)", 1.0, 0.6697),
+)
+
+
+def _validate_cineon_constants() -> None:
+    """
+    Guard contra regressão silenciosa dos valores canônicos da fórmula Cineon
+    Log (ver `.claude/skills/instagram-reels-encoder/references/cineon-pipeline.md`,
+    seção "Fórmula Cineon Log").
+
+    Valida:
+    - `black_offset` derivado da fórmula (não hardcoded) contra o valor canônico.
+    - Os três pontos de referência (black, 18% grey, white) produzidos por
+      `log_encoding_cineon` (que delega para `colour.models.log_encoding_Cineon`)
+      contra os valores canônicos documentados.
+
+    Não corrige nem faz fallback: levanta `RuntimeError` nomeando a constante
+    ou o ponto de referência que divergiu.
+
+    Raises:
+        RuntimeError: colour-science ausente, ou alguma constante/ponto de
+            referência divergente dos valores canônicos.
+    """
+    if not COLOUR_AVAILABLE:
+        raise RuntimeError(
+            "colour-science é obrigatória para validar as constantes Cineon. "
+            "Instale com: pip install colour-science"
+        )
+
+    black_offset = 10.0 ** ((CINEON_REF_BLACK - CINEON_REF_WHITE) / CINEON_GAIN)
+    if abs(black_offset - CINEON_EXPECTED_BLACK_OFFSET) > 1e-4:
+        raise RuntimeError(
+            f"Cineon constant divergente: black_offset derivado = {black_offset:.6f}, "
+            f"esperado ≈ {CINEON_EXPECTED_BLACK_OFFSET}"
+        )
+
+    for name, lin, expected in CINEON_REFERENCE_POINTS:
+        actual = float(log_encoding_cineon(np.array([lin], dtype=np.float32))[0])
+        if abs(actual - expected) > 1e-3:
+            raise RuntimeError(
+                f"Cineon reference point divergente: {name} = {actual:.4f}, "
+                f"esperado ≈ {expected}"
+            )
 
 
 def log_decoding_cineon(log_encoded: np.ndarray) -> np.ndarray:
@@ -734,7 +792,7 @@ class LUT3D:
         self.domain_min = np.array([0.0, 0.0, 0.0])
         self.domain_max = np.array([1.0, 1.0, 1.0])
 
-        # Se path foi fornecido, carregar automaticamente
+        # Se path foi fornecido, carregar automaticamente (Cineon Mode).
         if lut_file_path is not None:
             self._load_cube_file(lut_file_path)
 

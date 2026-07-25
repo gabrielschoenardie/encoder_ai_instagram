@@ -52,7 +52,7 @@ Frame uint8 (PyAV decode, em Reels_Encoder_v2_FINAL.py)
         │
         ▼
 [Consumidor — Reels_Encoder_v2_FINAL.py, fora do pipeline de 5 nós]
-  quantize_uint8_dithered(): clip [0,1] → ×255 → dither RPDF opcional → round → uint8
+  quantize_uint8_dithered(): ×255 → dither RPDF opcional → round → clip [0,255] → uint8
         │
         ▼
 FFmpeg pipe (stdin) → libx264 → MP4
@@ -114,7 +114,7 @@ silenciosamente. Ver `enhance/test_cineon_log_encoding.py`.
 **Fórmula Cineon Log (via colour-science, Kodak standard):**
 ```
 y = (685 + 300 · log10(x · (1 - black_offset) + black_offset)) / 1023
-black_offset = 10^((95 - 685) / 300) ≈ 0.005012
+black_offset = 10^((95 - 685) / 300) ≈ 0.010798
 ```
 Pontos de referência: `lin=0.0 → log≈0.0928` (black), `lin=0.18 → log≈0.457`
 (18% grey), `lin=1.0 → log≈0.6697` (white reference — este é o valor que a
