@@ -198,3 +198,21 @@ Achado registrado (fora de escopo, nao investigado): `requirements.txt` mantem o
 9 pacotes do `[project] dependencies` do `pyproject.toml` a mao; apos J2 o CI deixa de ler
 `requirements.txt`, que passa a ser documentacao sem execucao — mesma classe de defeito do
 ciclo I (config duplicada divergindo sem deteccao). Registrar consolidacao em ciclo proprio.
+
+## Ciclo infra — assumir Python >= 3.11 em todo lugar que declara versao — 2026-07-25
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| K1 | done | pyproject.toml | linha 10 -> `requires-python = ">=3.11"` |
+| K2 | done | pyproject.toml | classifiers agora `["Programming Language :: Python :: 3", "...3.11", "...3.12", "Environment :: Console", ...]`, sem 3.9/3.10 |
+| K3 | done | .github/workflows/ci.yml | linha 33 -> `python-version: ["3.11", "3.12"]` |
+| K4 | done | .github/workflows/pylint.yml | linha 11 -> `python-version: ["3.11", "3.12"]` |
+| K5 | done | README.md | linha 5 badge -> `Python-3.11%2B`; linha 133 tabela -> `3.11+`; `grep -n "3\.9" README.md` -> sem match |
+| K6 | done | MANUAL_INSTALACAO.txt | linha 8 -> `Versão Python: 3.11+`, unica linha alterada |
+| K7 | done | — | `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml')); yaml.safe_load(open('.github/workflows/pylint.yml')); print('OK')"` -> `OK`, exit 0, ambos parseiam |
+
+Verificacao extra (nota do PLAN): `python -m pytest enhance/ ui/ -q` -> `4 failed, 342 passed in 4.98s`,
+as mesmas 4 falhas nominais do baseline documentado (2 em `enhance/test_ebu_meter.py`, 2 de
+encoding de console em `ui/test_readme_assets.py`/`ui/test_theme.py`) — zero regressao.
+Perna 3.12 nunca rodou no CI real; conforme nota do PLAN, resultado do run apos push e
+decisao do Orquestrador, fora do alcance desta maquina.

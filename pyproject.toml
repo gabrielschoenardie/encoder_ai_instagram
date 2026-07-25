@@ -7,13 +7,12 @@ name = "reels-encoder-ai"
 dynamic = ["version"]
 description = "Instagram Reels Encoder — Cineon Film Emulation Edition"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 keywords = ["ffmpeg", "instagram", "reels", "video", "encoder", "cineon", "film-emulation"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Environment :: Console",
     "Topic :: Multimedia :: Video :: Conversion",
 ]

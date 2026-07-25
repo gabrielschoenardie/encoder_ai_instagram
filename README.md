@@ -2,7 +2,7 @@
 
 <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=Reels%20Encoder%20AI&fontSize=42&fontColor=fff&animation=twinkling&fontAlignY=32&desc=Instagram%20Reels%20%E2%80%94%20Film%20Grade%20%2B%20IA%20Adaptativa&descAlignY=55&descSize=18" width="100%"/>
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Colour Science](https://img.shields.io/badge/Colour--Science-DWG%2FCineon-8A2BE2?style=for-the-badge)](https://www.colour-science.org/)
 [![Version](https://img.shields.io/badge/Versão-2.1.0-FF6B6B?style=for-the-badge)](https://github.com/gabrielschoenardie/encoder_ai_instagram)
@@ -130,7 +130,7 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 
 | Dependência | Versão mínima | Obrigatório |
 |---|---|---|
-| Python | 3.9+ | ✅ |
+| Python | 3.11+ | ✅ |
 | FFmpeg | 4.4+ | ✅ |
 | pymediainfo | 1.0.0+ | ✅ |
 | av (PyAV) | 11.0.0+ | ✅ (modo Cineon) |

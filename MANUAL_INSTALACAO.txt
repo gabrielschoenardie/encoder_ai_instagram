@@ -5,7 +5,7 @@
 
 Data: 2025
 Compatibilidade: Windows, macOS, Linux
-Versão Python: 3.8+
+Versão Python: 3.11+
 Tempo de Instalação: ~10-15 minutos
 
 ================================================================================
