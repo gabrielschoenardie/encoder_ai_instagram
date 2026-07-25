@@ -50,3 +50,13 @@ version = { attr = "version.__version__" }
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# imports de probe: falham dentro de try/except ImportError para definir CINEON_AVAILABLE / ENHANCE_AVAILABLE / PYAV_AVAILABLE
+"Reels_Encoder_v2_FINAL.py" = ["F401"]
+# o import do projeto e o proprio teste de instalacao (testar_import_projeto)
+"tools/verificador_instalacao.py" = ["F401"]
+# `import version` e o smoke-check do modulo referenciado por [tool.setuptools.dynamic]
+"ui/test_packaging.py" = ["F401"]
+# imports do projeto so resolvem depois do sys.path.insert(_ROOT) que roda acima deles
+"tools/gen_readme_assets.py" = ["E402"]

@@ -225,3 +225,139 @@ decisao do Orquestrador, fora do alcance desta maquina.
 | L2 | done | .github/workflows/ci.yml | Acrescentado step "Validate requirements.txt (end-user install path)" (`pip install --dry-run -r requirements.txt`) logo apos "Install dependencies" no job `tests`; o step "Install dependencies" (`pip install -e ".[opencv,dev]"`) permanece intacto e antes dele. |
 | L3 | done | — (so leitura) | `MANUAL_INSTALACAO.txt` linhas 106-129 ("PASSO 1... requirements.txt", "PASSO 3: pip install -r requirements.txt", lista "Isso vai instalar") e linha 250 ("Execute: pip install -r requirements.txt") continuam verdadeiras: o arquivo `requirements.txt` continua existindo e `pip install -r requirements.txt` continua funcionando (confirmado em L1). Achado nao-bloqueante, pre-existente e fora de escopo: linhas 295-309 (`APENDICE A: CONTEUDO DE requirements.txt`) instruem o usuario a criar manualmente um `requirements.txt` com 8 pacotes fixos (falta `pydantic` e `scipy`, que ja faltavam antes deste ciclo) caso o arquivo nao exista — esse conteudo de fallback ja divergia do `pyproject.toml`/`requirements.txt` real antes desta mudanca e diverge ainda mais agora (o arquivo real virou `-e .[opencv]`, nao uma lista fixa). Nao e falso (e so um fallback manual que instalaria pacotes desatualizados, nao usado no caminho normal), mas registrar em FINDINGS.md como candidato a ciclo futuro. |
 | L4 | done | — | `python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml')); print('OK')"` -> `OK`, exit 0. `python -m pytest enhance/ ui/ -q` -> `4 failed, 342 passed in 5.76s`, as mesmas 4 falhas nominais do baseline (`enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`, `enhance/test_ebu_meter.py::test_ffplay_args_basic`, `ui/test_readme_assets.py::test_anchor_strings_present`, `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`) — zero regressao. |
+
+## Ciclo infra/docs — fechar J-b: APENDICE A desatualizado — 2026-07-25
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| M1 | done | MANUAL_INSTALACAO.txt | Linhas 294-309 (APENDICE A) reescritas: removida a lista fixa de 8 pacotes e os passos "abra o bloco de notas / cole / salve como .txt"; corpo agora diz que `requirements.txt` normalmente ja vem com o projeto, aponta para `pyproject.toml`, e instrui `pip install -e .[opencv]` na pasta do projeto caso o arquivo falte (sem recriar a mao). `grep -n "pymediainfo\|colour-science" MANUAL_INSTALACAO.txt` -> 6 ocorrencias, todas fora da regiao do apendice A (linhas 122,128,141,142,153,154,246,251,316 — nenhuma entre 294-309); leitura direta das linhas 293-307 confirma o novo texto sem lista hardcoded. |
+
+## Ciclo I-a — fechar debito de lint E4/E7/E9/F fora de `enhance/` — 2026-07-25
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| N1 | done | tools/compare_frames.py, tools/time_to_frame_interactive.py, ui/prompts.py | `--fix` resolveu os 11 F541 (`f""` -> `""`); E731 e F841 nao tem fix automatico no ruff 0.14.10 (`7 hidden fixes ... --unsafe-fixes`), foram feitos a mao: 6 lambdas nomeadas (`CYAN/GREEN/YELLOW/RED/BOLD/DIM`) viraram `def` com o mesmo corpo `clr(codigo, t)`; `g = glyphs(console)` morto removido de `render_choice_menu` (`glyphs` e pura — so retorna dict, sem efeito colateral; continua importada e usada em `ask_path`). |
+| N2 | done | ebu_meter.py, tools/clean_cache.py, tools/compare_frames.py, ui/test_dashboard.py, pyproject.toml | 6 apagados (import morto de verdade) + 6 mantidos com `per-file-ignores`. Ver tabela de decisao abaixo. |
+| N3 | done | .claude/skills/instagram-reels-encoder/scripts/analyze_source.py, tools/compare_frames.py, ui/test_binaries.py | 13 E701 + 2 E702 quebrados em linhas separadas, logica identica: `recompression_score` (5 `if ...: s += N`), `_lvl` (2 `if ...: return`), 3 blocos `try: os.remove(f) / except: pass` em `compare_frames.py`, 2 `binp = tmp_path / "bin"; binp.mkdir()` em `test_binaries.py`. |
+| N4 | done | Reels_Encoder_v2_FINAL.py, ui/test_components.py | `l` -> `line` na list-comp de `wmic cpu get name` (3 ocorrencias no mesmo comprehension, escopo fechado); `l` -> `landscape` em `test_viewer_frame_portrait_and_landscape` (2 ocorrencias: assignment + assert). Nenhum outro uso de `l` nos escopos. |
+| N5 | done | tools/compare_frames.py | 5 `except:` -> `except Exception:` (linhas 268, 439, 463, 470, 477 do arquivo pre-N3). Nenhum dos 5 esta em caminho que dependa de capturar `KeyboardInterrupt`/`SystemExit`: 3 sao `os.remove` de temporario com `pass`, 1 e parse de `--zoom` com fallback, 1 e `get_video_info` com dict default. |
+| N6 | done | pyproject.toml | E402 IGNORADO, nao reordenado. Arquivo lido inteiro: linhas 14-17 fazem `_ROOT = dirname(dirname(abspath(__file__)))` + `sys.path.insert(0, _ROOT)`, e so entao as linhas 19-24 importam `version`, `ebu_meter`, `ui.*`. Mover os imports para o topo quebraria `python tools/gen_readme_assets.py` a partir de qualquer cwd — a ordem e proposital (padrao de script standalone descrito na nota de risco do PLAN). `tools/gen_readme_assets.py` nao foi editado. |
+| N7 | done | — | Ruff repo inteiro limpo e suite no baseline `4 failed, 342 passed`. Saidas coladas abaixo. |
+
+### N2 — decisao por F401 (os 12 originais, um a um)
+
+| # | ocorrencia | decisao | motivo (verificado por leitura + grep) |
+|---|-----------|---------|----------------------------------------|
+| 1 | `Reels_Encoder_v2_FINAL.py:105` `COLOUR_AVAILABLE` | mantido + ignore | dentro do `try: from cineon_pipeline import (...)` / `except ImportError: CINEON_AVAILABLE = False` (linhas 103-113) — apagar o simbolo estreita o que o probe verifica |
+| 2 | `Reels_Encoder_v2_FINAL.py:106` `LUT3D` | mantido + ignore | mesmo bloco probe; usado no runtime via re-import local em `run_ffmpeg_with_cineon` (linha 3176) |
+| 3 | `Reels_Encoder_v2_FINAL.py:107` `process_frame_full_pipeline` | mantido + ignore | mesmo bloco probe; re-import local na linha 3177, chamada na 3564 |
+| 4 | `Reels_Encoder_v2_FINAL.py:122` `build_enhance_profile_from_metrics` | mantido + ignore | dentro do `try: from enhance.profile import (...)` / `except ImportError: ENHANCE_AVAILABLE = False` (linhas 117-128) |
+| 5 | `Reels_Encoder_v2_FINAL.py:124` `print_enhance_report` | mantido + ignore | mesmo bloco `ENHANCE_AVAILABLE` |
+| 6 | `Reels_Encoder_v2_FINAL.py:131` `av` | mantido + ignore | `try: import av / import numpy as np` / `except ImportError: PYAV_AVAILABLE = False`; `av.open` so aparece em 2875/3470, cada um precedido do seu proprio `import av` local (linhas 2873 e 3466) — o do topo e exclusivamente o probe |
+| 7 | `ebu_meter.py:33` `sys` | APAGADO | `grep -n "sys\." ebu_meter.py` -> nenhum match; import morto, fora de qualquer try/except |
+| 8 | `tools/clean_cache.py:1` `os` | APAGADO | `grep -n "os\." tools/clean_cache.py` -> nenhum match; o modulo usa `pathlib.Path` |
+| 9 | `tools/compare_frames.py:18` `Path` | APAGADO | `grep -n "Path" tools/compare_frames.py` -> so a propria linha do import; o modulo usa `os.path` |
+| 10 | `tools/verificador_instalacao.py:293` `Reels_Encoder_v2_FINAL` | mantido + ignore | o import E o teste: corpo de `testar_import_projeto()`, dentro de `try/except Exception` que grava `self.results["summary"]["projeto_import"]`. Ja tinha `# pylint: disable=...unused-import` |
+| 11 | `ui/test_dashboard.py:5` `EncodeDashboard` | APAGADO | `grep -n EncodeDashboard ui/test_dashboard.py` -> so a linha do import; nenhum teste referencia a classe, e `make_dashboard` (a factory, mesma linha) continua importada e usada |
+| 12 | `ui/test_packaging.py:10` `version` | mantido + ignore | unico ponto que prova que o modulo `version` existe/importa; `test_name_and_dynamic_version` so le a string `"version.__version__"` do pyproject, nao importa o modulo. Apagar deixaria `[tool.setuptools.dynamic] version = {attr = "version.__version__"}` sem cobertura nenhuma |
+
+`per-file-ignores` acrescentado em `pyproject.toml` (4 entradas, cada uma restrita a 1 arquivo + 1 regra, com comentario de 1 linha):
+
+```toml
+[tool.ruff.lint.per-file-ignores]
+# imports de probe: falham dentro de try/except ImportError para definir CINEON_AVAILABLE / ENHANCE_AVAILABLE / PYAV_AVAILABLE
+"Reels_Encoder_v2_FINAL.py" = ["F401"]
+# o import do projeto e o proprio teste de instalacao (testar_import_projeto)
+"tools/verificador_instalacao.py" = ["F401"]
+# `import version` e o smoke-check do modulo referenciado por [tool.setuptools.dynamic]
+"ui/test_packaging.py" = ["F401"]
+# imports do projeto so resolvem depois do sys.path.insert(_ROOT) que roda acima deles
+"tools/gen_readme_assets.py" = ["E402"]
+```
+
+### N7 — evidencia de verificacao (comandos rodados, saida real)
+
+Baseline medido ANTES de qualquer edicao (`python -m ruff --version` -> `ruff 0.14.10`):
+
+```
+$ python -m ruff check . --select E4,E7,E9,F --statistics
+13	E701	[ ] multiple-statements-on-one-line-colon
+12	F401	[-] unused-import
+11	F541	[*] f-string-missing-placeholders
+ 6	E402	[ ] module-import-not-at-top-of-file
+ 6	E731	[ ] lambda-assignment
+ 5	E722	[ ] bare-except
+ 2	E702	[ ] multiple-statements-on-one-line-semicolon
+ 2	E741	[ ] ambiguous-variable-name
+ 1	F841	[ ] unused-variable
+Found 58 errors.
+[*] 17 fixable with the `--fix` option (7 hidden fixes can be enabled with the `--unsafe-fixes` option).
+```
+
+Comando exigido pelo criterio de done do N7 (repo inteiro):
+
+```
+$ python -m ruff check . --select E4,E7,E9,F
+All checks passed!
+RUFF_EXIT=0
+```
+
+Mesmo comando com a config do repo sem override de `--select` (cobre tambem o `I` do ciclo I2):
+
+```
+$ python -m ruff check .
+All checks passed!
+RUFF_FULL_EXIT=0
+```
+
+Suite de teste:
+
+```
+$ python -m pytest enhance/ ui/ -q
+ui\test_theme.py:64: AssertionError
+=========================== short test summary info ===========================
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionErr...
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: as...
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeE...
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - Assertion...
+4 failed, 342 passed in 5.31s
+```
+
+As 4 falhas sao nominalmente identicas ao baseline documentado nos ciclos I3/H2c/K7/L4
+(2 em `enhance/test_ebu_meter.py`, 2 de encoding de console em `ui/test_readme_assets.py`
+e `ui/test_theme.py`) — zero regressao nova. A suite tambem foi rodada apos N1 (`4 failed,
+342 passed in 5.22s`) e apos N2 (`4 failed, 342 passed in 5.05s`), sempre as mesmas 4.
+
+Verificacoes extras (nao exigidas):
+
+```
+$ python -m ruff check enhance/ --output-format=github
+CI_ENHANCE_EXIT=0
+```
+(exit 0, sem output — comando literal do CI; `enhance/` nao foi tocado neste ciclo)
+
+```
+$ python -m py_compile <os 10 arquivos .py tocados>
+PYCOMPILE OK
+$ python -c "import ebu_meter; print('ebu_meter OK')"
+ebu_meter OK
+$ python -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['tool']['ruff']['lint']['per-file-ignores'])"
+{'Reels_Encoder_v2_FINAL.py': ['F401'], 'tools/verificador_instalacao.py': ['F401'], 'ui/test_packaging.py': ['F401'], 'tools/gen_readme_assets.py': ['E402']}
+```
+
+Contabilidade dos 58: 11 F541 + 6 E731 + 1 F841 (N1) + 6 F401 apagados (N2) + 13 E701 +
+2 E702 (N3) + 2 E741 (N4) + 5 E722 (N5) = 46 fixados; 6 F401 + 6 E402 = 12 cobertos por
+`per-file-ignores` nomeado. 46 + 12 = 58, nenhum sobrando sem explicacao.
+
+Arquivos `.py` tocados neste ciclo (10) + `pyproject.toml`:
+`.claude/skills/instagram-reels-encoder/scripts/analyze_source.py`, `Reels_Encoder_v2_FINAL.py`,
+`ebu_meter.py`, `tools/clean_cache.py`, `tools/compare_frames.py`,
+`tools/time_to_frame_interactive.py`, `ui/prompts.py`, `ui/test_binaries.py`,
+`ui/test_components.py`, `ui/test_dashboard.py`. `enhance/` intocado (confirmado por
+`git diff --stat`). `MANUAL_INSTALACAO.txt` NAO foi tocado por este agente (Parte 1 / M1).
+Nada commitado.
+
+Observacao para o Orquestrador (nao bloqueante, nao corrigido): `tools/compare_frames.py`
+linha 2 e `tools/time_to_frame_interactive.py` linha 2 mantem `# pylint: disable=bare-except,
+multiple-statements,...` / `unnecessary-lambda-assignment` que ficaram obsoletos apos N3/N5/N1.
+Remover e refactor fora do escopo dos itens N1-N7; registrar em FINDINGS.md se interessar.

@@ -295,23 +295,15 @@ Solução:
 APÊNDICE A: CONTEÚDO DE requirements.txt
 ================================================================================
 
-Se você não tem requirements.txt, crie um arquivo com este conteúdo:
+O requirements.txt normalmente já vem junto com o projeto. As dependências
+reais estão declaradas em pyproject.toml.
+
+Se por algum motivo o requirements.txt estiver faltando, NÃO recrie o arquivo
+manualmente. Em vez disso, na pasta do projeto, rode:
 
 ────────────────────────────────────────────────────────────────────────────
-pymediainfo>=1.0.0
-av>=11.0.0
-numpy>=1.24.0
-Pillow>=10.0.0
-rich>=13.0.0
-psutil>=5.9.0
-colour-science>=0.4.7
-opencv-python>=4.8.0
+pip install -e .[opencv]
 ────────────────────────────────────────────────────────────────────────────
-
-1. Abra um editor de texto (Bloco de Notas)
-2. Cole o conteúdo acima
-3. Salve como: requirements.txt (IMPORTANTE: .txt, não .docx)
-4. Coloque na mesma pasta do Reels_Encoder_v2_FINAL.py
 
 ================================================================================
 APÊNDICE B: GUIA RÁPIDO DE COMANDOS

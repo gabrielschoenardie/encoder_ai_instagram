@@ -15,7 +15,6 @@ import argparse
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -266,7 +265,7 @@ def get_video_info(video_path: str) -> dict:
         duration = float(parts[2]) if len(parts) > 2 else 0
 
         return {"fps": fps, "frames": nb_frames, "duration": duration}
-    except:
+    except Exception:
         return {"fps": 30.0, "frames": 0, "duration": 0}
 
 
@@ -341,7 +340,7 @@ Exemplos:
     info = get_video_info(args.original)
     fps = args.fps if args.fps else info["fps"]
 
-    print(f"\n🎬 Frame Comparison Tool v2")
+    print("\n🎬 Frame Comparison Tool v2")
     print(f"{'='*50}")
     print(f"📁 Original: {args.original}")
     print(f"📁 Encoded:  {args.encoded}")
@@ -370,31 +369,31 @@ Exemplos:
         enc_png = os.path.join(args.output_dir, f"_enc_{prefix}.png")
 
         # Extrair frames
-        print(f"  📸 Extraindo frames...")
+        print("  📸 Extraindo frames...")
         if not extract_frame_by_number(args.original, frame_num, orig_png):
-            print(f"  ⚠️  Falha ao extrair original, tentando por timestamp...")
+            print("  ⚠️  Falha ao extrair original, tentando por timestamp...")
             extract_frame_by_timestamp(args.original, ts, orig_png)
 
         if not extract_frame_by_number(args.encoded, frame_num, enc_png):
-            print(f"  ⚠️  Falha ao extrair encoded, tentando por timestamp...")
+            print("  ⚠️  Falha ao extrair encoded, tentando por timestamp...")
             extract_frame_by_timestamp(args.encoded, ts, enc_png)
 
         # Verificar se extraiu
         if not os.path.exists(orig_png) or not os.path.exists(enc_png):
-            print(f"  ❌ Falha ao extrair frames, pulando...")
+            print("  ❌ Falha ao extrair frames, pulando...")
             continue
 
         # Adicionar labels ANTES / DEPOIS
         if _PILLOW:
-            print(f"  🏷️  Adicionando labels...")
+            print("  🏷️  Adicionando labels...")
             add_label_bar(orig_png, "ANTES",  color=(34, 139, 60))
             add_label_bar(enc_png,  "DEPOIS", color=(210, 90, 20))
         else:
-            print(f"  ⚠️  Pillow não instalado — labels ignorados (pip install pillow)")
+            print("  ⚠️  Pillow não instalado — labels ignorados (pip install pillow)")
 
         # Comparação básica
         output_compare = os.path.join(args.output_dir, f"compare_{prefix}.png")
-        print(f"  🖼️  Criando comparação...")
+        print("  🖼️  Criando comparação...")
         if args.layout == "horizontal":
             create_hstack(orig_png, enc_png, output_compare)
         else:
@@ -408,7 +407,7 @@ Exemplos:
         if args.diff or args.triple or args.all:
             diff_png = os.path.join(args.output_dir, f"_diff_{prefix}.png")
             output_diff = os.path.join(args.output_dir, f"diff_{prefix}.png")
-            print(f"  🔍 Criando mapa de diferenças...")
+            print("  🔍 Criando mapa de diferenças...")
             create_difference(orig_png, enc_png, diff_png)
 
             if os.path.exists(diff_png):
@@ -425,7 +424,7 @@ Exemplos:
                 create_difference(orig_png, enc_png, diff_png)
 
             output_triple = os.path.join(args.output_dir, f"triple_{prefix}.png")
-            print(f"  🔎 Criando comparação tripla...")
+            print("  🔎 Criando comparação tripla...")
             create_triple(orig_png, enc_png, diff_png, output_triple)
 
             if os.path.exists(output_triple):
@@ -437,8 +436,8 @@ Exemplos:
                 try:
                     crop = tuple(map(int, args.zoom.split(",")))
                     cx, cy, cw, ch = crop
-                except:
-                    print(f"  ⚠️  Formato de zoom inválido, usando padrão")
+                except Exception:
+                    print("  ⚠️  Formato de zoom inválido, usando padrão")
                     cx, cy, cw, ch = 0, 400, 500, 700
             else:
                 # Default: região lateral esquerda
@@ -459,18 +458,24 @@ Exemplos:
 
                 # Limpar temporários de zoom
                 for f in [zoom_orig, zoom_enc]:
-                    try: os.remove(f)
-                    except: pass
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
 
         # Limpar temporários principais
         for f in [orig_png, enc_png]:
-            try: os.remove(f)
-            except: pass
+            try:
+                os.remove(f)
+            except Exception:
+                pass
 
         # Limpar diff temporário
         diff_png = os.path.join(args.output_dir, f"_diff_{prefix}.png")
-        try: os.remove(diff_png)
-        except: pass
+        try:
+            os.remove(diff_png)
+        except Exception:
+            pass
 
     # Resumo
     print(f"\n{'='*50}")

@@ -2,7 +2,7 @@
 
 import collections
 
-from ui.dashboard import EncodeDashboard, make_dashboard
+from ui.dashboard import make_dashboard
 from ui.theme import get_console
 
 

@@ -418,11 +418,16 @@ def recompression_score(meta: dict) -> int:
     """Score 0–10 de risco de recompressão. Ver SKILL.md Passo 2."""
     s = 0
     codec = meta.get("codec", "").lower()
-    if "hevc" in codec or "h265" in codec: s += 2
-    if meta.get("bitrate", 0) > 15000:    s += 2
-    if meta.get("bitrate", 0) < 5000:     s += 1
-    if meta.get("width", 1080) != 1080:   s += 1
-    if round(meta.get("fps", 30)) == 60:  s += 1
+    if "hevc" in codec or "h265" in codec:
+        s += 2
+    if meta.get("bitrate", 0) > 15000:
+        s += 2
+    if meta.get("bitrate", 0) < 5000:
+        s += 1
+    if meta.get("width", 1080) != 1080:
+        s += 1
+    if round(meta.get("fps", 30)) == 60:
+        s += 1
     return s
 
 
@@ -913,8 +918,10 @@ def analyze(video_path: str, n_frames: int = 7,
 def _lvl(val: float, low: float, high: float,
          labels=("low", "moderate", "high"),
          colors=("green", "yellow", "red")) -> str:
-    if val < low:   return f"[{colors[0]}]{labels[0]}[/{colors[0]}]"
-    if val < high:  return f"[{colors[1]}]{labels[1]}[/{colors[1]}]"
+    if val < low:
+        return f"[{colors[0]}]{labels[0]}[/{colors[0]}]"
+    if val < high:
+        return f"[{colors[1]}]{labels[1]}[/{colors[1]}]"
     return f"[{colors[2]}]{labels[2]}[/{colors[2]}]"
 
 

@@ -46,9 +46,9 @@ def test_program_panel_renders():
 
 def test_viewer_frame_portrait_and_landscape():
     p = _render(C.viewer_frame("contain", src_dims=(1080, 1920)))
-    l = _render(C.viewer_frame("cover", src_dims=(1920, 1080)))
+    landscape = _render(C.viewer_frame("cover", src_dims=(1920, 1080)))
     assert "PROGRAM" in p and "9:16" in p
-    assert "PROGRAM" in l and "16:9" in l
+    assert "PROGRAM" in landscape and "16:9" in landscape
 
 
 def test_viewer_frame_fallback_without_dims():

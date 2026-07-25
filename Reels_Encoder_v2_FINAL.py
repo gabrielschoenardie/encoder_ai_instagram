@@ -344,9 +344,9 @@ def detect_hardware() -> HardwareProfile:
                     timeout=5,
                 )
                 lines = [
-                    l.strip()
-                    for l in result.stdout.strip().split("\n")
-                    if l.strip() and l.strip() != "Name"
+                    line.strip()
+                    for line in result.stdout.strip().split("\n")
+                    if line.strip() and line.strip() != "Name"
                 ]
                 if lines:
                     profile.cpu_name = lines[0]

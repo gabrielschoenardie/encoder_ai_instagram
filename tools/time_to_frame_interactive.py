@@ -15,12 +15,28 @@ import sys
 def clr(code, text):
     return f"\033[{code}m{text}\033[0m"
 
-CYAN   = lambda t: clr("96", t)
-GREEN  = lambda t: clr("92", t)
-YELLOW = lambda t: clr("93", t)
-RED    = lambda t: clr("91", t)
-BOLD   = lambda t: clr("1",  t)
-DIM    = lambda t: clr("2",  t)
+def CYAN(t):
+    return clr("96", t)
+
+
+def GREEN(t):
+    return clr("92", t)
+
+
+def YELLOW(t):
+    return clr("93", t)
+
+
+def RED(t):
+    return clr("91", t)
+
+
+def BOLD(t):
+    return clr("1", t)
+
+
+def DIM(t):
+    return clr("2", t)
 
 
 def header():

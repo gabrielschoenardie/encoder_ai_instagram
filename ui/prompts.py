@@ -25,7 +25,6 @@ from .theme import PANEL_BOX, glyphs
 
 def render_choice_menu(title: str, options: Sequence[str], console=None) -> RenderableType:
     """Pure: render a numbered menu of options (no input)."""
-    g = glyphs(console)
     body = Text()
     for i, opt in enumerate(options, 1):
         body.append(f" {i} ", style="tab.active")

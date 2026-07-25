@@ -12,7 +12,8 @@ def _ext(name):
 
 
 def test_bundled_wins_over_path(tmp_path):
-    binp = tmp_path / "bin"; binp.mkdir()
+    binp = tmp_path / "bin"
+    binp.mkdir()
     (binp / _ext("ffmpeg")).write_text("x")
     got = B.resolve_binary("ffmpeg", which=lambda n: "/usr/bin/ffmpeg", proj_dir=str(tmp_path))
     assert got == str(binp / _ext("ffmpeg"))
@@ -33,7 +34,8 @@ def test_find_missing_lists_absent(tmp_path):
 
 
 def test_find_missing_empty_when_bundled(tmp_path):
-    binp = tmp_path / "bin"; binp.mkdir()
+    binp = tmp_path / "bin"
+    binp.mkdir()
     for n in ("ffmpeg", "ffprobe"):
         (binp / _ext(n)).write_text("x")
     assert B.find_missing_binaries(("ffmpeg", "ffprobe"), which=_none, proj_dir=str(tmp_path)) == []
