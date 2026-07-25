@@ -1,63 +1,51 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Assumir Python >= 3.11 em todo lugar que declara versão
+# PLAN — Fechar J-a: `requirements.txt` aponta para o `pyproject`
 
-Data: 2026-07-25 | Ciclo: infra | Origem: CI run 30167293830 (perna 3.9 vermelha)
+Data: 2026-07-25 | Ciclo: infra | Origem: `FINDINGS.md` J-a, reclassificado
 
-**Objetivo:** o projeto declara suportar Python 3.9 e não suporta. `colour-science 0.4.7`
-— dependência obrigatória do pipeline Cineon — declara `requires_python: >=3.11,<3.15`.
-A perna 3.9 do CI morreu em `Install dependencies` com
-`No matching distribution found for colour-science>=0.4.7`. Não é só 3.9: **3.10 também
-não serve.**
+**Objetivo:** `MANUAL_INSTALACAO.txt:119` manda o usuário final rodar
+`pip install -r requirements.txt`. No commit `7dfdb08` (14:14) o CI passou a instalar
+com `pip install -e ".[opencv,dev]"` e **deixou de tocar o `requirements.txt`**. O
+caminho de instalação que o manual manda seguir não é mais exercitado por nada.
 
-Ninguém tinha percebido porque a perna 3.9 nunca instalava a lista real de dependências
-— o `ci.yml` instalava 8 pacotes recortados à mão, sem `colour-science`. Foi abrir o CI
-(commit `7dfdb08`) que revelou.
+O `requirements.txt` está correto hoje — tem os mesmos 9 pacotes do `pyproject`. O
+problema não é o estado, é que nada avisa quando ele divergir. É a mesma classe de
+defeito dos ciclos I, J e K (lista mantida à mão divergindo em silêncio), e desta vez
+foi introduzida pelo próprio ciclo J.
 
-**A perna 3.11 passou com `346 passed`, suíte inteira, zero falhas** — inclusive os seis
-`test_cineon_*.py`. Isso não está em questão neste ciclo; só a declaração de versão está.
+**Correção:** o `requirements.txt` deixa de ser uma segunda lista e passa a apontar para
+a primeira. Depois disso `pip install -r requirements.txt` e `pip install -e .` são
+literalmente a mesma resolução.
 
 **Escopo fechado (arquivos permitidos):**
-- `pyproject.toml` — `requires-python` e `classifiers`
-- `.github/workflows/ci.yml` — só a linha 33 (matriz)
-- `.github/workflows/pylint.yml` — só a linha 11 (matriz)
-- `README.md` — só o badge (linha 5) e a linha da tabela (133)
+- `requirements.txt` — substituição integral do conteúdo
+- `.github/workflows/ci.yml` — só acrescentar um step no job `tests`
 
-**Fora de escopo:** `requirements.txt` (achado J-a, ciclo próprio), o
-`actions/setup-python@v3` desatualizado do `pylint.yml` (o `ci.yml` já usa `@v5` — mas
-não é deste ciclo), a lista de dependências, qualquer teste. Bug fora do escopo → uma
-linha em `FINDINGS.md`, sem investigar.
+**Fora de escopo:** `MANUAL_INSTALACAO.txt` (ver L3 — é verificação, não edição),
+`pyproject.toml`, as 4 falhas locais de plataforma, o achado I-a. Bug fora do escopo →
+uma linha em `FINDINGS.md`, sem investigar.
 
 ## Tabela de tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|------------------|
-| K1 | `requires-python = ">=3.9"` → `">=3.11"`. | `executor` | `pyproject.toml` | linha 10 com `>=3.11` |
-| K2 | Nos `classifiers`: remover as linhas de 3.9 e 3.10, manter 3.11, acrescentar 3.12. | `executor` | `pyproject.toml` | nenhum classifier de 3.9/3.10; presentes 3.11 e 3.12 |
-| K3 | Matriz do CI (linha 33): `["3.9", "3.11"]` → `["3.11", "3.12"]`. | `executor` | `.github/workflows/ci.yml` | linha 33 com as duas versões novas |
-| K4 | Matriz do pylint (linha 11): `["3.8", "3.9", "3.10"]` → `["3.11", "3.12"]`. Ver nota. | `executor` | `.github/workflows/pylint.yml` | linha 11 com as duas versões novas |
-| K5 | README: badge da linha 5 (`Python-3.9%2B` → `Python-3.11%2B`) e a célula `3.9+` da linha 133 da tabela de dependências → `3.11+`. | `executor` | `README.md` | `grep -n "3\.9" README.md` sem match referente a Python |
-| K6 | `MANUAL_INSTALACAO.txt` linha 8: `Versão Python: 3.8+` → `3.11+`. Só essa linha; o resto do manual (instruções de download, PATH, troubleshooting) não é deste ciclo. | `executor` | `MANUAL_INSTALACAO.txt` | linha 8 com `3.11+`; nenhuma outra linha alterada |
-| K7 | Validar que os dois YAML continuam parseáveis: `yaml.safe_load` em `ci.yml` e `pylint.yml`. | `executor` | — | ambos saem 0 |
+| L1 | Substituir todo o conteúdo do `requirements.txt` por um cabeçalho curto de comentário + a linha `-e .[opencv]`. O comentário deve dizer que a lista de dependências vive em `pyproject.toml` e que este arquivo existe só porque `MANUAL_INSTALACAO.txt` o referencia — para ninguém "consertar" reexpandindo a lista. | `executor` | `requirements.txt` | `pip install --dry-run -r requirements.txt` resolve sem erro e instala o mesmo conjunto que `pip install --dry-run -e ".[opencv]"` |
+| L2 | No job `tests` do `ci.yml`, acrescentar um step logo após "Install dependencies": `pip install --dry-run -r requirements.txt`, nomeado de forma a deixar claro que valida o caminho do usuário final. Não substituir o install existente. | `executor` | `.github/workflows/ci.yml` | step novo presente; o step "Install dependencies" intacto |
+| L3 | **Verificação, não edição.** Ler `MANUAL_INSTALACAO.txt` linhas ~100-125 e ~250 e confirmar que as instruções continuam verdadeiras com o novo `requirements.txt` (o arquivo continua existindo; `pip install -r requirements.txt` continua funcionando). Reportar no STATE.md o que dizem essas linhas. Se alguma ficou falsa, **não corrija** — registre `blocked` com o texto exato. | `executor` | — (só leitura) | STATE.md com o veredito e as linhas citadas |
+| L4 | Validar `yaml.safe_load` no `ci.yml` e rodar `python -m pytest enhance/ ui/ -q`. | `executor` | — | YAML sai 0; suíte no baseline `4 failed, 342 passed` |
 
 ## Notas de execução
 
-- **Por que o `pylint.yml` entra (K4).** Ele roda hoje em 3.8/3.9/3.10 e passa verde
-  porque instala **só** o pylint e desliga `import-error` — nunca toca uma dependência
-  real. Não é cosmético: o pylint parseia o fonte com a gramática da versão-alvo, então
-  uma versão antiga na matriz pode reclamar de sintaxe legítima em 3.11. Deixar
-  3.8–3.10 lá enquanto o `pyproject` diz `>=3.11` é a mesma divergência que este ciclo
-  existe para eliminar.
-- **3.12 é perna nova em ambos os workflows — nunca rodou.** `colour-science` permite
-  `<3.15`, então em teoria resolve, mas isso é teoria. Se o CI ficar vermelho em 3.12
-  depois do push, **é decisão do Orquestrador** o que fazer (corrigir ou estreitar a
-  matriz para só 3.11). Você não decide isso e não remove nada da matriz por conta
-  própria.
-- **Você não consegue verificar isso de verdade** — a validação real é o run depois do
-  push, que é do Orquestrador. Seus critérios param em sintaxe e conteúdo de linha. Não
-  invente teste que simule o CI.
-- **A suíte local não deve mudar.** Rode `python -m pytest enhance/ ui/ -q` e confirme
-  o baseline conhecido: `4 failed, 342 passed` (as 4 são de plataforma Windows e já
-  provamos que ficam verdes no Linux). Qualquer coisa além disso é regressão sua.
+- **Por que L2 existe.** Sem ele, o `requirements.txt` volta a ser um arquivo que
+  ninguém executa — que é exatamente o defeito que este ciclo fecha. Um `--dry-run` é
+  barato (não instala nada) e garante que o arquivo continua parseável e resolvível nas
+  duas versões da matriz. Se alguém reexpandir a lista à mão no futuro com um pacote
+  inexistente, o CI acusa.
+- **A sintaxe `-e .[opencv]` num requirements file não leva aspas.** Aspas são
+  necessidade do shell, não do formato. Não copie o `".[opencv,dev]"` do `ci.yml`.
+- **Não inclua o extra `dev`** no `requirements.txt`: `pytest` e `pytest-timeout` são
+  ferramenta de desenvolvimento, não dependência de quem só quer rodar o encoder.
 - **Carregue `superpowers:verification-before-completion`** antes de marcar qualquer ID
-  como `done` e cole no STATE.md a saída real do comando.
+  como `done` e cole no STATE.md a saída real do comando. Em L1, cole a comparação dos
+  dois `--dry-run` — é o critério inteiro do item.
 - Retorno: uma linha por ID. Detalhe no STATE.md.

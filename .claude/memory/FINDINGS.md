@@ -72,11 +72,28 @@ para consertar um caso que o pipeline nunca produz.
 **Condição de reabertura:** se a `.cube` passar a ser distribuída para uso standalone,
 F2 volta a valer.
 
-## Achado — 2026-07-25 (ciclo infra/CI, PLAN J)
+## Achado — 2026-07-25 (ciclo infra/CI, PLAN J) — FECHADO em PLAN L
 
 | ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|------|------------------------|------------|--------------------|
 | J-a | config duplicada à mão | `requirements.txt` vs `[project] dependencies` (pyproject.toml) | mesmos 9 pacotes em 2 arquivos; após J2 CI só lê pyproject, requirements.txt vira doc sem execução | S4 | esperado: 1 fonte de verdade; medido: 2 listas mantidas à mão, mesma classe de defeito do ciclo I |
+
+**Fechado:** `requirements.txt` agora é `-e .[opencv]` (uma linha, aponta para
+`pyproject.toml`) com comentário explícito contra reexpandir a lista. CI ganhou um step
+de `pip install --dry-run -r requirements.txt` que acusa se o arquivo divergir de novo.
+
+### Achado novo (não-bloqueante) — descoberto verificando o fechamento de J-a
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| J-b | doc: fallback desatualizado | `MANUAL_INSTALACAO.txt:295-309` (APÊNDICE A) | Lista de fallback manual do requirements.txt já faltava `pydantic`/`scipy` antes deste ciclo; diverge mais agora que o arquivo real é `-e .[opencv]` | S4 | esperado: fallback igual às deps reais; medido: 8 pacotes fixos, faltando 2, formato de lista fixa que o arquivo real não usa mais |
+
+- **J-b (S4, pré-existente, não é regressão deste ciclo):** instrução para o usuário
+  criar `requirements.txt` manualmente **se ele não existir** — caminho raro, o arquivo
+  sempre existiu no repo. Não é falso hoje (instalaria pacotes desatualizados, mas
+  funcionaria), só está defasado. Mesma família de defeito (lista mantida à mão,
+  provavelmente a mais antiga de todas). Ciclo futuro: ou apontar o apêndice para
+  `pip install -e .[opencv]`, ou removê-lo (o arquivo real nunca falta).
 
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
