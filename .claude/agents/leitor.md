@@ -17,6 +17,7 @@ Você extrai. Você não interpreta.
 ## Proibições
 
 - Colar arquivo inteiro ou log inteiro.
+- Usar Bash para despejar arquivo/log inteiro (`cat`, `type`, `Get-Content` sem `-Tail`). Bash só com `grep`/`head`/`tail`/`ffprobe` filtrando a saída.
 - Interpretar, opinar, sugerir, concluir além do extrato.
 - Editar qualquer coisa.
 

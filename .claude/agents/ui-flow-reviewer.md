@@ -1,13 +1,10 @@
 ---
 name: ui-flow-reviewer
 description: >-
-  Control-flow reviewer for the interactive launcher wizard (ui/launcher.py
-  and its collaborators in ui/). Traces the preset menu → flow dispatch →
-  preview/confirm state machine after any edit to catch dead branches, unbound
-  `cfg` variables, menu/dispatch index drift, and tab-order mismatches. Use
-  after adding, removing, or reordering a menu entry, preset flow, or tabbed
-  section in the launcher — this is a hand-rolled state machine with no
-  type-level exhaustiveness check, so these bugs pass a normal read-through.
+  Auditoria de control-flow do wizard `ui/launcher.py` após adicionar, remover
+  ou reordenar entrada de menu, preset ou seção tabulada. Pega branch morto,
+  `cfg` não vinculado, drift de índice menu/dispatch e ordem de tab trocada —
+  máquina de estados escrita à mão, sem checagem de exaustividade.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

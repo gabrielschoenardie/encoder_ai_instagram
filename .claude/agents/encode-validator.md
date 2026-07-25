@@ -1,12 +1,10 @@
 ---
 name: encode-validator
 description: >-
-  Post-encode QC reviewer for Instagram Reels output. Given a rendered file
-  (and optionally the source), it runs the project's validation scripts and the
-  EBU audit, then reports pass/fail against Instagram-ingest rules (VBV, GOP,
-  BT.709, -14 LUFS / -1.5 dBTP, H.264 High/4.x, 9:16). Use after any encode to
-  confirm delivery-readiness. Invoke with the output path; include the source
-  path to also get a VMAF fidelity score.
+  QC de entrega final de um Reel renderizado: validate_encode + audit ebur128
+  independente + VMAF (se o source for passado), e o flag exato a corrigir para
+  cada ✗. Invoque com o caminho do output; some o source para ter VMAF. Para o
+  loop de pipeline (só passa/reprova, sem sugestão), use `validador`.
 tools: Bash, Read, Grep, Glob
 model: sonnet
 ---

@@ -18,6 +18,8 @@ Qualquer tarefa abaixo DEVE ser delegada via Task ao agente correspondente. O Or
 | escrever/editar código | `executor` |
 | refactor multi-arquivo, mudança cruzando `enhance/` + pipeline, execução sem supervisão | `executor-pesado` |
 | rodar `validate_encode.sh` / `measure_vmaf.sh`, veredito de encode | `validador` |
+| QC de entrega final, veredito + flag a corrigir | `encode-validator` |
+| mudou menu/preset/seção em `ui/launcher.py` | `ui-flow-reviewer` |
 | ler logs, saída de ffprobe, stack traces, grep no codebase | `leitor` |
 
 A escolha entre `executor` e `executor-pesado` é do Orquestrador, registrada na coluna `agente alvo` do PLAN.md.
@@ -25,6 +27,14 @@ A escolha entre `executor` e `executor-pesado` é do Orquestrador, registrada na
 ## Handoff
 
 Nenhum papel lê o histórico de conversa do outro. Todo estado passa por markdown em `.claude/memory/`: PLAN.md → STATE.md → VALIDATION.md, mais FINDINGS.md para bugs fora do escopo atual.
+
+## Economia de contexto
+
+Agente devolve **ponteiro + veredito**, nunca o conteúdo: detalhe vai para `.claude/memory/`, o retorno traz status por ID e uma linha. Orquestrador lê o arquivo se precisar do detalhe.
+
+PLAN.md **não transcreve** conteúdo de skill ou de reference. Cita a origem — `skill: instagram-reels-encoder § Cineon 5 nós` — e o executor carrega a skill sozinho. Transcrever gasta contexto Opus para poupar contexto Sonnet, que é o inverso do que se quer.
+
+Skills nos agentes são nomeadas explicitamente com gatilho no próprio agent file (`executor`, `executor-pesado`). Não há camada de descoberta em subagente: `superpowers:using-superpowers` se auto-desliga quando despachada como subagente.
 
 ## Anti-escopo
 

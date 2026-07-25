@@ -112,3 +112,6 @@ Thumbs.db
 # Miscellaneous
 .vscode-server
 .remote-containers
+
+# Scripts de auditoria descartáveis (ver .claude/memory/PLAN.md)
+audit_tmp/
