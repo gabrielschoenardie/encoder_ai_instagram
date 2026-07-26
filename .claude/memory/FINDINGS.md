@@ -95,7 +95,7 @@ de `pip install --dry-run -r requirements.txt` que acusa se o arquivo divergir d
   provavelmente a mais antiga de todas). Ciclo futuro: ou apontar o apêndice para
   `pip install -e .[opencv]`, ou removê-lo (o arquivo real nunca falta).
 
-## Achado — 2026-07-25 (ciclo O, auditoria README.md)
+## Achado — 2026-07-25 (ciclo O, auditoria README.md) — FECHADO
 
 Evidência: Orquestrador (leitura direta do README.md + grep/glob no repo + `pytest --collect-only`
 + `git log -p -- requirements.txt`). Sem leitor/executor envolvidos nesta auditoria.
@@ -116,6 +116,15 @@ Evidência: Orquestrador (leitura direta do README.md + grep/glob no repo + `pyt
   mas isso deixa a tabela de Requisitos e a seção "Instalação via pip" descrevendo dois
   caminhos "completos" com composição de dependência diferente, sem nota explicando a
   diferença. Corrigir a documentação, não o `requirements.txt`.
+
+**Fechado (commit `6a9e12f`, push `9b6ed26..6a9e12f`):** O-a — as 3 ocorrências de
+"105 testes" em `README.md` (linhas 434/626/637) corrigidas para "111 testes"
+(`pytest ui/ --collect-only`). O-b — nota de rodapé da tabela de Requisitos
+(`README.md:147`) esclarece que `pip install -r requirements.txt` (Quick Start/Instalação
+Completa) instala opencv por padrão via `-e .[opencv]`, e que `pip install .` é o caminho
+sem opencv; nenhum marcador `⚪`/`✅` da tabela foi alterado. Executor rodou O1/O2 conforme
+`PLAN.md`; evidência (grep de verificação) em `STATE.md`. CI (`CI` + `Pylint`) verde no
+commit de fechamento (runs 30182148336/30182148370).
 
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
