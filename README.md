@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=Reels%20Encoder%20AI&fontSize=42&fontColor=fff&animation=twinkling&fontAlignY=32&desc=Instagram%20Reels%20%E2%80%94%20Film%20Grade%20%2B%20IA%20Adaptativa&descAlignY=55&descSize=18" width="100%"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=Reels%20Encoder%20AI&fontSize=42&fontColor=fff&animation=twinkling&fontAlignY=32&desc=Instagram%20Reels%20%E2%80%94%20Film%20Grade%20%2B%20IA%20Adaptativa&descAlignY=55&descSize=18" width="100%" alt="Reels Encoder AI"/>
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-007808?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
@@ -43,7 +43,7 @@
 ### Por que usar?
 
 | Problema comum | Como este encoder resolve |
-|---|---|
+| --- | --- |
 | Vídeo fica borrado no Instagram | VBV presets otimizados para cada duração |
 | Cores lavadas após upload | LUT HollywoodCinema v6.7B + pipeline Cineon |
 | Banding visível em gradientes | AI detecta e aplica deband adaptativo |
@@ -129,7 +129,7 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 ## 📋 Requisitos
 
 | Dependência | Versão mínima | Obrigatório |
-|---|---|---|
+| --- | --- | --- |
 | Python | 3.11+ | ✅ |
 | FFmpeg | 4.4+ | ✅ |
 | pymediainfo | 1.0.0+ | ✅ |
@@ -177,7 +177,7 @@ O encoder localiza cada binário do FFmpeg por um **resolvedor de 3 níveis** (`
 ### Por plataforma
 
 | Plataforma | Automático | Manual |
-|---|---|---|
+| --- | --- | --- |
 | **Windows** | `./tools/fetch_ffmpeg.ps1` (winget `BtbN.FFmpeg.GPL.6.1`, FFmpeg 6.1) | copie `ffmpeg.exe`/`ffprobe.exe`/`ffplay.exe` para `bin/` |
 | **macOS** | `brew install ffmpeg` | copie os binários (build estático) para `bin/` |
 | **Linux** | `sudo apt install ffmpeg` | copie um build estático para `bin/` |
@@ -232,7 +232,7 @@ pip install ".[opencv]"
 
 ## 🎛️ Uso & Opções CLI
 
-```
+```text
 python Reels_Encoder_v2_FINAL.py [input] [opções]
 ```
 
@@ -241,7 +241,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 #### 🎬 Pipeline
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--cineon-pipeline` | `on/off` | `off` | Ativa pipeline DWG/Cineon film emulation |
 | `--cineon-lut` | caminho | `FilmLook_Portra400...cube` | LUT .cube para o modo Cineon |
 | `--mode` | `crf/2pass` | `crf` | Modo de encoding |
@@ -249,7 +249,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 #### 🎨 Grading & Cor
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--lut` | `on/off` | `on` | Aplica HollywoodCinema LUT v6.7B |
 | `--exposure-offset` | `-2.0` a `+2.0` | `0.0` | Ajuste de exposição em stops (EV) |
 | `--saturation` | `0.0` a `2.0` | `1.0` | Ajuste de saturação |
@@ -259,7 +259,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 #### 🤖 IA & Enhancement
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--enhance` | `on/off` | `on` | Ativa Enhancement Engine (FASE 27) |
 | `--enhance-ai` | `on/off` | `on` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
 | `--dither` | `on/off/auto` | `auto` | Blue-noise dithering anti-banding |
@@ -268,7 +268,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 #### ⚙️ Qualidade & Vídeo
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--fps` | `auto/24/25/30/60` | `30` | Frame rate do output |
 | `--scale` | `auto/off` | `auto` | Downscale automático 4K→1080p |
 | `--fit` | `contain/cover` | `contain` | Enquadramento 9:16: `contain` preserva tudo (letterbox); `cover` preenche e corta as bordas |
@@ -278,7 +278,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 #### 🔊 Áudio
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--loudnorm` | `on/off` | `on` | Normalização EBU R128 2-pass (-14 LUFS, -1.5 dBTP) |
 | `--ebu-meter` | `on/off` | `on` | QC pós-encode: monitor EBU R128 (FFplay) ANTES/DEPOIS. A auditoria de loudness roda sempre |
 
@@ -307,14 +307,14 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 #### 📁 Batch & Output
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--batch` | caminho da pasta | — | Processa todos os vídeos de uma pasta |
 | `--output-dir` | caminho | mesma do input | Pasta de destino para os arquivos |
 
 #### 🖥️ Sistema
 
 | Argumento | Valores | Padrão | Descrição |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `--show-hardware` | `on/off` | `on` | Exibe perfil de hardware antes do encode |
 | `--hardware-info` | flag | — | Exibe hardware e sai (sem fazer encode) |
 | `--ui` | flag | — | Abre o launcher interativo (estilo Premiere) |
@@ -327,7 +327,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 
 ### Dois pipelines disponíveis
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │  PIPELINE 1 — FFmpeg Nativo (padrão)                                │
 │                                                                      │
@@ -358,7 +358,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 
 ### Fluxo de decisão da IA
 
-```
+```text
 5 frames amostrais (10%, 25%, 50%, 75%, 90%)
           │
           ▼
@@ -389,7 +389,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 
 ### Estrutura de arquivos
 
-```
+```text
 encoder_ai_instagram/
 ├── Reels_Encoder_v2_FINAL.py     # Entry point — parsing CLI, hardware, dispatch
 ├── cineon_pipeline.py             # Pipeline Cineon 5 nodes
@@ -463,7 +463,7 @@ O módulo `enhance/` implementa uma **engine de aprimoramento adaptativa** que a
 **2. Análise — vetor de 13 features:**
 
 | Feature | Origem | O que mede |
-|---|---|---|
+| --- | --- | --- |
 | `sigma` | noise.py | Desvio padrão do ruído Gaussiano |
 | `low_freq_ratio` | noise.py | Energia de baixa frequência (FFT) |
 | `uniformity` | noise.py | Consistência do ruído em grade 8×8 |
@@ -476,6 +476,7 @@ O módulo `enhance/` implementa uma **engine de aprimoramento adaptativa** que a
 | `freq_low/mid/high` | detail.py | Decomposição em bandas de frequência |
 
 **3. MockCNN** — Rede neural 2 camadas (sigmoid):
+
 - Arquitetura: `13 → 8 → 3`
 - Saída: `[denoise_weight, sharpen_weight, deband_weight]` ∈ [0.0, 1.0]
 - Latência: ~0.01ms por inferência
@@ -484,7 +485,7 @@ O módulo `enhance/` implementa uma **engine de aprimoramento adaptativa** que a
 **4. Filtros adaptativos aplicados:**
 
 | Filtro | Métodos disponíveis |
-|---|---|
+| --- | --- |
 | Denoise | NLMeans (OpenCV), Bilateral, Gaussiano |
 | Deband | Reconstrução de gradiente (edge-protected) |
 | Sharpen | Unsharp mask, CAS (Contrast Adaptive Sharpening) |
@@ -518,6 +519,7 @@ python enhance_visualizer.py meu_video.mp4
 ```
 
 Gera imagens diagnósticas mostrando onde cada filtro atua:
+
 - `deband_map` — Risco de banding por região (azul=baixo, vermelho=alto)
 - `noise_map` — Energia de ruído por região
 - `sharpen_map` — Regiões de detalhe/bordas
@@ -529,13 +531,13 @@ Gera imagens diagnósticas mostrando onde cada filtro atua:
 ### LUTs incluídas
 
 | Arquivo | Estilo | Uso recomendado |
-|---|---|---|
+| --- | --- | --- |
 | `FilmLook_Portra400_SkinPriority_D65.cube` | Kodak Portra 400 (film) | Retratos, pele, cotidiano |
 | `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` | Cinema Hollywood | Conteúdo dramático, cinematic |
 
 ### Pipeline Cineon — color science certificada
 
-```
+```text
 Rec.709 (camera)
     │
     ▼  Node 1
@@ -631,6 +633,7 @@ python -m pytest ui/test_config.py -v
 ```
 
 A suíte cobre:
+
 - Predições do MockCNN para casos extremos (vídeo limpo, vídeo ruidoso, banding severo)
 - Chain denoise → deband → sharpen (ordem e força dos filtros)
 - Integridade do vetor de features (normalização, limites)
@@ -679,7 +682,7 @@ Contribuições são bem-vindas! Para contribuir:
 **Gabriel Schoenardie**
 
 - GitHub: [@gabrielschoenardie](https://github.com/gabrielschoenardie)
-- Email: gschoenardie@gmail.com
+- Email: <gschoenardie@gmail.com>
 
 ---
 

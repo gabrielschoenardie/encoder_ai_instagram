@@ -126,6 +126,46 @@ sem opencv; nenhum marcador `⚪`/`✅` da tabela foi alterado. Executor rodou O
 `PLAN.md`; evidência (grep de verificação) em `STATE.md`. CI (`CI` + `Pylint`) verde no
 commit de fechamento (runs 30182148336/30182148370).
 
+## Achado — 2026-07-25 (ciclo P, markdownlint no README.md) — FECHADO
+
+Evidência: Orquestrador (`npx markdownlint-cli2@0.23.1 README.md` em cópia de scratchpad,
+comparado contra `mcp__ide__getDiagnostics` do VS Code — mesmos 112 avisos, mesma
+distribuição por regra). Testado `--fix` numa cópia isolada antes de propor qualquer
+mudança real no repo.
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| P-a | débito de lint markdown pré-existente | `README.md` inteiro | 112 avisos `markdownlint`, nunca lintado antes | S4 | esperado: 0; medido: 112 (88 MD060, 11 MD033, 5 MD040, 3 MD032, 2 MD036, 1 cada MD041/MD045/MD034) |
+
+- **P-a:** distribuição por regra — `MD060` (separador de tabela `|---|` vs células
+  espaçadas, 88), `MD033` (div/p/img de centralização do banner/badges/capturas, 11),
+  `MD040` (5 blocos ```` ``` ```` de diagrama ASCII sem linguagem), `MD032` (3 listas sem
+  linha em branco ao redor), `MD036` (2 — nome do autor e tagline final usados como
+  ênfase, não heading), `MD041` (README abre com `<div>` do banner, não `# H1`), `MD045`
+  (banner sem `alt=`), `MD034` (e-mail solto sem `<>`). 92 dos 112 (`MD060`+`MD032`+`MD034`)
+  são auto-fixáveis via `markdownlint-cli2 --fix`, verificado sem alterar conteúdo/render —
+  só normaliza espaçamento de pipe de tabela, adiciona linha em branco antes/depois de
+  lista, e envolve o e-mail solto em `<>` (autolink, GitHub renderiza como `mailto:`).
+  Os 20 restantes (`MD033`×11, `MD036`×2, `MD041`×1) são convenções deliberadas de README
+  no GitHub — HTML bruto pra centralizar (não existe alternativa em markdown puro) e
+  ênfase que não é heading (viraria heading no TOC do GitHub, poluindo o índice). Decisão:
+  não reescrever esse markup — suprimir essas 3 regras via `.markdownlint.jsonc` na raiz
+  do repo (mesmo padrão do `per-file-ignores` do ruff: regra desligada com comentário de
+  1 linha explicando por quê, não removida às cegas). Os 2 restantes (`MD040`×5, `MD045`×1)
+  são conteúdo real faltando — `text` como linguagem dos fences ASCII e `alt=` no banner —
+  corrigidos diretamente, sem exceção.
+
+**Fechado:** `.markdownlint.jsonc` criado na raiz (config acima). `README.md` com os 92
+fixes automáticos (`markdownlint-cli2 --fix`) + os 6 manuais (`alt=` no banner, `text` nos
+5 fences ASCII). Verificado de forma independente pelo Orquestrador, fora do que o
+executor reportou: `mcp__ide__getDiagnostics` em `README.md` retorna `diagnostics: []`, e
+`npx markdownlint-cli2@0.23.1 README.md` na raiz do repo real confirma 0 avisos. 43 linhas
+alteradas em `README.md` (`git diff --stat`), todas cosmética/conteúdo real — nenhuma
+mudança de estrutura ou semântica. Achado extra corrigido no próprio `PLAN.md` durante a
+redação (não no README): uma célula de tabela do plano tinha `|` literal dentro de crases
+sem escapar, quebrando a contagem de colunas (`MD056`, 5 esperadas vs 9 lidas) — reescrita
+sem pipes soltos.
+
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
 - **F5 convexidade:** 2ª derivada +0.932 em t∈[0.9,1.0] (não-compressiva), mas critério da

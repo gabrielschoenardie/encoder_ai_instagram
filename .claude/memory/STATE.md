@@ -386,3 +386,49 @@ $ grep -n "Dependências opcionais" README.md
 ```
 
 Nenhum outro arquivo tocado (`requirements.txt`, `pyproject.toml`, `.py` intactos).
+
+## Ciclo P — zerar os 112 avisos markdownlint do README.md — 2026-07-25
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| P1a | done | .markdownlint.jsonc | Arquivo criado na raiz com o conteúdo exato do PLAN.md (MD013 off, MD033 allowed_elements div/img/p, MD036 off, MD041 off, comentários `//` preservados). |
+| P1b | done | README.md | `npx --yes markdownlint-cli2@0.23.1 --fix README.md` → `Attempted: 92 fixes in 1 file`, `Summary: 6 issues in 1 file` restantes, exatamente os 6 previstos (MD045×1 linha 3, MD040×5 linhas 235/330/361/392/540) — bate com o previsto pelo Orquestrador. |
+| P2a | done | README.md | Linha 3: adicionado `alt="Reels Encoder AI"` na tag `<img>` do banner capsule-render, antes de `width="100%"` continuar seguido de `/>`. |
+| P2b | done | README.md | 5 fences ASCII sem linguagem trocados de ` ``` ` para ` ```text ` nas linhas 235, 330, 361, 392, 540 (conteúdo dos blocos e fence de fechamento intocados). |
+| P3 | done | — (verificação) | `npx --yes markdownlint-cli2@0.23.1 README.md` → `Summary: 0 issues in 0 files`, exit code 0. Nota: texto difere do previsto no PLAN ("0 issues in 1 file") — nesta versão do markdownlint-cli2 o denominador de "N files" no summary conta só arquivos COM issues (0 aqui), não arquivos lintados; substância (0 issues, exit 0) bate com o critério de done. |
+
+### Notas de execução P1-P3
+
+Saída completa de P1b:
+```
+markdownlint-cli2 v0.23.1 (markdownlint v0.41.1)
+Finding: README.md
+Linting: 1 file
+Attempted: 92 fixes in 1 file
+Summary: 6 issues in 1 file
+README.md:3:1 error MD045/no-alt-text Images should have alternate text (alt text)
+README.md:235 error MD040/fenced-code-language Fenced code blocks should have a language specified [Context: "```"]
+README.md:330 error MD040/fenced-code-language Fenced code blocks should have a language specified [Context: "```"]
+README.md:361 error MD040/fenced-code-language Fenced code blocks should have a language specified [Context: "```"]
+README.md:392 error MD040/fenced-code-language Fenced code blocks should have a language specified [Context: "```"]
+README.md:540 error MD040/fenced-code-language Fenced code blocks should have a language specified [Context: "```"]
+```
+
+Saída completa de P3 (verificação final, após P2a+P2b):
+```
+markdownlint-cli2 v0.23.1 (markdownlint v0.41.1)
+Finding: README.md
+Linting: 1 file
+Summary: 0 issues in 0 files
+EXIT_CODE=0
+```
+
+`git diff --stat README.md .markdownlint.jsonc` (estado final, P1b+P2a+P2b combinados):
+```
+README.md | 43 +++++++++++++++++++++++--------------------
+1 file changed, 23 insertions(+), 20 deletions(-)
+```
+(`.markdownlint.jsonc` é arquivo novo, não aparece em `--stat` de diff contra HEAD por não estar staged; `git status` confirma `?? .markdownlint.jsonc`.)
+
+Escopo respeitado: `requirements.txt`, `pyproject.toml`, `FINDINGS.md` e todo `.py` intocados
+(único diff de conteúdo é `README.md` + `.markdownlint.jsonc` novo). Nada commitado.

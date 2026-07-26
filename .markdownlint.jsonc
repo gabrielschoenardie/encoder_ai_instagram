@@ -1,0 +1,18 @@
+{
+  "default": true,
+  // MD013 (line-length): off — o VS Code markdownlint extension ja roda com essa
+  // regra desligada por padrao; alinhar a config do repo com o que o editor mostra.
+  "MD013": false,
+  // MD033 (no-inline-html): README usa div/p/img para centralizar banner, badges e
+  // capturas — padrao comum em READMEs do GitHub (nao ha alternativa em markdown puro
+  // para centralizar). Permitir so os elementos realmente usados.
+  "MD033": { "allowed_elements": ["div", "img", "p"] },
+  // MD036 (no-emphasis-as-heading): "**Gabriel Schoenardie**" (nome sob "## Autor") e
+  // "*Feito com...*" (tagline final dentro de <div align="center">) sao enfase
+  // intencional, nao heading — vira-los heading poluiria o indice/TOC do GitHub.
+  "MD036": false,
+  // MD041 (first-line-heading): README abre com banner centralizado (<div><img>...),
+  // nao com "# H1" — o titulo ja esta no banner. Padrao comum, sem impacto na
+  // renderizacao do GitHub.
+  "MD041": false
+}
