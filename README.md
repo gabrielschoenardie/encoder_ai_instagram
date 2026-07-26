@@ -144,7 +144,7 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 | opencv-python | 4.8.0+ | ⚪ opcional (banding detection) |
 | CuPy | qualquer | ⚪ opcional (GPU acceleration) |
 
-> ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico.
+> ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico. `pip install -r requirements.txt` (Quick Start e Instalação Completa) instala o opencv-python por padrão via `-e .[opencv]`; para instalar sem opencv use `pip install .` (seção "Instalação via pip").
 
 ### FFmpeg — duas rotas
 
@@ -431,7 +431,7 @@ encoder_ai_instagram/
 │   ├── probe.py                   # Dimensões efetivas da fonte (ffprobe)
 │   ├── binaries.py                # Resolvedor ./bin → PATH → nome nu
 │   ├── preflight.py               # Checagem de dependências FFmpeg
-│   └── test_*.py                  # Suíte de testes da UI (105 testes)
+│   └── test_*.py                  # Suíte de testes da UI (111 testes)
 │
 ├── bin/                           # FFmpeg embarcado (git-ignored)
 │   ├── README.md                  # Como preencher ./bin
@@ -622,7 +622,7 @@ python -m pytest enhance/ ui/ -v
 # Só o módulo de IA
 python -m pytest enhance/ -v
 
-# Só a UI interativa (105 testes)
+# Só a UI interativa (111 testes)
 python -m pytest ui/ -v
 
 # Um arquivo específico
@@ -634,7 +634,7 @@ A suíte cobre:
 - Predições do MockCNN para casos extremos (vídeo limpo, vídeo ruidoso, banding severo)
 - Chain denoise → deband → sharpen (ordem e força dos filtros)
 - Integridade do vetor de features (normalização, limites)
-- UI (`ui/`, 105 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
+- UI (`ui/`, 111 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
   componentes, wiring do launcher e matemática/render do dashboard
 
 ---

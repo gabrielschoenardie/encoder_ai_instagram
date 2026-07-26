@@ -95,6 +95,28 @@ de `pip install --dry-run -r requirements.txt` que acusa se o arquivo divergir d
   provavelmente a mais antiga de todas). Ciclo futuro: ou apontar o apêndice para
   `pip install -e .[opencv]`, ou removê-lo (o arquivo real nunca falta).
 
+## Achado — 2026-07-25 (ciclo O, auditoria README.md)
+
+Evidência: Orquestrador (leitura direta do README.md + grep/glob no repo + `pytest --collect-only`
++ `git log -p -- requirements.txt`). Sem leitor/executor envolvidos nesta auditoria.
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| O-a | doc: contagem desatualizada | `README.md:434,626,637` | Contagem de testes da UI defasada, repetida 3x | S4 | esperado: contagem real; medido: doc diz "105 testes", `pytest ui/ --collect-only` = 111 |
+| O-b | doc: rótulo "opcional" contradiz instalação padrão | `README.md:144` (tabela Requisitos) vs `README.md:81,202` (Quick Start / Instalação Completa) | `opencv-python` marcado opcional mas instalado sempre pelo caminho recomendado | S4 | esperado: rótulo bate com o que os caminhos documentados instalam; medido: `requirements.txt` = `-e .[opencv]` (fechamento J-a) → ambos os caminhos que usam `pip install -r requirements.txt` instalam opencv incondicionalmente; só `pip install .` (seção separada, linha 216) deixa de fora |
+
+- **O-a:** `pytest ui/ --collect-only` conta 111 testes hoje contra os "105" citados no
+  texto. Baseline da suíte completa confirmado sem regressão: `4 failed, 342 passed`
+  (as 4 falhas são as mesmas de sempre — encoding de console no Windows, não é bug novo).
+- **O-b (pré-existente, não é regressão do ciclo J-a/L):** confirmado via `git log -p --
+  requirements.txt` que o `requirements.txt` antigo (pré-refactor) já instalava
+  `opencv-python` incondicionalmente — estava só sob um comentário "DEPENDÊNCIAS
+  OPCIONAIS" cosmético, sem gating real. O ciclo J-a/L1 preservou esse comportamento ao
+  migrar para `-e .[opencv]` (decisão correta para não regredir instalação existente),
+  mas isso deixa a tabela de Requisitos e a seção "Instalação via pip" descrevendo dois
+  caminhos "completos" com composição de dependência diferente, sem nota explicando a
+  diferença. Corrigir a documentação, não o `requirements.txt`.
+
 ### Não-bugs (medidos, dentro do critério — registro para não reabrir)
 
 - **F5 convexidade:** 2ª derivada +0.932 em t∈[0.9,1.0] (não-compressiva), mas critério da

@@ -361,3 +361,28 @@ Observacao para o Orquestrador (nao bloqueante, nao corrigido): `tools/compare_f
 linha 2 e `tools/time_to_frame_interactive.py` linha 2 mantem `# pylint: disable=bare-except,
 multiple-statements,...` / `unnecessary-lambda-assignment` que ficaram obsoletos apos N3/N5/N1.
 Remover e refactor fora do escopo dos itens N1-N7; registrar em FINDINGS.md se interessar.
+
+| O1 | done | README.md | "105 testes" → "111 testes" nas 3 ocorrências (linhas 434, 625, 637), contagem confirmada via `python -m pytest ui/ -q --collect-only` |
+| O2 | done | README.md | nota de rodapé da tabela de Requisitos (linha 147) esclarece que `pip install -r requirements.txt` inclui opencv por padrão e que `pip install .` é o caminho sem opencv; marcador `⚪` da tabela não foi alterado |
+
+## Notas de execução O1/O2
+
+Verificação (`superpowers:verification-before-completion`):
+
+```
+$ python -m pytest ui/ -q --collect-only | tail -1
+111 tests collected in 0.32s
+
+$ grep -n "105 testes" README.md
+(sem saída)
+
+$ grep -n "111 testes" README.md
+434:│   └── test_*.py                  # Suíte de testes da UI (111 testes)
+625:# Só a UI interativa (111 testes)
+637:- UI (`ui/`, 111 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
+
+$ grep -n "Dependências opcionais" README.md
+147:> ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico. `pip install -r requirements.txt` (Quick Start e Instalação Completa) instala o opencv-python por padrão via `-e .[opencv]`; para instalar sem opencv use `pip install .` (seção "Instalação via pip").
+```
+
+Nenhum outro arquivo tocado (`requirements.txt`, `pyproject.toml`, `.py` intactos).
