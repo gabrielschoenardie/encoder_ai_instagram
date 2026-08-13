@@ -223,6 +223,68 @@ function Build-EncodeCommand {
     return ($cmdParts -join " ")
 }
 
+function Open-LauncherTabs {
+    param(
+        [Parameter(Mandatory)][string]$SetupCmd,
+        [Parameter(Mandatory)][string]$EncodeCmd,
+        [Parameter(Mandatory)][string]$WtPath,
+        [Parameter(Mandatory)][bool]$WtAvailable
+    )
+    if ($WtAvailable) {
+        Write-LauncherLog "Abrindo Windows Terminal (2 abas: Setup, Encode) ..." "Info"
+        & $WtPath new-tab --title "Setup" powershell -NoExit -Command $SetupCmd `; new-tab --title "Encode" powershell -NoExit -Command $EncodeCmd
+    }
+    else {
+        Write-LauncherLog "Abrindo janelas PowerShell separadas (fallback) ..." "Info"
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", $SetupCmd
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", $EncodeCmd
+    }
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
-    # (corpo principal vem nas proximas tasks)
+    try {
+        $configPath = Join-Path $Script:RepoRoot "launch-config.json"
+        $config = Read-LauncherConfig -Path $configPath
+
+        $wantsDirectRun = $PSBoundParameters.ContainsKey('InputFile') -or $PSBoundParameters.ContainsKey('Profile')
+        $effectiveProfile = if ($wantsDirectRun) {
+            if ($Profile) { $Profile } else { $config.defaultProfile }
+        } else { $null }
+
+        $venvPath = Join-Path $Script:RepoRoot $config.paths.venv
+
+        if ($SkipEnvSetup) {
+            Write-LauncherLog "Setup do venv pulado (-SkipEnvSetup)." "Warn"
+            $venvPython = Join-Path $venvPath "Scripts\python.exe"
+            if (-not (Test-Path $venvPython)) {
+                throw "-SkipEnvSetup exige um venv existente em $venvPath, mas Scripts\python.exe nao foi encontrado."
+            }
+        }
+        else {
+            $venvPython = Initialize-Environment -RepoRoot $Script:RepoRoot -VenvPath $venvPath
+        }
+
+        if ($SkipValidation) {
+            Write-LauncherLog "Validacao de binarios pulada (-SkipValidation)." "Warn"
+            $wtPath = Join-Path $Script:RepoRoot $config.paths.windowsTerminalExe
+            $binaries = [PSCustomObject]@{
+                VenvPython  = $venvPython
+                WtPath      = $wtPath
+                WtAvailable = (Test-Path $wtPath)
+            }
+        }
+        else {
+            $binaries = Resolve-Binaries -RepoRoot $Script:RepoRoot -VenvPython $venvPython -Config $config
+        }
+
+        $setupCmd = Build-SetupCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config
+        $encodeCmd = Build-EncodeCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config -InputFile $InputFile -ProfileName $effectiveProfile
+
+        Open-LauncherTabs -SetupCmd $setupCmd -EncodeCmd $encodeCmd -WtPath $binaries.WtPath -WtAvailable $binaries.WtAvailable
+    }
+    catch {
+        Write-LauncherLog $_.Exception.Message "Error"
+        if ($Debug) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
+        exit 1
+    }
 }
