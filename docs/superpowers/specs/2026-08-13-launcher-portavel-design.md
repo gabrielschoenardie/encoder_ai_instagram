@@ -107,7 +107,7 @@ encoder_ai_instagram/
 ### Perfis (`launch-config.json`) — só flags reais do `argparse` atual
 
 | Perfil | Flags |
-|---|---|
+| --- | --- |
 | fast | `--performance speed --enhance off` |
 | balanced *(default)* | `--performance balanced --enhance on --enhance-ai on` |
 | quality | `--performance quality --mode 2pass --enhance on` |
@@ -135,7 +135,7 @@ Nenhum perfil define `--crf` ou qualquer parâmetro de qualidade fixo.
 ### Falhas tratadas
 
 | Cenário | Ação |
-|---|---|
+| --- | --- |
 | Python não encontrado | Mensagem clara, instrui instalar Python 3.11+ |
 | Criação do venv falha | Sugere `-SkipEnvSetup` pra reusar venv existente; diagnóstico |
 | `requirements.txt` ausente | Erro claro com o path esperado |
