@@ -756,6 +756,17 @@ git commit -m "feat(launcher): lancamento de abas (WT + fallback) e orquestracao
   executado — é exatamente o path que `launch-config.json.paths.windowsTerminalExe`
   (Task 1) e `Resolve-Binaries` (Task 4) esperam.
 
+**Correção pós-dispatch (achado real do implementador, não do plano
+original — erro de transcrição do próprio Orquestrador):** o `$WtSha256`
+abaixo termina em `...4383BD`. Uma versão anterior deste plano (e do spec)
+tinha `...4383B`, faltando o último dígito hex — 63 caracteres em vez dos
+64 de um SHA256 válido. O implementador do Task 7 rodou o download de
+verdade, mediu o hash real do ZIP oficial (`Get-FileHash`), viu que batia
+com o valor do plano exceto por esse `D` final faltando, e corretamente
+abortou em vez de aceitar um binário "quase verificado" — o script em si
+já aborta e apaga o ZIP quando o checksum não bate (essa é a garantia de
+segurança do Task 7, e ela funcionou como projetado).
+
 - [ ] **Step 1: Escrever o script com o conteúdo exato abaixo**
 
 Versão e SHA256 verificados de verdade durante o brainstorming (baixado +
@@ -784,7 +795,7 @@ $ErrorActionPreference = "Stop"
 $WtVersion = "1.24.11911.0"
 $WtAssetName = "Microsoft.WindowsTerminal_${WtVersion}_x64.zip"
 $WtUrl = "https://github.com/microsoft/terminal/releases/download/v$WtVersion/$WtAssetName"
-$WtSha256 = "7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383B"
+$WtSha256 = "7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383BD"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BinDir = Join-Path $ProjectRoot "bin"
@@ -841,7 +852,7 @@ Write-Host "      wt.exe: $wtExe" -ForegroundColor Green
 
 Run: `.\tools\fetch_wt_portable.ps1`
 Expected: baixa, confere o checksum (`OK    checksum confere
-(7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383B)`),
+(7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383BD)`),
 extrai, e termina com `OK    Windows Terminal portatil instalado em:
 <repo>\bin\WindowsTerminal`.
 

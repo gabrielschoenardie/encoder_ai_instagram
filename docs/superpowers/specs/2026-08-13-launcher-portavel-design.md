@@ -165,7 +165,7 @@ de verdade):
 - Testado com a release `v1.24.11911.0`: baixado
   `Microsoft.WindowsTerminal_1.24.11911.0_x64.zip` via
   `https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip`,
-  SHA256 `7691efeb71c8dd0b95536c84e366fa4cf809a42c534912f9cefa1056534383b`.
+  SHA256 `7691efeb71c8dd0b95536c84e366fa4cf809a42c534912f9cefa1056534383bd`.
   Conteúdo confirmado por `unzip -l`: pasta única
   `terminal-1.24.11911.0/` com `wt.exe` + `WindowsTerminal.exe` +
   DLLs/resources/fontes necessários lado a lado — **não é um único `.exe`
