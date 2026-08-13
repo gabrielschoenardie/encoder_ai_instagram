@@ -179,14 +179,14 @@ function Build-ProfileArgs {
         throw "Perfil '$ProfileName' nao existe em launch-config.json. Perfis disponiveis: $known"
     }
     $profileDef = $Config.profiles.$ProfileName
-    $args = @($profileDef.flags)
+    $profileArgs = @($profileDef.flags)
     if ($profileDef.requiresBatchDir) {
         if (-not $BatchDir) {
             throw "Perfil '$ProfileName' exige uma pasta de entrada: use -InputFile <pasta>."
         }
-        $args = @("--batch", $BatchDir, "--output-dir", $BatchDir) + $args
+        $profileArgs = @("--batch", $BatchDir, "--output-dir", $BatchDir) + $profileArgs
     }
-    return $args
+    return $profileArgs
 }
 
 function Build-SetupCommand {
