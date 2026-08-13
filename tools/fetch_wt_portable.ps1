@@ -45,22 +45,31 @@ if ($actualHash -ne $WtSha256) {
 }
 Write-Host "OK    checksum confere ($actualHash)" -ForegroundColor Green
 
-if (Test-Path $DestDir) {
-    Write-Host "Removendo instalacao portatil anterior em $DestDir ..." -ForegroundColor Yellow
-    Remove-Item $DestDir -Recurse -Force
-}
-
 $extractTemp = Join-Path $env:TEMP "wt_portable_extract_$([guid]::NewGuid().ToString('N'))"
-Write-Host "Extraindo para $DestDir ..." -ForegroundColor Cyan
-Expand-Archive -Path $TempZip -DestinationPath $extractTemp -Force
+try {
+    Write-Host "Extraindo para $extractTemp ..." -ForegroundColor Cyan
+    Expand-Archive -Path $TempZip -DestinationPath $extractTemp -Force
 
-$innerFolder = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
-if (-not $innerFolder) {
-    throw "ZIP extraido nao contem a pasta esperada (formato do release mudou?)."
+    $innerFolder = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
+    if (-not $innerFolder) {
+        throw "ZIP extraido nao contem a pasta esperada (formato do release mudou?)."
+    }
+
+    $extractedWtExe = Join-Path $innerFolder.FullName "wt.exe"
+    if (-not (Test-Path $extractedWtExe)) {
+        throw "wt.exe nao encontrado no ZIP extraido - conteudo do release pode ter mudado."
+    }
+
+    if (Test-Path $DestDir) {
+        Write-Host "Removendo instalacao portatil anterior em $DestDir ..." -ForegroundColor Yellow
+        Remove-Item $DestDir -Recurse -Force
+    }
+    Move-Item -Path $innerFolder.FullName -Destination $DestDir
 }
-Move-Item -Path $innerFolder.FullName -Destination $DestDir
-Remove-Item $extractTemp -Recurse -Force
-Remove-Item $TempZip -Force
+finally {
+    Remove-Item $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $TempZip -Force -ErrorAction SilentlyContinue
+}
 
 $wtExe = Join-Path $DestDir "wt.exe"
 if (-not (Test-Path $wtExe)) {
