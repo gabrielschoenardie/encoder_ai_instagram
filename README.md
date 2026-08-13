@@ -50,6 +50,7 @@
 | Áudio muito alto/baixo | Normalização automática EBU R128 (2-pass) |
 | 4K fica pesado demais | Downscale automático para 1080p |
 | Grãos e ruído no resultado | NLMeans/bilateral denoise inteligente |
+| Não dá pra saber se o arquivo está aprovado | Certificado de entrega (`.qc.html` + `.qc.json`) a cada encode |
 
 ---
 
@@ -67,6 +68,9 @@
 
 **Selo de entrega — MASTER QC (auditoria EBU R128 pós-encode):**
 <p align="center"><img src="docs/assets/seal.svg" alt="Selo Delivery Ready" width="70%"></p>
+
+**Certificado de entrega — gerado a cada encode (`.qc.html` + `.qc.json`):**
+<p align="center"><img src="docs/assets/certificado.png" alt="Certificado de entrega" width="90%"></p>
 
 ---
 
@@ -310,6 +314,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 | --- | --- | --- | --- |
 | `--batch` | caminho da pasta | — | Processa todos os vídeos de uma pasta |
 | `--output-dir` | caminho | mesma do input | Pasta de destino para os arquivos |
+| `--report` | `on/off` | `on` | Gera o certificado de entrega (`.qc.html` + `.qc.json`) ao lado do output |
 
 #### 🖥️ Sistema
 
@@ -610,6 +615,7 @@ python tools/clean_cache.py
 
 ```bash
 # Renderiza banner, preview, dashboard e selo MASTER QC em docs/assets/*.svg
+# e o certificado de entrega de exemplo (certificado.html + .png, se houver chromium)
 python tools/gen_readme_assets.py
 ```
 
