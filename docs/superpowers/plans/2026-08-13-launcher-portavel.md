@@ -148,6 +148,16 @@ git commit -m "feat(launcher): adicionar launch-config.json com os 5 perfis"
   Tasks 3-6 acrescentam funções entre o topo e esse guard, sem tocar nele
   até a Task 6.
 
+**Correção pós-dispatch (achado real do implementador, não do plano
+original):** o Step 1 abaixo **não** declara `[CmdletBinding()]` no topo do
+`param()`. Uma versão anterior deste plano incluía essa linha; o
+implementador do Task 2 encontrou que `[CmdletBinding()]` injeta
+automaticamente um parâmetro comum `-Debug`, que colide com o `[switch]$Debug`
+explícito do brief (`ParameterNameAlreadyExistsForCommand`, falha já no
+dot-source, antes de qualquer função rodar). Sem `[CmdletBinding()]`, essa
+colisão não existe e `$PSBoundParameters` (usado na Task 6) continua
+funcionando normalmente — não depende de CmdletBinding.
+
 - [ ] **Step 1: Escrever o skeleton inicial**
 
 ```powershell
@@ -158,7 +168,6 @@ git commit -m "feat(launcher): adicionar launch-config.json com os 5 perfis"
     certo e lanca em abas do Windows Terminal (com fallback).
 #>
 
-[CmdletBinding()]
 param(
     [string]$InputFile,
     [string]$Profile,
