@@ -168,6 +168,61 @@ function Resolve-Binaries {
     }
 }
 
+function Build-ProfileArgs {
+    param(
+        [Parameter(Mandatory)][string]$ProfileName,
+        [Parameter(Mandatory)]$Config,
+        [string]$BatchDir
+    )
+    if (-not ($Config.profiles.PSObject.Properties.Name -contains $ProfileName)) {
+        $known = ($Config.profiles.PSObject.Properties.Name) -join ", "
+        throw "Perfil '$ProfileName' nao existe em launch-config.json. Perfis disponiveis: $known"
+    }
+    $profileDef = $Config.profiles.$ProfileName
+    $args = @($profileDef.flags)
+    if ($profileDef.requiresBatchDir) {
+        if (-not $BatchDir) {
+            throw "Perfil '$ProfileName' exige uma pasta de entrada: use -InputFile <pasta>."
+        }
+        $args = @("--batch", $BatchDir, "--output-dir", $BatchDir) + $args
+    }
+    return $args
+}
+
+function Build-SetupCommand {
+    param(
+        [Parameter(Mandatory)][string]$VenvPython,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$Config
+    )
+    $script = Join-Path $RepoRoot $Config.paths.encoderScript
+    return "& '$VenvPython' '$script' --hardware-info"
+}
+
+function Build-EncodeCommand {
+    param(
+        [Parameter(Mandatory)][string]$VenvPython,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$Config,
+        [string]$InputFile,
+        [string]$ProfileName
+    )
+    $script = Join-Path $RepoRoot $Config.paths.encoderScript
+    if (-not $ProfileName) {
+        return "& '$VenvPython' '$script' --ui"
+    }
+    $isBatch = [bool]$Config.profiles.$ProfileName.requiresBatchDir
+    $batchDir = if ($isBatch) { $InputFile } else { $null }
+    $profileArgs = Build-ProfileArgs -ProfileName $ProfileName -Config $Config -BatchDir $batchDir
+
+    $cmdParts = @("& '$VenvPython'", "'$script'")
+    if (-not $isBatch -and $InputFile) {
+        $cmdParts += "'$InputFile'"
+    }
+    $cmdParts += $profileArgs
+    return ($cmdParts -join " ")
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
     # (corpo principal vem nas proximas tasks)
 }
