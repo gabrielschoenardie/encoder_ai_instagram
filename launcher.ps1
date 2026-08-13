@@ -124,6 +124,50 @@ function Initialize-Environment {
     return $venvPython
 }
 
+function Test-RequiredBinary {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$FixHint
+    )
+    if (-not (Test-Path $Path)) {
+        throw "$Name nao encontrado em: $Path`n$FixHint"
+    }
+    return $Path
+}
+
+function Resolve-Binaries {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$VenvPython,
+        [Parameter(Mandatory)]$Config
+    )
+    Test-RequiredBinary -Path $VenvPython -Name "Python (venv)" `
+        -FixHint "Rode o launcher sem -SkipEnvSetup para recriar o venv." | Out-Null
+
+    $ffmpeg = Join-Path $RepoRoot $Config.paths.ffmpegExe
+    Test-RequiredBinary -Path $ffmpeg -Name "ffmpeg.exe" `
+        -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+
+    $ffprobe = Join-Path $RepoRoot $Config.paths.ffprobeExe
+    Test-RequiredBinary -Path $ffprobe -Name "ffprobe.exe" `
+        -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+
+    $wtPath = Join-Path $RepoRoot $Config.paths.windowsTerminalExe
+    $wtAvailable = Test-Path $wtPath
+    if (-not $wtAvailable) {
+        Write-LauncherLog "Windows Terminal portatil nao encontrado ($wtPath) - vai usar janelas PowerShell separadas. Rode .\tools\fetch_wt_portable.ps1 para instalar (opcional)." "Warn"
+    }
+
+    return [PSCustomObject]@{
+        VenvPython  = $VenvPython
+        Ffmpeg      = $ffmpeg
+        Ffprobe     = $ffprobe
+        WtPath      = $wtPath
+        WtAvailable = $wtAvailable
+    }
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
     # (corpo principal vem nas proximas tasks)
 }
