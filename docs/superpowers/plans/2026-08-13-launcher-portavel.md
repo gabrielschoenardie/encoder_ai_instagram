@@ -275,6 +275,21 @@ git commit -m "feat(launcher): skeleton de launcher.ps1 com logging e config loa
   `Initialize-Environment($RepoRoot, $VenvPath) -> string` (path do
   `python.exe` do venv — é isso que a Task 5/6 usam pra tudo depois).
 
+**Correção pós-dispatch (achado real do implementador, não do plano
+original):** as chamadas `& $pythonCmd -m venv $VenvPath` (em
+`New-ProjectVenv`) e `& $VenvPython -m pip install -r $reqPath` (em
+`Install-Requirements`) abaixo terminam em `| Out-Host`. Sem isso, o
+stdout do processo externo (verboso no `pip install`) não é consumido por
+nada — em PowerShell, saída não capturada de um comando dentro de uma
+função vira parte do *return* da função. Como nenhuma das duas chamadas
+tinha seu resultado atribuído a uma variável, esse texto vazava e se
+concatenava com o `return $venvPython` de `Initialize-Environment`,
+corrompendo o path retornado (o implementador do Task 3 pegou isso ao
+rodar o Step 4 de verdade: `$py` virou o log inteiro do pip + o path, não
+só o path). `Out-Host` mostra a saída em tempo real no console (mesmo
+efeito visual pretendido) sem poluir o stream de retorno da função —
+`$LASTEXITCODE` continua populado normalmente depois do pipe.
+
 - [ ] **Step 1: Acrescentar a linha do `.gitignore`**
 
 Em `.gitignore`, logo após o bloco `# Virtual environments` (linhas 23-28
@@ -307,7 +322,7 @@ function New-ProjectVenv {
     )
     $pythonCmd = Resolve-SystemPython
     Write-LauncherLog "Criando venv em $VenvPath ..." "Info"
-    & $pythonCmd -m venv $VenvPath
+    & $pythonCmd -m venv $VenvPath | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao criar o venv (python -m venv retornou $LASTEXITCODE). Se ja existir um venv valido, tente -SkipEnvSetup."
     }
@@ -324,7 +339,7 @@ function Install-Requirements {
         throw "requirements.txt nao encontrado em: $reqPath"
     }
     Write-LauncherLog "Instalando dependencias (pip install -r requirements.txt) ..." "Info"
-    & $VenvPython -m pip install -r $reqPath
+    & $VenvPython -m pip install -r $reqPath | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "pip install falhou (exit $LASTEXITCODE). Verifique espaco em disco, permissoes e conexao."
     }
