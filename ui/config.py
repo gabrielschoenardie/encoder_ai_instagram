@@ -30,6 +30,7 @@ _CHOICES = {
     "lut": {"on", "off"},
     "loudnorm": {"on", "off"},
     "ebu_meter": {"on", "off"},
+    "report": {"on", "off"},
     "hdr": {"auto", "off"},
     "tonemap": {"mobius", "reinhard", "hable", "bt2390"},
     "fps": {"auto", "24", "25", "30", "60"},
@@ -87,6 +88,7 @@ class EncodeConfig(BaseModel):
     dither: str = "auto"
 
     # Misc / engine flags
+    report: str = "on"
     show_hardware: str = "on"
     hardware_info: bool = False
     ui: bool = False

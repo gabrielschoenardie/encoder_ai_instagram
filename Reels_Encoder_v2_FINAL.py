@@ -3888,6 +3888,13 @@ def find_video_files(folder: str) -> list:
     return found
 
 
+def _report_settings(args) -> dict:
+    """Human-relevant encode settings for the delivery certificate."""
+    keys = ("mode", "fit", "fps", "scale", "lut", "loudnorm", "hdr", "tonemap",
+            "cineon_pipeline", "enhance", "enhance_ai", "mctf", "dither", "performance")
+    return {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
+
+
 def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool = False) -> None:
     """Encoda um único arquivo com as configurações de 'args'.
 
@@ -3956,6 +3963,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
         )
     # ──────────────────────────────────────────────────────────────────────────
 
+    _t0 = time.time()
     if args.cineon_pipeline == "on":
         run_ffmpeg_with_cineon(
             input_file,
@@ -3995,6 +4003,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             dither_enabled=_dither_active,
             fit=args.fit,
         )
+    _encode_seconds = time.time() - _t0
 
     # ── EBU R128 — auditoria pós-encode (sempre) + monitor FFplay (opcional) ──
     try:
@@ -4007,6 +4016,9 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             show_meter=_show_meter,
             targets=LOUDNORM_TARGETS,
             console=console,
+            report=(getattr(args, "report", "on") == "on"),
+            settings=_report_settings(args),
+            encode_seconds=_encode_seconds,
         )
     except Exception as _ebu_exc:
         console.print(f"[yellow]⚠ Auditoria EBU R128 falhou: {_ebu_exc}[/yellow]")
@@ -4098,6 +4110,12 @@ COMPARAÇÃO:
         help="QC pós-encode: abre o monitor EBU R128 (FFplay) p/ comparação ANTES/DEPOIS "
              "(default: on; desativado automaticamente em --batch). A auditoria de loudness "
              "(LUFS-I/dBTP/LRA) roda sempre, independente desta flag.",
+    )
+    parser.add_argument(
+        "--report",
+        choices=["on", "off"],
+        default="on",
+        help="Gera o certificado de entrega (.qc.html + .qc.json) ao lado do output. Padrão: on.",
     )
     parser.add_argument(
         "--hdr",

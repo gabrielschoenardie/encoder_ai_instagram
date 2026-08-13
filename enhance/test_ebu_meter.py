@@ -343,3 +343,85 @@ def test_build_video_checks_missing_all_none():
     assert by["Container"][1] == "—"
     assert by["Video"][1] == "—"
     assert by["Color"][1] == "—"
+
+
+# ── build_report_payload / human helpers (PR F: delivery certificate) ─────────
+
+def test_build_report_payload_schema_and_summary():
+    checks = [
+        ("Container", "MP4", True),
+        ("Resolution", "1080x1350", None),
+        ("Color", "bt2020", False),
+    ]
+    p = E.build_report_payload(
+        source_file="/in/ferias.mp4",
+        output_file="/out/ferias_final.mp4",
+        checks=checks,
+        before={"I": -9.7, "TP": 0.8, "LRA": 6.2},
+        after={"I": -14.1, "TP": -1.8, "LRA": 7.1},
+        b_codec="aac", b_rate="44100", a_codec="aac", a_rate="48000",
+        targets={"I": -14, "TP": -1.5, "LRA": 11},
+        app_version="2.1.0",
+        video_info={"width": 1080, "height": 1350},
+        settings={"mode": "crf"},
+        encode_seconds=252.3,
+    )
+    for key in ("app", "generated_at", "source", "output", "video", "audio",
+                "targets", "checks", "summary", "settings", "encode"):
+        assert key in p, f"payload missing key: {key}"
+
+    assert p["app"]["version"] == "2.1.0"
+    assert p["source"]["filename"] == "ferias.mp4"
+    assert p["output"]["filename"] == "ferias_final.mp4"
+    assert p["audio"]["before"]["I"] == -9.7
+    assert p["audio"]["after"]["TP"] == -1.8
+    assert p["audio"]["before"]["sample_rate"] == "44100"
+    assert p["targets"] == {"I": -14, "TP": -1.5, "LRA": 11}
+    assert p["summary"] == {"passed": 1, "warnings": 1, "failed": 1, "ready": False}
+    assert all(set(c) == {"label", "value", "passed"} for c in p["checks"])
+    assert p["checks"][0] == {"label": "Container", "value": "MP4", "passed": True}
+    assert p["encode"]["duration_human"] == "4m 12s"
+
+
+def test_build_report_payload_ready_when_nothing_failed():
+    p = E.build_report_payload(
+        source_file="a.mp4", output_file="b.mp4",
+        checks=[("Codec", "aac", True), ("FPS", "—", None)],
+        before=None, after=None, b_codec=None, b_rate=None,
+        a_codec="aac", a_rate="48000", targets={"I": -14, "TP": -1.5, "LRA": 11},
+    )
+    assert p["summary"]["ready"] is True
+    assert p["summary"] == {"passed": 1, "warnings": 1, "failed": 0, "ready": True}
+
+
+def test_build_report_payload_handles_missing_measurements():
+    p = E.build_report_payload(
+        source_file="a.mp4", output_file="/nope/does-not-exist.mp4",
+        checks=[], before=None, after=None,
+        b_codec=None, b_rate=None, a_codec=None, a_rate=None,
+        targets=None, encode_seconds=None,
+    )
+    assert p["audio"]["before"] == {
+        "I": None, "TP": None, "LRA": None, "codec": None, "sample_rate": None,
+    }
+    assert p["audio"]["after"]["I"] is None
+    assert p["targets"] == {"I": None, "TP": None, "LRA": None}
+    assert p["output"]["size_bytes"] is None and p["output"]["size_human"] is None
+    assert p["encode"]["duration_seconds"] is None
+    assert p["encode"]["duration_human"] is None
+    assert p["checks"] == []
+    assert p["summary"]["ready"] is True
+    assert p["settings"] == {} and p["video"] == {}
+
+
+def test_human_helpers():
+    assert E._human_size(None) is None
+    assert E._human_size(512) == "512 B"
+    assert E._human_size(18_400_000) == "18.4 MB"
+    assert E._human_size(2_500_000_000) == "2.5 GB"
+
+    assert E._human_duration(None) is None
+    assert E._human_duration(52) == "52s"
+    assert E._human_duration(252.3) == "4m 12s"
+    assert E._human_duration(3780) == "1h 03m"
+    assert E._human_duration("nope") is None

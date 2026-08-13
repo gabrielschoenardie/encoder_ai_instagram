@@ -500,6 +500,132 @@ def build_video_checks(info: dict) -> list:
     ]
 
 
+def _human_size(n: Optional[int]) -> Optional[str]:
+    """Decimal byte size with 1 decimal ("18.4 MB"); None passes through."""
+    if n is None:
+        return None
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return None
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1000.0 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1000.0
+    return None
+
+
+def _human_duration(s) -> Optional[str]:
+    """Wall-clock duration as "52s" / "4m 12s" / "1h 03m"; None passes through."""
+    if s is None:
+        return None
+    try:
+        total = int(round(float(s)))
+    except (TypeError, ValueError):
+        return None
+    if total < 0:
+        total = 0
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m {total % 60:02d}s"
+    return f"{total // 3600}h {(total % 3600) // 60:02d}m"
+
+
+def _app_version() -> str:
+    """Encoder version string, or "" when the version module is unavailable."""
+    try:
+        from version import __version__
+        return __version__
+    except Exception:
+        return ""
+
+
+def build_report_payload(
+    *,
+    source_file,
+    output_file,
+    checks,
+    before,
+    after,
+    b_codec,
+    b_rate,
+    a_codec,
+    a_rate,
+    targets,
+    app_name="Instagram Reels Encoder",
+    app_version="",
+    video_info=None,
+    settings=None,
+    encode_seconds=None,
+    generated_at=None,
+):
+    """Assemble the delivery-certificate payload (pure, JSON-serializable).
+
+    Never raises: every unavailable field degrades to ``None``. Consumed by
+    ``ui.report`` to render the HTML certificate and the JSON sidecar.
+    """
+    from datetime import datetime
+
+    before = before or {}
+    after = after or {}
+    targets = targets or {}
+    video_info = dict(video_info or {})
+
+    try:
+        size_bytes = os.path.getsize(output_file)
+    except Exception:
+        size_bytes = None
+
+    rows = []
+    for c in list(checks or []):
+        try:
+            label, value, passed = c[0], c[1], c[2]
+        except Exception:
+            continue
+        rows.append({"label": label, "value": value, "passed": passed})
+
+    failed = sum(1 for r in rows if r["passed"] is False)
+
+    return {
+        "app": {"name": app_name, "version": app_version},
+        "generated_at": generated_at or datetime.now().isoformat(timespec="seconds"),
+        "source": {"path": source_file, "filename": os.path.basename(source_file or "")},
+        "output": {
+            "path": output_file,
+            "filename": os.path.basename(output_file or ""),
+            "size_bytes": size_bytes,
+            "size_human": _human_size(size_bytes),
+        },
+        "video": video_info,
+        "audio": {
+            "before": {
+                "I": before.get("I"), "TP": before.get("TP"), "LRA": before.get("LRA"),
+                "codec": b_codec, "sample_rate": b_rate,
+            },
+            "after": {
+                "I": after.get("I"), "TP": after.get("TP"), "LRA": after.get("LRA"),
+                "codec": a_codec, "sample_rate": a_rate,
+            },
+        },
+        "targets": {
+            "I": targets.get("I"), "TP": targets.get("TP"), "LRA": targets.get("LRA"),
+        },
+        "checks": rows,
+        "summary": {
+            "passed": sum(1 for r in rows if r["passed"] is True),
+            "warnings": sum(1 for r in rows if r["passed"] is None),
+            "failed": failed,
+            "ready": failed == 0,
+        },
+        "settings": dict(settings or {}),
+        "encode": {
+            "duration_seconds": encode_seconds,
+            "duration_human": _human_duration(encode_seconds),
+        },
+    }
+
+
 def run_post_encode_qc(
     original_file: str,
     output_file: str,
@@ -507,7 +633,11 @@ def run_post_encode_qc(
     show_meter: bool = True,
     targets: Optional[dict] = None,
     console=None,
-) -> None:
+    *,
+    report: bool = True,
+    settings: Optional[dict] = None,
+    encode_seconds=None,
+) -> Optional[dict]:
     """Auditoria EBU R128 pós-encode (sempre) + janelas FFplay (opcional).
 
     Args:
@@ -518,6 +648,12 @@ def run_post_encode_qc(
         targets:       dict de alvos {target: {'I','TP','LRA'}}; se None, importa
                        LOUDNORM_TARGETS do encoder.
         console:       Rich Console; se None, cria um.
+        report:        grava o certificado de entrega (.qc.html + .qc.json).
+        settings:      dict de configurações do encode, registrado no certificado.
+        encode_seconds: duração do encode (wall clock), registrada no certificado.
+
+    Returns:
+        O payload do certificado (dict), ou None se não foi possível montá-lo.
     """
     # Console + tabela (import tardio p/ manter os builders puros sem rich)
     if console is None:
@@ -581,11 +717,14 @@ def run_post_encode_qc(
     # ── Delivery seal (Premiere-style QC certificate) ─────────────────────────
     # O selo certifica o master completo: CONTAINER/VIDEO (do arquivo final) +
     # ÁUDIO (loudness/codec da auditoria EBU acima).
+    video_info = probe_video_info(output_file)
+    all_checks = (
+        build_video_checks(video_info)
+        + build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
+    )
     try:
         from ui.components import play_delivery_seal
-        video_checks = build_video_checks(probe_video_info(output_file))
-        audio_checks = build_delivery_checks(aI, aTP, a_codec, a_rate, tgt_i, tgt_tp)
-        play_delivery_seal(video_checks + audio_checks, console=console)
+        play_delivery_seal(all_checks, console=console)
     except Exception:
         pass
 
@@ -595,14 +734,38 @@ def run_post_encode_qc(
             "(sem stream de áudio ou formato não suportado).[/yellow]"
         )
 
+    # ── Certificado de entrega (.qc.html + .qc.json) ──────────────────────────
+    # Emitido antes do early-return de show_meter para que o batch também o gere.
+    try:
+        payload = build_report_payload(
+            source_file=original_file, output_file=output_file, checks=all_checks,
+            before=before, after=after, b_codec=b_codec, b_rate=b_rate,
+            a_codec=a_codec, a_rate=a_rate,
+            targets={"I": tgt_i, "TP": tgt_tp, "LRA": tgt_lra},
+            app_version=_app_version(), video_info=video_info,
+            settings=settings, encode_seconds=encode_seconds,
+        )
+    except Exception:
+        payload = None
+    if report and payload is not None:
+        try:
+            from ui.report import write_report
+            written = write_report(payload, output_file)
+            if written:
+                console.print(
+                    f"[dim]📄 Certificado de entrega: {os.path.basename(written[0])}[/dim]"
+                )
+        except Exception:
+            pass
+
     # ── Janelas FFplay (QC visual) ────────────────────────────────────────────
     if not show_meter:
-        return
+        return payload
     if not _FFPLAY_OK:
         console.print(
             "[yellow]⚠ ffplay não encontrado no PATH — pulando o monitor EBU R128 visual.[/yellow]"
         )
-        return
+        return payload
 
     name = os.path.basename(output_file)
     has_original = os.path.exists(original_file)
@@ -628,3 +791,5 @@ def run_post_encode_qc(
         )
     else:
         console.print("[yellow]⚠ Não foi possível abrir as janelas do monitor EBU R128.[/yellow]")
+
+    return payload
