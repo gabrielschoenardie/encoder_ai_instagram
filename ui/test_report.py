@@ -15,6 +15,7 @@ if _ROOT not in sys.path:
 
 import ebu_meter as E  # noqa: E402
 from ui.report import (  # noqa: E402
+    _fmt_color,
     render_html,
     render_json,
     render_seal_fragment,
@@ -81,6 +82,57 @@ def test_render_html_contains_key_facts():
     assert "CONFORMIDADE" in doc
     assert "REVISAR ENTREGA" in doc             # one check failed
     assert "-14.1" in doc                       # measured loudness
+
+
+def test_html_includes_source_filename():
+    """O certificado nomeia o material de origem, não só o output."""
+    doc = render_html(_payload(source_file="/in/Origem_Teste.MOV"))
+    assert "Origem_Teste.MOV" in doc
+    assert "Origem" in doc
+
+
+def test_html_source_missing_is_dash():
+    p = _payload()
+    p["source"] = None
+    assert "—" in render_html(p)
+
+
+def test_html_formats_color_value():
+    """A seção ARQUIVO mostra BT.709, nunca o valor cru do probe."""
+    doc = render_html(_payload())
+    assert "BT.709" in doc
+    # Nenhum "bt709" cru sobra no documento (o selo já formata o próprio check).
+    assert doc.count("bt709") == 0
+
+
+def test_fmt_color_helper():
+    assert _fmt_color("bt709") == "BT.709"
+    assert _fmt_color("BT709") == "BT.709"         # o mapa é case-insensitive
+    assert _fmt_color("bt2020") == "BT.2020"
+    assert _fmt_color("bt2020nc") == "BT.2020"
+    assert _fmt_color("smpte2084") == "SMPTE ST 2084 (PQ)"
+    assert _fmt_color("arib-std-b67") == "HLG"
+    assert _fmt_color("bt470bg") == "BT.470BG"
+    assert _fmt_color("smpte170m") == "SMPTE 170M"
+    assert _fmt_color("xyz") == "XYZ"
+    assert _fmt_color(None) == "—"
+    assert _fmt_color("") == "—"
+
+
+def test_encode_section_not_empty():
+    """A seção ENCODE traz duração + modo + carimbo, não uma linha só."""
+    doc = render_html(_payload())
+    assert "ENCODE" in doc
+    assert "4m 12s" in doc
+    assert "Duração" in doc
+    assert "Modo" in doc
+    assert "CRF" in doc                          # settings.mode em maiúsculas
+    assert "Concluído em" in doc
+
+
+def test_encode_section_without_duration():
+    doc = render_html(_payload(encode_seconds=None))
+    assert "Duração" in doc and "Concluído em" in doc
 
 
 def test_render_html_ready_verdict():

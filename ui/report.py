@@ -67,6 +67,25 @@ def _as_tuples(checks) -> list:
     return out
 
 
+_COLOR_LABELS = {
+    "bt709": "BT.709",
+    "bt2020": "BT.2020",
+    "bt2020nc": "BT.2020",
+    "smpte2084": "SMPTE ST 2084 (PQ)",
+    "arib-std-b67": "HLG",
+    "bt470bg": "BT.470BG",
+    "smpte170m": "SMPTE 170M",
+}
+
+
+def _fmt_color(value) -> str:
+    """Probe colour tag in display form ("bt709" → "BT.709"); "—" when empty."""
+    if value is None or value == "":
+        return "—"
+    key = str(value).strip().lower()
+    return _COLOR_LABELS.get(key, str(value).upper())
+
+
 def _bit_depth(pix_fmt) -> str:
     """Bit depth inferred from pix_fmt, as a display string."""
     if not pix_fmt:
@@ -227,24 +246,30 @@ def render_html(payload: dict) -> str:
     version = str(app.get("version") or "")
     header_version = f" v{_e(version)}" if version else ""
 
+    src = payload.get("source") or {}
     w, h = video.get("width"), video.get("height")
     fps = video.get("fps")
     file_pairs = [
-        ("Arquivo", _e(out.get("filename"))),
+        ("Origem", _e(src.get("filename"))),
+        ("Master", _e(out.get("filename"))),
         ("Tamanho", _e(out.get("size_human"))),
         ("Resolução", f"{int(w)}x{int(h)}" if w and h else "—"),
         ("FPS", _num(fps) if fps is not None else "—"),
         ("Profundidade", _e(_bit_depth(video.get("pix_fmt")))),
-        ("Cor", _e(video.get("color_primaries"))),
+        ("Cor", _e(_fmt_color(video.get("color_primaries")))),
     ]
     settings = payload.get("settings") or {}
     setting_pairs = [
         (_SETTING_LABELS.get(k, str(k).replace("_", " ").title()), _e(v))
         for k, v in settings.items()
     ]
-    encode_pairs = []
-    if encode.get("duration_human"):
-        encode_pairs.append(("Duração", _e(encode.get("duration_human"))))
+    mode = settings.get("mode")
+    encode_pairs = [
+        ("Duração", _e(encode.get("duration_human"))),
+        ("Modo", _e(str(mode).upper()) if mode else "—"),
+        ("Concluído em", _e(payload.get("generated_at"))),
+        ("Encoder", f"{name}{header_version}"),
+    ]
 
     ready = bool(summary.get("ready"))
     verdict = (

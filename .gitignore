@@ -85,6 +85,9 @@ vmaf_*.json
 *.tiff
 *.raw
 
+# Exceção: as capturas do README são assets versionados
+!docs/assets/*.png
+
 # Output directories
 output/
 outputs/
