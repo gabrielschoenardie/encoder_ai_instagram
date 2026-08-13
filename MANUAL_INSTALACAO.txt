@@ -306,6 +306,19 @@ pip install -e .[opencv]
 ────────────────────────────────────────────────────────────────────────────
 
 ================================================================================
+USO PORTÁTIL (OPCIONAL): launcher.ps1
+================================================================================
+
+Se preferir não instalar nada manualmente, use o launcher.ps1 na raiz do
+projeto: ele cria um venv local (./venv), instala as dependências, valida
+o FFmpeg e abre o encoder pronto pra uso.
+
+  .\launcher.ps1
+
+Isso é um caminho alternativo ao PASSO 1-3 acima, não uma substituição -
+os passos manuais continuam funcionando normalmente.
+
+================================================================================
 APÊNDICE B: GUIA RÁPIDO DE COMANDOS
 ================================================================================
 

@@ -60,3 +60,26 @@ Ou baixe um build estático (ex.: johnvansickle.com) e copie `ffmpeg`,
 
 Os binários **não são versionados** no git (veja `bin/.gitignore`) — cada
 máquina traz os seus. Apenas este `README.md` e o `.gitignore` ficam no repo.
+
+## Windows Terminal portátil (opcional)
+
+`launcher.ps1` abre 2 abas (Setup + Encode) usando o Windows Terminal se
+`./bin/WindowsTerminal/wt.exe` existir. Sem ele, cai automaticamente em
+duas janelas PowerShell separadas — não é obrigatório.
+
+### Como obter
+
+```powershell
+./tools/fetch_wt_portable.ps1
+```
+
+Baixa a distribuição portátil **oficial** do Windows Terminal (ZIP
+"unpackaged" publicado em
+[`github.com/microsoft/terminal/releases`](https://github.com/microsoft/terminal/releases),
+documentado em
+[Microsoft Learn](https://learn.microsoft.com/en-us/windows/terminal/distributions)),
+confere o SHA256 antes de extrair, e extrai a pasta inteira (não é só um
+`.exe` — `wt.exe` precisa dos DLLs/recursos ao lado) para
+`./bin/WindowsTerminal/`.
+
+Requer Windows 10 19041+ ou Windows 11.
