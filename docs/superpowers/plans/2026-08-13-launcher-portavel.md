@@ -1001,7 +1001,33 @@ Esta é a única task "sem supervisão" do ciclo (roda o bootstrap completo de
 verdade, incluindo rede/pip/lançamento de janelas) — por isso vai pra
 `executor-pesado`, conforme a tabela de delegação do `CLAUDE.md`.
 
-- [ ] **Step 1: Baseline — confirmar que `./venv` e `./bin/ffmpeg.exe` não existem antes do teste (ou anotar que já existem de uma task anterior)**
+- [ ] **Step 0 (correção pós-Task 7/8 — plano original não previa isso): preparar baseline de verdade**
+
+A Task 7 já baixou e validou `bin/WindowsTerminal/wt.exe` de verdade nesta
+mesma worktree (commit `e06fd12`/`cc72648`). Se o Step 3 rodar com o WT já
+presente, o caminho de fallback (2 janelas PowerShell) nunca é exercitado de
+verdade — o launcher iria direto para o caminho de 2 abas, colidindo com o
+"Expected" do Step 3. Correção: mover `bin/WindowsTerminal` para fora da
+árvore do repo *antes* do Step 1, para que o Step 4 dispare um
+`fetch_wt_portable.ps1` real (download+checksum+extração de verdade, não um
+no-op) — mesma cobertura de rede que a Task 7 já provou, mas agora como parte
+do fluxo de integração ponta-a-ponta. Também: `teste.mp4` não existe nesta
+worktree (só existe na raiz do repo principal) — copiar de lá antes do Step 4.
+
+Run:
+```powershell
+Move-Item .\bin\WindowsTerminal ..\..\..\..\_task9_wt_backup -ErrorAction SilentlyContinue
+Copy-Item ..\..\..\..\teste.mp4 .\teste.mp4
+```
+(ajustar os `..` conforme a profundidade real da worktree até a raiz do repo
+principal `encoder_ai_instagram`; confirmar com `git rev-parse
+--show-toplevel` antes de montar o caminho relativo, ou usar caminho absoluto
+`C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\teste.mp4`.)
+Documentar no `STATE.md` que essa preparação foi necessária e por quê (plan
+defect: Task 9 assumia máquina totalmente limpa, mas roda na mesma worktree
+onde a Task 7 já teve efeito colateral real).
+
+- [ ] **Step 1: Baseline — confirmar que `./venv`, `./bin/ffmpeg.exe` e `./bin/WindowsTerminal/wt.exe` não existem antes do teste (devem estar todos `False` após o Step 0)**
 
 Run: `Test-Path .\venv; Test-Path .\bin\ffmpeg.exe; Test-Path .\bin\WindowsTerminal\wt.exe`
 Documentar os 3 resultados no `STATE.md` como estado inicial.
@@ -1027,8 +1053,10 @@ Run: `.\tools\fetch_wt_portable.ps1; .\launcher.ps1 -InputFile "teste.mp4" -Prof
 Expected: pula a criação do venv (reaproveita, log `[INFO] Venv existente
 reaproveitado`), abre o Windows Terminal de verdade com 2 abas ("Setup" e
 "Encode"), aba Encode roda o comando `--performance speed --enhance off`
-sobre `teste.mp4` (arquivo já existe na raiz do repo). Colar a saída no
-`STATE.md`. Fechar a janela do WT depois de confirmar.
+sobre `teste.mp4` (copiado no Step 0). Colar a saída no `STATE.md`. Fechar a
+janela do WT depois de confirmar. Depois de confirmado, remover o backup
+`_task9_wt_backup` (não é mais necessário — o WT real já foi re-obtido pelo
+fetch script nesta task).
 
 - [ ] **Step 5: Disparar cada falha tratada de propósito, uma de cada vez, e confirmar a mensagem exata**
 
