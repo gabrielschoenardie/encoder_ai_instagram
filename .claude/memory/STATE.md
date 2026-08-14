@@ -432,3 +432,502 @@ README.md | 43 +++++++++++++++++++++++--------------------
 
 Escopo respeitado: `requirements.txt`, `pyproject.toml`, `FINDINGS.md` e todo `.py` intocados
 (único diff de conteúdo é `README.md` + `.markdownlint.jsonc` novo). Nada commitado.
+
+## Ciclo Q — launcher portátil (launcher.ps1) — validação de integração — 2026-08-14
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| Q9.0 | done | bin/WindowsTerminal (movido p/ fora do repo), teste.mp4 (copiado) | preparação de baseline: WT da Task 7 movido p/ `C:\Users\Usuario\Documents\GitHub\_task9_wt_backup`, `teste.mp4` (2900358 bytes) copiado da raiz do repo principal |
+| Q9.1 | done | — | baseline: venv=False, ffmpeg=False, wt=False antes do teste |
+| Q9.2 | done | bin/ffmpeg.exe, bin/ffprobe.exe, bin/ffplay.exe | fetch_ffmpeg.ps1 OK (winget BtbN.FFmpeg.GPL.6.1 6.1.3-20250831), exit 0 |
+| Q9.3 | done | venv/, venv.lock | launcher.ps1 -Debug sem args: venv novo + pip install + venv.lock + fallback 2 janelas PowerShell — OK |
+| Q9.4 | done | bin/WindowsTerminal/ | fetch_wt_portable.ps1 (checksum confere) + launcher.ps1 -InputFile teste.mp4 -Profile fast -Debug: venv reaproveitado + 2 abas WT reais — OK; encode `--performance speed --enhance off` rodou ponta-a-ponta até DELIVERY READY |
+| Q9.5 | done | — | 4 falhas tratadas disparadas de proposito; 3 conferem com a tabela "Falhas tratadas" do spec, 1 (-SkipValidation) divergiu do esperado por causa de ffmpeg no PATH global — ver nota Q9.5-d |
+| Q9.6 | done | .claude/memory/STATE.md | checklist e saídas reais registradas neste bloco |
+
+### Nota Q9.0 — por que o Step 0 foi necessário (plan defect)
+
+O plano original assumia que a Task 9 rodaria numa árvore 100% limpa. Não é o
+caso: a Task 7 já tinha baixado e extraído `bin/WindowsTerminal/wt.exe` de
+verdade nesta mesma worktree (commits `e06fd12`/`cc72648`). Com o WT presente,
+o Step 3 nunca exercitaria o caminho de fallback (2 janelas PowerShell) — o
+launcher iria direto pro caminho de 2 abas e o resultado não bateria com o
+"Expected" documentado. O Orquestrador acrescentou o Step 0 para mover o WT
+pra fora da árvore antes do baseline. Também: `teste.mp4` não existe nesta
+worktree (só na raiz do repo principal) e precisou ser copiado.
+
+Saída real do Step 0:
+
+```text
+--- bin ---
+.gitignore
+README.md
+--- backup ---
+True
+--- teste.mp4 ---
+2900358
+```
+
+### Step 1 — baseline
+
+`Test-Path .\venv; Test-Path .\bin\ffmpeg.exe; Test-Path .\bin\WindowsTerminal\wt.exe`
+
+```text
+False
+False
+False
+```
+
+### Step 2 — `.\tools\fetch_ffmpeg.ps1`
+
+```text
+Instalando FFmpeg 6.1 via winget...
+Encontrado FFmpeg (GPL static variant, 6.1 release branch) [BtbN.FFmpeg.GPL.6.1] Versão 6.1.3-20250831
+Este aplicativo é licenciado para você pelo proprietário.
+A Microsoft não é responsável por, nem concede licenças a pacotes de terceiros.
+Baixando https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-08-31-13-00/ffmpeg-n6.1.3-win64-gpl-6.1.zip
+Hash do instalador verificado com êxito
+Extraindo arquivo...
+Arquivo extraído com êxito
+Iniciando a instalação do pacote...
+Variável de ambiente do caminho modificada; reinicie seu shell para usar o novo valor.
+O alias da linha de comando foi adicionado: "ffmpeg"
+O alias da linha de comando foi adicionado: "ffplay"
+O alias da linha de comando foi adicionado: "ffprobe"
+Instalado com êxito
+OK    ffmpeg.exe -> ./bin
+OK    ffprobe.exe -> ./bin
+OK    ffplay.exe -> ./bin
+Concluido. Binarios em: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\bin
+EXIT=0
+```
+
+Efeito colateral relevante pro Step 5: o `winget` do `fetch_ffmpeg.ps1` também
+instala o FFmpeg **globalmente** e mexe no `PATH` (`where.exe ffmpeg` →
+`C:\ffmpeg\bin\ffmpeg.exe`). Isso muda o resultado do cenário `-SkipValidation`
+(ver Q9.5-d).
+
+### Step 3 — `.\launcher.ps1 -Debug` (venv novo + WT ausente → fallback)
+
+Primeira tentativa abortou **por artefato do harness de teste, não do
+launcher**. Foi invocado como `.\launcher.ps1 -Debug *>&1 | Tee-Object ...`; o
+`*>&1` funde o stream de erro no de sucesso e, com o
+`$ErrorActionPreference = "Stop"` que o próprio launcher define, o `[notice]`
+que o pip escreve em stderr vira um `NativeCommandError` terminante de mensagem
+vazia. Saída real da falha:
+
+```text
+Successfully installed Pillow-12.3.0 annotated-types-0.8.0 av-18.1.0 colour-science-0.4.7 markdown-it-py-4.2.0 mdurl-0.1.2 numpy-2.5.2 opencv-python-5.0.0.93 psutil-7.2.2 pydantic-2.13.4 pydantic-core-2.46.4 pygments-2.20.0 pymediainfo-7.0.1 reels-encoder-ai-2.1.0 rich-15.0.0 scipy-1.18.0 typing-extensions-4.16.0 typing-inspection-0.4.4
+Write-LauncherLog : Não é possível associar o argumento ao parâmetro 'Message' porque ele é uma cadeia de caracteres
+vazia.
+No C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\launcher.ps1:286
+caractere:27
++         Write-LauncherLog $_.Exception.Message "Error"
++                           ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidData: (:) [Write-LauncherLog], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterArgumentValidationErrorEmptyStringNotAllowed,Write-LauncherLog
+```
+
+Diagnóstico controlado (mesmo pip install, mesma `$ErrorActionPreference`,
+única variável = a fusão de streams):
+
+```text
+# COM *>&1
+Successfully installed reels-encoder-ai-2.1.0
+python.exe :
+No linha:1 caractere:32
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+# SEM *>&1
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+Successfully installed reels-encoder-ai-2.1.0
+LASTEXITCODE=0
+SOBREVIVEU
+```
+
+`venv/` e `venv.lock` foram apagados e o Step 3 foi refeito do zero (baseline
+reconfirmado: venv=False, ffmpeg=True, wt=False), agora com redirecionamento no
+nível do SO (`> log 2>&1`) em vez de fusão de streams do PowerShell. Saída real
+completa (78 linhas, `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+./launcher.ps1 -Debug`, exit 0):
+
+```text
+[INFO]  Criando venv em C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv ...
+[OK]    Venv criado.
+[INFO]  Instalando dependencias (pip install -r requirements.txt) ...
+Obtaining file:///C:/Users/Usuario/Documents/GitHub/encoder_ai_instagram/.claude/worktrees/launcher-portavel
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting rich>=13.0.0 (from reels-encoder-ai==2.1.0)
+  Using cached rich-15.0.0-py3-none-any.whl.metadata (18 kB)
+Collecting pydantic<3,>=2 (from reels-encoder-ai==2.1.0)
+  Using cached pydantic-2.13.4-py3-none-any.whl.metadata (109 kB)
+Collecting numpy>=1.24.0 (from reels-encoder-ai==2.1.0)
+  Using cached numpy-2.5.2-cp313-cp313-win_amd64.whl.metadata (6.6 kB)
+Collecting av>=11.0.0 (from reels-encoder-ai==2.1.0)
+  Using cached av-18.1.0-cp311-abi3-win_amd64.whl.metadata (5.1 kB)
+Collecting Pillow>=10.0.0 (from reels-encoder-ai==2.1.0)
+  Using cached pillow-12.3.0-cp313-cp313-win_amd64.whl.metadata (9.3 kB)
+Collecting psutil>=5.9.0 (from reels-encoder-ai==2.1.0)
+  Using cached psutil-7.2.2-cp37-abi3-win_amd64.whl.metadata (22 kB)
+Collecting colour-science>=0.4.7 (from reels-encoder-ai==2.1.0)
+  Using cached colour_science-0.4.7-py3-none-any.whl.metadata (59 kB)
+Collecting pymediainfo>=1.0.0 (from reels-encoder-ai==2.1.0)
+  Using cached pymediainfo-7.0.1-py3-none-win_amd64.whl.metadata (9.0 kB)
+Collecting scipy>=1.10 (from reels-encoder-ai==2.1.0)
+  Using cached scipy-1.18.0-cp313-cp313-win_amd64.whl.metadata (61 kB)
+Collecting opencv-python>=4.8.0 (from reels-encoder-ai==2.1.0)
+  Using cached opencv_python-5.0.0.93-cp37-abi3-win_amd64.whl.metadata (20 kB)
+Collecting annotated-types>=0.6.0 (from pydantic<3,>=2->reels-encoder-ai==2.1.0)
+  Using cached annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.46.4 (from pydantic<3,>=2->reels-encoder-ai==2.1.0)
+  Using cached pydantic_core-2.46.4-cp313-cp313-win_amd64.whl.metadata (6.7 kB)
+Collecting typing-extensions>=4.14.1 (from pydantic<3,>=2->reels-encoder-ai==2.1.0)
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting typing-inspection>=0.4.2 (from pydantic<3,>=2->reels-encoder-ai==2.1.0)
+  Using cached typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+Collecting markdown-it-py>=2.2.0 (from rich>=13.0.0->reels-encoder-ai==2.1.0)
+  Using cached markdown_it_py-4.2.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich>=13.0.0->reels-encoder-ai==2.1.0)
+  Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich>=13.0.0->reels-encoder-ai==2.1.0)
+  Using cached mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Using cached av-18.1.0-cp311-abi3-win_amd64.whl (27.6 MB)
+Using cached colour_science-0.4.7-py3-none-any.whl (9.1 MB)
+Using cached numpy-2.5.2-cp313-cp313-win_amd64.whl (12.5 MB)
+Using cached opencv_python-5.0.0.93-cp37-abi3-win_amd64.whl (44.0 MB)
+Using cached pillow-12.3.0-cp313-cp313-win_amd64.whl (7.2 MB)
+Using cached psutil-7.2.2-cp37-abi3-win_amd64.whl (137 kB)
+Using cached pydantic-2.13.4-py3-none-any.whl (472 kB)
+Using cached pydantic_core-2.46.4-cp313-cp313-win_amd64.whl (2.1 MB)
+Using cached pymediainfo-7.0.1-py3-none-win_amd64.whl (3.3 MB)
+Using cached rich-15.0.0-py3-none-any.whl (310 kB)
+Using cached scipy-1.18.0-cp313-cp313-win_amd64.whl (36.6 MB)
+Using cached annotated_types-0.8.0-py3-none-any.whl (13 kB)
+Using cached markdown_it_py-4.2.0-py3-none-any.whl (91 kB)
+Using cached pygments-2.20.0-py3-none-any.whl (1.2 MB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Using cached typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+Using cached mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Building wheels for collected packages: reels-encoder-ai
+  Building editable for reels-encoder-ai (pyproject.toml): started
+  Building editable for reels-encoder-ai (pyproject.toml): finished with status 'done'
+  Created wheel for reels-encoder-ai: filename=reels_encoder_ai-2.1.0-0.editable-py3-none-any.whl size=14583 sha256=a4cb1b7be98e1b2cdc63a8237cedecef647d4f08588c345be3659a7bf1cddac2
+  Stored in directory: C:\Users\Usuario\AppData\Local\Temp\pip-ephem-wheel-cache-dsbks_a3\wheels\1c\98\08\1bedb6d55bb2d88ab4c0c0b9ed5a5eef5c10a12dec05de1c1d
+Successfully built reels-encoder-ai
+Installing collected packages: typing-extensions, pymediainfo, pygments, psutil, Pillow, numpy, mdurl, av, annotated-types, typing-inspection, scipy, pydantic-core, opencv-python, markdown-it-py, colour-science, rich, pydantic, reels-encoder-ai
+Successfully installed Pillow-12.3.0 annotated-types-0.8.0 av-18.1.0 colour-science-0.4.7 markdown-it-py-4.2.0 mdurl-0.1.2 numpy-2.5.2 opencv-python-5.0.0.93 psutil-7.2.2 pydantic-2.13.4 pydantic-core-2.46.4 pygments-2.20.0 pymediainfo-7.0.1 reels-encoder-ai-2.1.0 rich-15.0.0 scipy-1.18.0 typing-extensions-4.16.0 typing-inspection-0.4.4
+
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv\Scripts\python.exe -m pip install --upgrade pip
+[OK]    Dependencias instaladas.
+[DEBUG] venv.lock atualizado (diagnostico, nao versionado).
+[AVISO] Windows Terminal portatil nao encontrado (C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\bin\WindowsTerminal\wt.exe) - vai usar janelas PowerShell separadas. Rode .\tools\fetch_wt_portable.ps1 para instalar (opcional).
+[INFO]  Abrindo janelas PowerShell separadas (fallback) ...
+```
+
+Bate com o "Expected" do plano item por item: venv criado, requirements
+instalados, `venv.lock` gerado (518 bytes), aviso de WT ausente, fallback de 2
+janelas PowerShell.
+
+Prova de que as 2 janelas abriram com os comandos certos (`Win32_Process`):
+
+```text
+ProcessId   : 3356
+CommandLine : "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoExit -Command & 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' --hardware-info
+
+ProcessId   : 15804
+CommandLine : "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoExit -Command & 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' --ui
+```
+
+A janela Encode tinha um `python.exe --ui` vivo (PIDs 7068/15684, filhos de
+15804) — wizard em execução. A janela Setup já tinha terminado o
+`--hardware-info` (one-shot) com o shell vivo por causa do `-NoExit`. Rodando o
+mesmo comando de forma capturável para provar que não deu erro:
+
+```text
+──────────────────────────── 🔧 Hardware Detection ────────────────────────────
+───────────────────────────── 🔧 Hardware Profile ─────────────────────────────
+                             🖥️ Hardware Detectado
+  CPU             AMD Ryzen 5 2600X Six-Core          3800 MHz
+  Cores/Threads   6C / 12T                            Arch: AMD64
+  RAM Total       31.9 GB                             Disponível: 22.9 GB 🟢
+  Sistema         Windows 10
+⚡ Performance Score: █████████░░░░░░░░░░░ 45/100
+🏆 Tier: HIGH
+  Encoder Threads      12           x264 threads
+  Filter Threads       4            Filtros (scale, tonemap, sharpen)
+  Decoder Threads      6            Decodificação do input
+  Preset x264          slow         Qualidade vs Velocidade
+  Lookahead            90           Análise de cena (frames)
+EXIT=0
+```
+
+Janelas 3356/15804 e os pythons órfãos 7068/15684 fechados antes do Step 4
+(recontagem = 0).
+
+### Step 4 — `.\tools\fetch_wt_portable.ps1` + `.\launcher.ps1 -InputFile teste.mp4 -Profile fast -Debug`
+
+Primeira tentativa do `fetch_wt_portable.ps1` falhou, de novo **por artefato do
+ambiente do harness, não do script**:
+
+```text
+Baixando Windows Terminal 1.24.11911.0 (distribuicao portatil oficial) ...
+Verificando SHA256 ...
+Get-FileHash : O termo 'Get-FileHash' não é reconhecido como nome de cmdlet, função, arquivo de script ou programa
+operável. Verifique a grafia do nome ou, se um caminho tiver sido incluído, veja se o caminho está correto e tente
+novamente.
+No C:\Users\Usuario\...\tools\fetch_wt_portable.ps1:38 caractere:16
++ $actualHash = (Get-FileHash -Path $TempZip -Algorithm SHA256).Hash
++                ~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (Get-FileHash:String) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CommandNotFoundException
+EXIT=1
+```
+
+Causa-raiz: o shell Git Bash exporta um `PSModulePath` poluído com os diretórios
+de módulo do PowerShell 7 **na frente** dos do Windows PowerShell, então o
+`powershell.exe` 5.1 carrega o manifesto `Microsoft.PowerShell.Utility` do PS7
+(versão 7.0.0.0) e não expõe `Get-FileHash`. Prova controlada:
+
+```text
+# PSModulePath herdado (poluído)
+PSModulePath=C:\Users\Usuario\Documents\PowerShell\Modules;C:\Program Files\PowerShell\Modules;c:\program files\powershell\7\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules
+Microsoft.PowerShell.Utility 7.0.0.0 C:\Windows\System32\WindowsPowerShell\v1.0
+(Get-Command Get-FileHash -> nada)
+
+# PSModulePath limpo / não herdado (default nativo do PS 5.1)
+Name         Version
+----         -------
+Get-FileHash 3.1.0.0
+PSModulePath=C:\Users\Usuario\Documents\WindowsPowerShell\Modules;C:\Program Files\WindowsPowerShell\Modules;C:\Windows\system32\WindowsPowerShell\v1.0\Modules
+
+# pwsh 7
+Get-FileHash 7.0.0.0
+```
+
+Um usuário abrindo um PowerShell normal (Explorer/menu Iniciar) recebe o
+`PSModulePath` nativo e não é afetado. Todos os comandos restantes desta task
+foram rodados com `env -u PSModulePath` para reproduzir essa condição real.
+
+Saída real do `fetch_wt_portable.ps1` (exit 0):
+
+```text
+Baixando Windows Terminal 1.24.11911.0 (distribuicao portatil oficial) ...
+Verificando SHA256 ...
+OK    checksum confere (7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383BD)
+Extraindo para C:\Users\Usuario\AppData\Local\Temp\wt_portable_extract_58e7472e42d241b19620c32f7d19030f ...
+OK    Windows Terminal portatil instalado em: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\bin\WindowsTerminal
+      wt.exe: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\bin\WindowsTerminal\wt.exe
+```
+
+Saída do `launcher.ps1 -InputFile "teste.mp4" -Profile "fast" -Debug` (exit 0;
+as 39 linhas do resolvedor do pip entre a linha 2 e a 42 são o bloco
+`Requirement already satisfied` / rebuild do editable, idêntico em forma ao do
+Step 3):
+
+```text
+[INFO]  Venv existente reaproveitado (C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv).
+[INFO]  Instalando dependencias (pip install -r requirements.txt) ...
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv\Scripts\python.exe -m pip install --upgrade pip
+[OK]    Dependencias instaladas.
+[DEBUG] venv.lock atualizado (diagnostico, nao versionado).
+[INFO]  Abrindo Windows Terminal (2 abas: Setup, Encode) ...
+```
+
+Bate com o "Expected": `[INFO] Venv existente reaproveitado`, **nenhum**
+`[AVISO]` de WT ausente (WT foi detectado) e caminho de 2 abas em vez de
+fallback. Prova do processo real do WT portátil e das 2 abas:
+
+```text
+ProcessId   : 14944
+Name        : WindowsTerminal.exe
+CommandLine : wt.exe new-tab --title Setup powershell -NoExit -Command "& 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' --hardware-info" ; new-tab --title Encode powershell -NoExit -Command "& 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' 'teste.mp4' --performance speed --enhance off"
+
+ProcessId   : 8164
+Name        : OpenConsole.exe
+CommandLine : "C:\...\launcher-portavel\bin\WindowsTerminal\OpenConsole.exe" --headless --textMeasurement graphemes --width 120 --height 30 ...
+
+ProcessId   : 7928
+Name        : OpenConsole.exe
+CommandLine : "C:\...\launcher-portavel\bin\WindowsTerminal\OpenConsole.exe" --headless --textMeasurement graphemes --width 120 --height 30 ...
+
+=== powershell tabs ===
+ProcessId   : 1600
+CommandLine : powershell -NoExit -Command "& 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' --hardware-info"
+
+ProcessId   : 2044
+CommandLine : powershell -NoExit -Command "& 'C:\...\venv\Scripts\python.exe' 'C:\...\Reels_Encoder_v2_FINAL.py' 'teste.mp4' --performance speed --enhance off"
+```
+
+Os dois `OpenConsole.exe` saem de `bin\WindowsTerminal\` (não do WT do sistema
+nem do conpty do VS Code), confirmando que o binário portátil é o que está
+sendo usado. Comando da aba Encode reproduzido de forma capturável — rodou
+ponta-a-ponta (exit 0, 126 linhas):
+
+```text
+⚠ --enhance-ai on requer --enhance on. Ignorando --enhance-ai.
+🎲 Dither: Blue-noise ativado — quebra coerência de banding pré-quantização
+───────────────── 🎬 Encode CRF 18 - Hollywood LUT Transport ──────────────────
+[...]
+│ > [libx264 @ 0000025566c80d40] Weighted P-Frames: Y:2.4% UV:0.0%            │
+│ > [libx264 @ 0000025566c80d40] ref P L0: 60.3% 14.2% 19.5%  5.9%  0.2%      │
+│ > [libx264 @ 0000025566c80d40] ref B L0: 80.6% 16.8%  2.7%                  │
+│ > [libx264 @ 0000025566c80d40] kb/s:9385.39                                 │
+│ > [aac @ 0000025568a28ec0] Qavg: 533.823                                    │
+✓ Render finalizado!
+📋 Metadados: BT.709 TV | CRF 18 | VBV Ultra Short (≤15s) — Maximum Quality |
+Loudnorm: -14 LUFS
+───────────────────── 🎧 EBU R128 — Auditoria pós-encode ──────────────────────
+┌─────────────────────┬──────────────────┬────────────────┬────────┐
+│ Métrica             │ ANTES (original) │ DEPOIS (final) │   Alvo │
+├─────────────────────┼──────────────────┼────────────────┼────────┤
+│ Integrated (LUFS-I) │          -14.0 ✓ │        -13.7 ✓ │    -14 │
+│ True Peak (dBTP)    │           -3.9 ✓ │         -3.5 ✓ │ ≤ -1.5 │
+│ Loudness Range (LU) │              2.7 │            2.7 │    ~11 │
+│ Codec               │              aac │            aac │ AAC-LC │
+│ Sample Rate (Hz)    │            44100 │          48000 │  48000 │
+└─────────────────────┴──────────────────┴────────────────┴────────┘
+╔═ MASTER QC ═════════════════════════════════════════════════════════════════╗
+║  OK Container  MP4          OK Video  H.264 High@4.1                        ║
+║  OK Resolution  1080x1920   OK Bit Depth  8-bit                             ║
+║  OK Color  BT.709           OK FPS  30 fps                                  ║
+║  OK Loudness  -13.7 LUFS    OK True Peak  -3.5 dBTP                         ║
+║  OK Codec  aac              OK Sample Rate  48000                           ║
+║                      *  D E L I V E R Y   R E A D Y  *                      ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+📄 Certificado de entrega: teste_Hollywood_CRF18.qc.html
+🎧 Monitor EBU R128 aberto (2 janela(s)) — feche-as quando terminar a inspeção.
+EXIT=0
+```
+
+Artefatos gerados: `teste_Hollywood_CRF18.mp4` (14986471 bytes),
+`teste_Hollywood_CRF18.qc.html` (12984 bytes). Este encode **não** é um encode
+validado/aprovado pela metodologia (o Step 4 só exige que o comando dispare e
+produza output coerente) — o `DELIVERY READY` acima é o QC do próprio encoder,
+não um sign-off do ciclo.
+
+Janela do WT (14944), abas e janelas do medidor EBU (`ffplay`) fechadas —
+recontagem `WindowsTerminal`+`ffplay` = 0. Backup `_task9_wt_backup` removido
+conforme o plano (o WT real foi re-obtido pelo fetch script nesta task).
+
+### Step 5 — falhas tratadas disparadas de propósito
+
+**Q9.5-a — `requirements.txt` ausente** (renomeado para `requirements.txt.bak`,
+restaurado depois):
+
+```text
+[INFO]  Venv existente reaproveitado (C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv).
+[ERRO]  requirements.txt nao encontrado em: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\requirements.txt
+EXIT=1
+```
+
+Confere com o spec ("`requirements.txt` ausente → Erro claro com o path
+esperado"): a mensagem traz o path absoluto esperado e o exit é 1.
+
+**Q9.5-b — `-SkipEnvSetup` sem venv** (`venv` movido para `venv_bak`,
+restaurado depois):
+
+```text
+[AVISO] Setup do venv pulado (-SkipEnvSetup).
+[ERRO]  -SkipEnvSetup exige um venv existente em C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv, mas Scripts\python.exe nao foi encontrado.
+EXIT=1
+```
+
+Confere com o comportamento real do `launcher.ps1:259-261`. Relaciona-se à
+linha do spec "Criação do venv falha → Sugere `-SkipEnvSetup` pra reusar venv
+existente; diagnóstico" pelo lado inverso: aqui é o `-SkipEnvSetup` usado sem
+venv, e a mensagem nomeia o path exato e o arquivo faltante.
+
+**Q9.5-c — perfil inválido**:
+
+```text
+[INFO]  Venv existente reaproveitado (C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\venv).
+[INFO]  Instalando dependencias (pip install -r requirements.txt) ...
+[OK]    Dependencias instaladas.
+[ERRO]  Perfil 'inexistente' nao existe em launch-config.json. Perfis disponiveis: fast, balanced, quality, cinematic, batch
+EXIT=1
+```
+
+Este cenário **não está** na tabela "Falhas tratadas" do spec; validado contra o
+código real (`Build-ProfileArgs`, `launcher.ps1:177-180`). Bate: nomeia o perfil
+inválido, o arquivo de configuração e lista os 5 perfis válidos.
+
+**Q9.5-d — `-SkipValidation` com `bin/ffmpeg.exe` renomeado**. Controle primeiro
+(mesma condição, **sem** a flag), para provar que a validação de fato dispararia:
+
+```text
+--- controle: sem -SkipValidation ---
+[AVISO] Setup do venv pulado (-SkipEnvSetup).
+[ERRO]  ffmpeg.exe nao encontrado em: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\launcher-portavel\bin\ffmpeg.exe
+Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg.
+EXIT_CONTROLE=1
+
+--- com -SkipValidation ---
+[AVISO] Setup do venv pulado (-SkipEnvSetup).
+[AVISO] Validacao de binarios pulada (-SkipValidation).
+[INFO]  Abrindo Windows Terminal (2 abas: Setup, Encode) ...
+EXIT_SKIP=0
+```
+
+O controle confere com o spec ("FFmpeg/FFprobe ausentes → Hard fail, instrui
+`.\tools\fetch_ffmpeg.ps1`") — mensagem exata, hint exato, exit 1. Com
+`-SkipValidation` a validação é pulada e o launcher abre o WT mesmo assim
+(exit 0), como o plano previa:
+
+```text
+ProcessId   : 2180
+CommandLine : wt.exe new-tab --title Setup powershell -NoExit -Command "& 'C:\...\Reels_Encoder_v2_FINAL.py' --hardware-info" ; new-tab --title Encode powershell -NoExit -Command "& 'C:\...\Reels_Encoder_v2_FINAL.py' --ui"
+```
+
+**Divergência honesta em relação ao "Expected" do plano:** o plano esperava que
+"o erro, se houver, vem de dentro do encoder". Nenhum erro veio. Rodando o
+encoder na mesma condição (`bin/ffmpeg.exe` renomeado), ele encodou normalmente
+(exit 0) porque o `fetch_ffmpeg.ps1` do Step 2 instalou o FFmpeg **globalmente**
+via winget e ele está no `PATH` (`where.exe ffmpeg` → `C:\ffmpeg\bin\ffmpeg.exe`).
+Ou seja: nesta máquina o cenário "sem FFmpeg" não é reproduzível só renomeando
+`bin/ffmpeg.exe` — a parte verificável (validação pulada + launcher abre mesmo
+assim) foi confirmada; a parte "erro do encoder" não pôde ser observada por
+causa desse fallback de PATH. `bin/ffmpeg.exe` restaurado depois.
+
+### Estado final da worktree após o Step 5
+
+```text
+Test-Path .\venv                        -> True
+Test-Path .\bin\ffmpeg.exe              -> True
+Test-Path .\bin\WindowsTerminal\wt.exe  -> True
+Test-Path .\venv.lock                   -> True
+
+git status --short
+ M docs/superpowers/plans/2026-08-13-launcher-portavel.md
+```
+
+Artefatos de teste removidos (`teste.mp4`, `teste_Hollywood_CRF18.mp4`,
+`teste_Hollywood_CRF18.qc.html`, `teste_Hollywood_CRF18.qc.json`) e backup
+`_task9_wt_backup` apagado. O único arquivo modificado é o plano (correção do
+Step 0 feita pelo Orquestrador, fora do escopo deste commit — o Step 7 comita
+apenas `.claude/memory/STATE.md`).
+
+### Achados para o Orquestrador (não corrigidos — Task 9 não altera código)
+
+1. `launcher.ps1` define `$ErrorActionPreference = "Stop"` e chama comandos
+   nativos com `| Out-Host`. Se qualquer chamador funde os streams
+   (`*>&1`, `2>&1` no nível do PowerShell), o `[notice]` do pip em stderr vira
+   `NativeCommandError` terminante e o `catch` da linha 286 estoura de novo
+   porque `$_.Exception.Message` vem vazio e `Write-LauncherLog` tem
+   `[Parameter(Mandatory)][string]$Message`. O usuário vê um stack trace do
+   PowerShell no lugar de qualquer mensagem útil, e o launcher morre **depois**
+   de já ter instalado tudo com sucesso. Não afeta o uso normal (duplo clique /
+   PowerShell interativo), mas afeta CI e qualquer wrapper que capture saída.
+2. `-SkipValidation` não é observável de ponta a ponta enquanto houver FFmpeg no
+   `PATH` global — e o próprio `tools/fetch_ffmpeg.ps1` coloca um lá via winget.
+   Se o objetivo é garantir isolamento portátil, vale checar se o encoder
+   prefere `./bin/ffmpeg.exe` ao do `PATH`.
