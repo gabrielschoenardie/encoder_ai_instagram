@@ -187,6 +187,12 @@ Evidência: executor-pesado (execução real de ponta a ponta, Steps 0-7 do plan
 | QF1 | robustez de erro | launcher.ps1 (bloco `try`/`catch` em torno do `pip install`, linha ~286) | `$ErrorActionPreference="Stop"` + saída de comando nativo fundida (`*>&1`) transforma `[notice]` do pip em `NativeCommandError` de mensagem vazia | S3 | esperado: erro só se pip falhar de verdade; medido: qualquer chamador que funde streams (CI, wrapper) dispara catch mesmo com pip OK, e o catch estoura de novo porque `$_.Exception.Message` vazio viola `[Parameter(Mandatory)][string]$Message` de `Write-LauncherLog` |
 | QF2 | isolamento portátil incompleto | launcher.ps1 (`-SkipValidation`) + `tools/fetch_ffmpeg.ps1` (instala via winget, global) | `-SkipValidation` não é observável ponta-a-ponta: o próprio `fetch_ffmpeg.ps1` do Task 2 do fluxo de validação deixa `ffmpeg` no `PATH` global, então pular a validação do `./bin/ffmpeg.exe` local não produz erro — o encoder acha o binário global de qualquer forma | S4 | esperado (spec "Falhas tratadas"): validação pulada expõe erro de dentro do encoder se FFmpeg realmente ausente; medido: encode roda normal (exit 0) porque há FFmpeg no PATH global; não reproduzido nesta máquina só renomeando o binário local |
 
+### Status
+
+| ID | status | onde |
+|----|--------|------|
+| QF2 | esclarecido — sem mudança de comportamento | ciclo R (R1a/R1b, comentários em `launcher.ps1` linhas ~12 e ~267) |
+
 ### Contexto
 
 - **QF1:** não afeta o uso normal (duplo-clique ou shell interativo, sem fusão de streams) — só chamadores que capturam `*>&1` (ex.: CI, harness de automação, ou `Tee-Object` como o usado para provar o Step 3 da Task 9). Resultado observado: stack trace do PowerShell no lugar de uma mensagem útil, **depois** de o setup já ter dado certo (falso negativo de falha).

@@ -931,3 +931,36 @@ apenas `.claude/memory/STATE.md`).
    `PATH` global — e o próprio `tools/fetch_ffmpeg.ps1` coloca um lá via winget.
    Se o objetivo é garantir isolamento portátil, vale checar se o encoder
    prefere `./bin/ffmpeg.exe` ao do `PATH`.
+
+## Ciclo R — esclarecer QF2 em launcher.ps1 (2026-08-14)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| R1a | done | launcher.ps1 | comentário acrescentado acima de `[switch]$SkipValidation` no bloco `param()`, sem mudança de código |
+| R1b | done | launcher.ps1 | comentário QF2 acrescentado dentro do bloco `if ($SkipValidation) { ... }`, sem mudança de código |
+| R2 | done | launcher.ps1 | `git diff launcher.ps1` conferido — só as 2 linhas de comentário aparecem, nenhuma linha executável tocada (saída abaixo) |
+
+`git diff launcher.ps1`:
+
+```diff
+diff --git a/launcher.ps1 b/launcher.ps1
+index 814075a..9a068c7 100644
+--- a/launcher.ps1
++++ b/launcher.ps1
+@@ -9,6 +9,7 @@ param(
+     [string]$InputFile,
+     [string]$Profile,
+     [switch]$Debug,
++    # Pula só a checagem local (Test-Path) de bin/ffmpeg.exe e bin/ffprobe.exe feita por Resolve-Binaries; não impede o encoder de usar FFmpeg do PATH via ui/binaries.py::resolve_binary (que prefere bin/ e cai pro PATH como fallback).
+     [switch]$SkipValidation,
+     [switch]$SkipEnvSetup
+ )
+@@ -265,6 +266,7 @@ if ($MyInvocation.InvocationName -ne '.') {
+         }
+ 
+         if ($SkipValidation) {
++            # QF2: se houver FFmpeg no PATH global (ex.: instalado via tools/fetch_ffmpeg.ps1/winget), o encoder ainda vai encontrar e usar esse binário mesmo sem o bin/ffmpeg.exe local — -SkipValidation não força isolamento estrito.
+             Write-LauncherLog "Validacao de binarios pulada (-SkipValidation)." "Warn"
+             $wtPath = Join-Path $Script:RepoRoot $config.paths.windowsTerminalExe
+             $binaries = [PSCustomObject]@{
+```

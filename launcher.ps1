@@ -9,6 +9,7 @@ param(
     [string]$InputFile,
     [string]$Profile,
     [switch]$Debug,
+    # Pula só a checagem local (Test-Path) de bin/ffmpeg.exe e bin/ffprobe.exe feita por Resolve-Binaries; não impede o encoder de usar FFmpeg do PATH via ui/binaries.py::resolve_binary (que prefere bin/ e cai pro PATH como fallback).
     [switch]$SkipValidation,
     [switch]$SkipEnvSetup
 )
@@ -265,6 +266,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
 
         if ($SkipValidation) {
+            # QF2: se houver FFmpeg no PATH global (ex.: instalado via tools/fetch_ffmpeg.ps1/winget), o encoder ainda vai encontrar e usar esse binário mesmo sem o bin/ffmpeg.exe local — -SkipValidation não força isolamento estrito.
             Write-LauncherLog "Validacao de binarios pulada (-SkipValidation)." "Warn"
             $wtPath = Join-Path $Script:RepoRoot $config.paths.windowsTerminalExe
             $binaries = [PSCustomObject]@{
