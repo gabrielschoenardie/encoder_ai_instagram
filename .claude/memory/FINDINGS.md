@@ -177,3 +177,17 @@ sem pipes soltos.
 - **A2/B1/B2/D2/D3/D4:** matemática do pipeline confere com colour-science/fórmulas
   canônicas com Δ ≤ 3.2e-4 (a maioria ≤ 1e-6). C1/C2/B3/D1/E1/E2: ordem, defaults e
   política de clamp conferem com o canônico (extratos no histórico do leitor).
+
+## Achado — 2026-08-14 (ciclo Q, launcher.ps1 — validação de integração)
+
+Evidência: executor-pesado (execução real de ponta a ponta, Steps 0-7 do plano `docs/superpowers/plans/2026-08-13-launcher-portavel.md` § Task 9; saídas brutas em `STATE.md` § "Ciclo Q"). Veredito: Orquestrador. Nenhum dos dois itens abaixo foi corrigido — Task 9 é validação, não correção; fora do escopo do plano atual.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| QF1 | robustez de erro | launcher.ps1 (bloco `try`/`catch` em torno do `pip install`, linha ~286) | `$ErrorActionPreference="Stop"` + saída de comando nativo fundida (`*>&1`) transforma `[notice]` do pip em `NativeCommandError` de mensagem vazia | S3 | esperado: erro só se pip falhar de verdade; medido: qualquer chamador que funde streams (CI, wrapper) dispara catch mesmo com pip OK, e o catch estoura de novo porque `$_.Exception.Message` vazio viola `[Parameter(Mandatory)][string]$Message` de `Write-LauncherLog` |
+| QF2 | isolamento portátil incompleto | launcher.ps1 (`-SkipValidation`) + `tools/fetch_ffmpeg.ps1` (instala via winget, global) | `-SkipValidation` não é observável ponta-a-ponta: o próprio `fetch_ffmpeg.ps1` do Task 2 do fluxo de validação deixa `ffmpeg` no `PATH` global, então pular a validação do `./bin/ffmpeg.exe` local não produz erro — o encoder acha o binário global de qualquer forma | S4 | esperado (spec "Falhas tratadas"): validação pulada expõe erro de dentro do encoder se FFmpeg realmente ausente; medido: encode roda normal (exit 0) porque há FFmpeg no PATH global; não reproduzido nesta máquina só renomeando o binário local |
+
+### Contexto
+
+- **QF1:** não afeta o uso normal (duplo-clique ou shell interativo, sem fusão de streams) — só chamadores que capturam `*>&1` (ex.: CI, harness de automação, ou `Tee-Object` como o usado para provar o Step 3 da Task 9). Resultado observado: stack trace do PowerShell no lugar de uma mensagem útil, **depois** de o setup já ter dado certo (falso negativo de falha).
+- **QF2:** não é um bug do `launcher.ps1` isoladamente — é uma interação entre dois scripts do próprio plano (`fetch_ffmpeg.ps1` deixa FFmpeg global; `-SkipValidation` só teria efeito visível numa máquina sem FFmpeg em lugar nenhum do PATH). Se o objetivo for isolamento portátil estrito, vale considerar preferir `./bin/ffmpeg.exe` mesmo quando há uma cópia global no PATH.
