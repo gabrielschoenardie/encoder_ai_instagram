@@ -964,3 +964,109 @@ index 814075a..9a068c7 100644
              $wtPath = Join-Path $Script:RepoRoot $config.paths.windowsTerminalExe
              $binaries = [PSCustomObject]@{
 ```
+
+## Ciclo S — corrigir QF1 (stderr do pip promovido a erro terminante) em launcher.ps1 (2026-08-14)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| S1a | blocked | launcher.ps1 | linha `$PSNativeCommandUseErrorActionPreference = $false` aplicada logo após `$ErrorActionPreference = "Stop"` (critério textual do PLAN cumprido), mas a verificação real (S3a/S3b abaixo) mostra que **não neutraliza o gatilho** no motor onde o crash original ocorreu (Windows PowerShell 5.1) — ver pergunta ao Orquestrador abaixo. |
+| S2a | done | launcher.ps1 | `catch` agora usa `$errMsg` com fallback quando `$_.Exception.Message` é vazio/nulo, testado e confirmado nos dois motores (S3a/S3b, teste dedicado abaixo) — a chamada `Write-LauncherLog $_.Exception.Message "Error"` original quebra com `ParameterArgumentValidationErrorEmptyStringNotAllowed` quando Message é `""`; com o fallback, não quebra. |
+| S3a | done (resultado contradiz o diagnóstico do PLAN) | — | ver evidência abaixo |
+| S3b | done (resultado contradiz o diagnóstico do PLAN) | — | ver evidência abaixo |
+| S3c | blocked | — | pré-condição do item ("venv já existe de sessões anteriores — reaproveitar, não recriar do zero") não é satisfeita: não há `venv/` nem em `<repo>/venv` nem em `.claude/worktrees/launcher-portavel` (worktree existe como diretório vazio, não registrado em `git worktree list`). Rodar `pip install` de verdade exigiria criar um venv novo, o que o item proíbe explicitamente. |
+| S3d | done | — | parse-check OK nos dois motores |
+
+### Evidência S3a/S3b — o mecanismo do crash não é o que o PLAN diagnosticou
+
+Repro sintético (`powershell -Command "[Console]::Error.WriteLine('[notice] fake'); exit 0"`,
+`$ErrorActionPreference='Stop'`, script mimetizando `launcher.ps1` invocado com
+`*>&1` externo — igual ao `.\launcher.ps1 -Debug *>&1 | Tee-Object` que
+causou o crash original):
+
+```text
+=== pwsh 7.5.1, SEM fix ===
+[notice] fake pip stderr
+SOBREVIVEU LASTEXITCODE=0
+EXIT_OUTER=0
+
+=== pwsh 7.5.1, COM fix ===
+[notice] fake pip stderr
+SOBREVIVEU LASTEXITCODE=0
+EXIT_OUTER=0
+
+=== powershell.exe 5.1, SEM fix ===
+CAPTURADO_NO_SCRIPT: System.Management.Automation.RemoteException MESSAGE='[notice] fake pip stderr'
+EXIT_OUTER=-1
+
+=== powershell.exe 5.1, COM fix ===
+CAPTURADO_NO_SCRIPT: System.Management.Automation.RemoteException MESSAGE='[notice] fake pip stderr'
+EXIT_OUTER=-1
+```
+
+`Write-Host "Default value: $PSNativeCommandUseErrorActionPreference"` em pwsh
+7.5.1, shell limpo (`-NoProfile`): `Default value: False` — já vem `$false`
+por padrão nesta instalação (não `$true` como o PLAN presumia para "pwsh
+7.3+").
+
+Conclusão empírica: nesta máquina (pwsh 7.5.1 + Windows PowerShell 5.1.x), o
+crash de stderr-mesclado-vira-erro-terminante só reproduz em **Windows
+PowerShell 5.1**, onde `$PSNativeCommandUseErrorActionPreference` não existe
+e é, como o próprio PLAN já previa, um no-op — só que o PLAN tratava o no-op
+como "inofensivo porque o motor de risco é o pwsh 7+"; na prática o motor de
+risco real (onde o crash de fato ocorreu no Step 3 original, invocado via
+`powershell.exe -File`) é o 5.1, onde a variável nunca teve efeito algum. Em
+pwsh 7.5.1 o crash já não ocorre nem sem o fix (o padrão já é `$false` nesta
+versão). Ou seja: **S1a não altera o comportamento observável em nenhum dos
+dois motores testados nesta máquina** — nem em pwsh (onde já não crashava),
+nem em 5.1 (onde continua crashando, com ou sem a linha).
+
+### Evidência S2a — teste dedicado de mensagem vazia (`throw [System.Exception]::new("")`)
+
+```text
+=== powershell 5.1 ===
+--- SEM S2a (chamada direta, replica o bug original) ---
+QUEBROU_DE_NOVO: Não é possível associar o argumento ao parâmetro 'Message' porque ele é uma cadeia de caracteres vazia.
+--- COM S2a (fallback) ---
+[Error] Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -Debug para ver o stack trace completo.
+NAO_QUEBROU
+=== pwsh 7 ===
+--- SEM S2a (chamada direta, replica o bug original) ---
+QUEBROU_DE_NOVO: Cannot bind argument to parameter 'Message' because it is an empty string.
+--- COM S2a (fallback) ---
+[Error] Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -Debug para ver o stack trace completo.
+NAO_QUEBROU
+```
+
+S2a confirmado nos dois motores: elimina o crash secundário (exceção não
+tratada dentro do próprio `catch`, mascarando o erro real com stack trace de
+parameter-binding do PowerShell) de forma independente de S1a.
+
+### Evidência S3d — parse-check
+
+```text
+powershell 5.1: PARSE_OK
+pwsh 7.5.1:     PARSE_OK_PWSH
+```
+
+### Pergunta ao Orquestrador (S1a bloqueado)
+
+O diagnóstico original (Task 9 / PLAN.md linhas 11-29) atribui o crash a
+`$PSNativeCommandUseErrorActionPreference` (feature de pwsh 7.3+), mas o
+crash reproduzido no Step 3 original foi invocado via `powershell.exe`
+(Windows PowerShell 5.1 — ver `CommandLine` nos logs de STATE.md em torno da
+linha 640), motor onde essa variável não existe e nunca teve efeito. A causa
+real observável do `NativeCommandError`/`RemoteException` em 5.1 é o
+comportamento clássico e sempre existente de "stderr mesclado via
+`*>&1`/`2>&1` vira registro de erro no stream de erro, terminante sob
+`$ErrorActionPreference='Stop'`" — independente dessa variável. S2a (a
+blindagem do `catch`) resolve o crash-sobre-crash e a mensagem confusa, mas
+**não** resolve o falso-negativo em si (o launcher ainda sai com `exit 1`
+mesmo quando `pip install` teve sucesso, quando um chamador funde streams via
+`*>&1`/`2>&1` sob Windows PowerShell 5.1). Pergunta exata: o Orquestrador
+quer (a) manter S1a como está (documentado como mitigação parcial/vácua nesta
+máquina, sem reverter — é inofensiva) e fechar QF1 como "parcialmente
+corrigido" citando esse limite, ou (b) reabrir um novo ciclo de diagnóstico
+para endereçar a causa real em Windows PowerShell 5.1 (ex.: capturar stderr
+do `pip install` explicitamente com `2>$null` + checagem de `$LASTEXITCODE`
+em vez de depender de `$ErrorActionPreference`, já que os testes acima
+mostram que isso é o único caminho que sobreviveria nos dois motores)?

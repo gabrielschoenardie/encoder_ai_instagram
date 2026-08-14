@@ -192,6 +192,7 @@ Evidência: executor-pesado (execução real de ponta a ponta, Steps 0-7 do plan
 | ID | status | onde |
 |----|--------|------|
 | QF2 | esclarecido — sem mudança de comportamento | ciclo R (R1a/R1b, comentários em `launcher.ps1` linhas ~12 e ~267) |
+| QF1 | parcialmente corrigido — bloqueado (ciclo S) | ciclo S (S2a fecha o crash-sobre-crash; S1a aplicado mas comprovadamente ineficaz no motor onde o bug ocorre — ver `STATE.md` § "Ciclo S" e pergunta ao Orquestrador) |
 
 ### Contexto
 

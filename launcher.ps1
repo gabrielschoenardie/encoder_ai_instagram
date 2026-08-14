@@ -15,6 +15,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# QF1: em pwsh 7.3+, stderr de comando nativo (ex.: "[notice] new pip
+# release" do pip install) vira NativeCommandError terminante quando o
+# chamador funde streams (*>&1). No-op inofensivo em Windows PowerShell 5.1.
+$PSNativeCommandUseErrorActionPreference = $false
 $Script:RepoRoot = $PSScriptRoot
 
 function Write-LauncherLog {
@@ -285,7 +289,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         Open-LauncherTabs -SetupCmd $setupCmd -EncodeCmd $encodeCmd -WtPath $binaries.WtPath -WtAvailable $binaries.WtAvailable
     }
     catch {
-        Write-LauncherLog $_.Exception.Message "Error"
+        $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -Debug para ver o stack trace completo." }
+        Write-LauncherLog $errMsg "Error"
         if ($Debug) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
         exit 1
     }
