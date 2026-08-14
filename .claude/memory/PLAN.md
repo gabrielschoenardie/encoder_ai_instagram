@@ -1,78 +1,35 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo P: zerar os 112 avisos markdownlint do README.md
+# PLAN — Ciclo R: esclarecer QF2 (fallback ffmpeg PATH) em launcher.ps1
 
-Data: 2026-07-25 | Ciclo: docs | Origem: `FINDINGS.md` ciclo P (P-a)
+Data: 2026-08-14 | Ciclo: docs | Origem: `FINDINGS.md` § "Ciclo Q" (QF2)
 
-Ciclo O (README.md, contagem de testes + nota opencv) já fechado e commitado
-(sha 6a9e12f / 064f4e7). Este plano é independente, só toca `README.md` + config nova.
+**Decisão do usuário:** QF2 não é bug de comportamento — o fallback
+`bin/ffmpeg.exe` → PATH do sistema (`ui/binaries.py::resolve_binary`) já é o
+comportamento desejado de resiliência/portabilidade. `-SkipValidation` só
+pula a checagem local (`Test-Path`) feita por `Resolve-Binaries` em
+`launcher.ps1`; não desativa o fallback do encoder ao FFmpeg do PATH. Sem
+mudança de comportamento — só comentários/documentação esclarecendo o
+escopo real da flag, pra não reabrir essa confusão numa próxima validação.
 
-**Já validado pelo Orquestrador numa cópia isolada em scratchpad** (não no repo real):
-`npx markdownlint-cli2@0.23.1 --fix README.md` com o `.markdownlint.jsonc` abaixo já
-presente resolve 92 dos 112 avisos automaticamente (`MD060` 88, `MD032` 3, `MD034` 1),
-sem alterar conteúdo/render — só normaliza espaçamento de pipe de tabela (`|---|` →
-`| --- |`), acrescenta linha em branco antes/depois de lista, e envolve o e-mail solto em
-`<gschoenardie@gmail.com>`. Sobram exatamente 6 avisos (`MD040`×5, `MD045`×1) que exigem
-conteúdo real e são cobertos pelo item P2 abaixo.
-
-## P1 — criar `.markdownlint.jsonc` e rodar o auto-fix
-
-**Objetivo:** suprimir só as 3 regras que conflitam com convenções deliberadas de README
-no GitHub (HTML bruto pra centralizar banner/badges/capturas — não existe alternativa em
-markdown puro; ênfase que não é heading — viraria heading no TOC do GitHub), e alinhar
-`MD013` com o que o VS Code markdownlint extension já mostra (off). Depois, rodar o
-fixer automático para os 92 avisos mecânicos.
+## R1 — comentário no parâmetro e no bloco de skip em `launcher.ps1`
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|------------------|
-| P1a | Criar `.markdownlint.jsonc` na raiz do repo com o conteúdo abaixo (copiar exatamente — cada `//` é a justificativa da supressão, mesmo padrão do `per-file-ignores` do ruff em `pyproject.toml`). | `executor` | `.markdownlint.jsonc` (novo) | arquivo existe com o conteúdo exato abaixo |
-| P1b | Rodar `npx --yes markdownlint-cli2@0.23.1 --fix README.md` a partir da raiz do repo. | `executor` | `README.md` | comando reporta "Attempted: 92 fixes"; `git diff README.md` só mostra separadores de tabela ganhando espaço em volta do traço, 3 linhas em branco novas antes de listas, e `<gschoenardie@gmail.com>` no lugar do e-mail solto — nenhuma outra mudança de conteúdo |
-
-Conteúdo de `.markdownlint.jsonc`:
-
-```jsonc
-{
-  "default": true,
-  // MD013 (line-length): off — o VS Code markdownlint extension ja roda com essa
-  // regra desligada por padrao; alinhar a config do repo com o que o editor mostra.
-  "MD013": false,
-  // MD033 (no-inline-html): README usa div/p/img para centralizar banner, badges e
-  // capturas — padrao comum em READMEs do GitHub (nao ha alternativa em markdown puro
-  // para centralizar). Permitir so os elementos realmente usados.
-  "MD033": { "allowed_elements": ["div", "img", "p"] },
-  // MD036 (no-emphasis-as-heading): "**Gabriel Schoenardie**" (nome sob "## Autor") e
-  // "*Feito com...*" (tagline final dentro de <div align="center">) sao enfase
-  // intencional, nao heading — vira-los heading poluiria o indice/TOC do GitHub.
-  "MD036": false,
-  // MD041 (first-line-heading): README abre com banner centralizado (<div><img>...),
-  // nao com "# H1" — o titulo ja esta no banner. Padrao comum, sem impacto na
-  // renderizacao do GitHub.
-  "MD041": false
-}
-```
-
-## P2 — corrigir os 6 avisos restantes (conteúdo real)
-
-**Objetivo:** `MD045` (banner sem `alt=`) e `MD040`×5 (blocos ASCII sem linguagem no
-fence) são falta de conteúdo de verdade, não convenção — corrigir direto, sem exceção
-via config.
-
-| ID | tarefa | agente alvo | arquivos | critério de done |
-|----|--------|-------------|----------|------------------|
-| P2a | `README.md:3` — no `<img src="https://capsule-render.vercel.app/...">` do banner, adicionar `alt="Reels Encoder AI"` (a tag já tem `width="100%"`; inserir o atributo antes de `/>`). | `executor` | `README.md` | `MD045` não aparece mais na linha do banner |
-| P2b | Adicionar `text` como linguagem nos 5 fences ASCII sem linguagem: `README.md:235` (bloco de uso `python Reels_Encoder_v2_FINAL.py [input] [opções]`), `:330` (diagrama dos 2 pipelines), `:361` (fluxo de decisão da IA), `:392` (árvore de arquivos `encoder_ai_instagram/`), `:540` (diagrama do pipeline Cineon `Rec.709 (camera)...`). Trocar cada ```` ``` ```` de abertura por ```` ```text ````; fence de fechamento continua ```` ``` ```` puro, sem mudar o conteúdo do bloco. | `executor` | `README.md` | `MD040` não aparece mais nessas 5 linhas |
+| R1a | No bloco `param()` (linha ~12), acrescentar comentário de uma linha acima de `[switch]$SkipValidation` explicando que a flag só pula a checagem local de `bin/ffmpeg.exe`/`bin/ffprobe.exe` feita por `Resolve-Binaries` — não impede o encoder de achar FFmpeg no PATH do sistema via `ui/binaries.py::resolve_binary` (que já prefere `bin/` e cai pro PATH como fallback). | `executor` | `launcher.ps1` | comentário presente, sem mudança de código/lógica |
+| R1b | No bloco `if ($SkipValidation) { ... }` (linha ~267-274), acrescentar comentário de uma linha citando o achado QF2: se houver FFmpeg no PATH global (ex.: instalado via `tools/fetch_ffmpeg.ps1`/winget), o encoder ainda vai encontrar e usar esse binário mesmo sem o `bin/ffmpeg.exe` local — `-SkipValidation` não força isolamento estrito. | `executor` | `launcher.ps1` | comentário presente, sem mudança de código/lógica |
 
 ## Verificação final
 
 | ID | tarefa | agente alvo | critério de done |
-|----|--------|-------------|------------------|
-| P3 | `npx --yes markdownlint-cli2@0.23.1 README.md` (raiz do repo, após P1+P2) | `executor` | saída "Summary: 0 issues in 1 file"; colar a saída completa no `STATE.md` |
+|----|--------|-------------|-------------------|
+| R2 | `git diff launcher.ps1` mostra só as 2 linhas de comentário adicionadas (nenhuma linha de código executável tocada) | `executor` | diff conferido, colado no `STATE.md` |
 
 ## Notas de execução
 
-- Não editar `requirements.txt`, `pyproject.toml`, `FINDINGS.md` ou qualquer `.py`.
-  Escopo é `README.md` + `.markdownlint.jsonc` (novo).
-- Não reformatar nada além do que o `--fix` mecânico faz (P1b) + os 6 pontos exatos de
-  P2. Não tocar espaçamento/quebra de linha fora do que os comandos acima produzem.
-- Carregar `superpowers:verification-before-completion` antes de marcar qualquer ID como
-  `done`; colar a saída real dos comandos no `STATE.md`, não parafrasear.
-- Retorno: uma linha por ID (P1a, P1b, P2a, P2b, P3). Detalhe completo no `STATE.md`.
+- Não alterar `ui/binaries.py`, `tools/fetch_ffmpeg.ps1` ou qualquer lógica de
+  resolução de binário — essas opções foram descartadas pelo usuário.
+- Não tocar em nenhum outro arquivo além de `launcher.ps1`.
+- Ao terminar, atualizar a entrada `QF2` em `FINDINGS.md` para
+  "esclarecido — sem mudança de comportamento" (linha de status, mesmo
+  padrão usado para A3/H1/H2 no topo do arquivo), citando o commit.
+- Retorno: uma linha (R1a+R1b+R2 feito, sha do commit).
