@@ -78,7 +78,14 @@ function New-ProjectVenv {
     )
     $pythonCmd = Resolve-SystemPython
     Write-LauncherLog "Criando venv em $VenvPath ..." "Info"
-    & $pythonCmd -m venv $VenvPath | Out-Host
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $pythonCmd -m venv $VenvPath | Out-Host
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao criar o venv (python -m venv retornou $LASTEXITCODE). Se ja existir um venv valido, tente -SkipEnvSetup."
     }
@@ -95,7 +102,14 @@ function Install-Requirements {
         throw "requirements.txt nao encontrado em: $reqPath"
     }
     Write-LauncherLog "Instalando dependencias (pip install -r requirements.txt) ..." "Info"
-    & $VenvPython -m pip install -r $reqPath | Out-Host
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $VenvPython -m pip install -r $reqPath | Out-Host
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "pip install falhou (exit $LASTEXITCODE). Verifique espaco em disco, permissoes e conexao."
     }
@@ -108,7 +122,14 @@ function Write-VenvLock {
         [Parameter(Mandatory)][string]$VenvPython
     )
     $lockPath = Join-Path $RepoRoot "venv.lock"
-    & $VenvPython -m pip freeze | Out-File -FilePath $lockPath -Encoding utf8
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $VenvPython -m pip freeze | Out-File -FilePath $lockPath -Encoding utf8
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
     Write-LauncherLog "venv.lock atualizado (diagnostico, nao versionado)." "Debug"
 }
 

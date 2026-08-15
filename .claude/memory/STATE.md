@@ -1070,3 +1070,70 @@ para endereçar a causa real em Windows PowerShell 5.1 (ex.: capturar stderr
 do `pip install` explicitamente com `2>$null` + checagem de `$LASTEXITCODE`
 em vez de depender de `$ErrorActionPreference`, já que os testes acima
 mostram que isso é o único caminho que sobreviveria nos dois motores)?
+
+## Ciclo T — corrigir a causa real do QF1 em Windows PowerShell 5.1 (2026-08-14)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| T1a | done | launcher.ps1 | `New-ProjectVenv` — `& $pythonCmd -m venv $VenvPath \| Out-Host` envolvida em try/finally escopando `$ErrorActionPreference = "Continue"` durante a chamada, restaurado no finally; `if ($LASTEXITCODE -ne 0)` inalterado. |
+| T1b | done | launcher.ps1 | Mesmo padrão em `Install-Requirements` (`& $VenvPython -m pip install -r $reqPath \| Out-Host`). |
+| T1c | done | launcher.ps1 | Mesmo padrão em `Write-VenvLock` (`& $VenvPython -m pip freeze \| Out-File ...`). |
+| T2a | done | — | Repro sintético do Ciclo S, adaptado pro padrão try/finally novo (função `Invoke-FakeNative` com o mesmo wrapper), em Windows PowerShell 5.1: `SOBREVIVEU`. |
+| T2b | done | — | Mesmo repro em pwsh 7 (via `command -v pwsh` — disponível nesta máquina): `SOBREVIVEU`, sem regressão. |
+| T2c | done | — | `Install-Requirements` real (venv novo criado na raiz do repo, gitignored) invocado por dot-source de `launcher.ps1` sob `powershell.exe 5.1`, com streams mesclados pelo chamador externo (`2>&1` no bash externo, equivalente ao `*>&1` de um chamador PowerShell): pip install real completo, log "Dependencias instaladas." emitido, `EXIT_OUTER=0`, sem `NativeCommandError`/`RemoteException`. `venv/` e `venv.lock` removidos depois do teste. |
+| T2d | done | — | Parse-check nos dois motores após o try/finally: `PARSE_OK` (powershell 5.1) e `PARSE_OK_PWSH` (pwsh 7). |
+
+### Evidência T2a/T2b — repro sintético sobrevive nos dois motores com o padrão novo
+
+```text
+=== powershell.exe 5.1, COM fix (ciclo T) ===
+[notice] fake pip stderr
+SOBREVIVEU LASTEXITCODE=0
+EXIT_OUTER=0
+
+=== pwsh 7, COM fix (ciclo T) ===
+[notice] fake pip stderr
+SOBREVIVEU LASTEXITCODE=0
+EXIT_OUTER=0
+```
+
+Diferença em relação ao Ciclo S: em Windows PowerShell 5.1, sem o fix, o
+mesmo repro dava `CAPTURADO_NO_SCRIPT: System.Management.Automation.RemoteException`
+com `EXIT_OUTER=-1`. Com o `$ErrorActionPreference = "Continue"` escopado
+por `finally`, o mesmo motor agora sobrevive.
+
+### Evidência T2c — pip install real sob 5.1, streams mesclados, sem erro
+
+Trecho relevante da saída (execução completa, dot-source de `launcher.ps1`,
+`New-ProjectVenv` + `Install-Requirements` chamadas diretamente, streams
+mesclados pelo chamador externo):
+
+```text
+[INFO]  Criando venv em ...\venv ...
+[OK]    Venv criado.
+[INFO]  Instalando dependencias (pip install -r requirements.txt) ...
+... (pip install completo, incluindo "[notice] A new release of pip is available: ...") ...
+Successfully installed Pillow-12.3.0 ... reels-encoder-ai-2.1.0 ...
+[OK]    Dependencias instaladas.
+T2C_FIM_OK
+EXIT_OUTER=0
+```
+
+Confirma que o `[notice]` do pip (a causa raiz original do crash na Task 9)
+não dispara mais `NativeCommandError`/`RemoteException` sob Windows
+PowerShell 5.1, mesmo com streams mesclados pelo chamador.
+
+### Evidência T2d — parse-check
+
+```text
+powershell 5.1: PARSE_OK
+pwsh 7:         PARSE_OK_PWSH
+```
+
+### Conclusão
+
+QF1 corrigido — o repro sintético do Ciclo S e o `pip install` real
+sobrevivem agora em Windows PowerShell 5.1 (o motor de produção real) com
+`*>&1`/streams mesclados pelo chamador, sem regressão em pwsh 7. `FINDINGS.md`
+atualizado de "parcialmente corrigido — bloqueado (ciclo S)" para "corrigido
+— ciclo T".
