@@ -1596,3 +1596,10 @@ Os blocos de `git diff --stat origin/main` das evidências U6-d e U6-m foram
 medidos **antes** deste merge, contra o `main` de então (`ef7b0e3`); continuam
 sendo a saída real do momento em que rodaram, e o parágrafo 1 acima refaz a mesma
 verificação contra o `main` novo.
+
+## Ciclo V — render queue profissional (batch de verdade) — 2026-08-16
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| V1 | done | render_queue.py, test_render_queue.py | `python -m pytest test_render_queue.py -v` -> 12 testes coletados, `12 passed in 0.31s` (nao 13 como o PLAN previa — o teste literal do plano so tem 12 funcoes `test_*`; nenhuma foi omitida, contagem "13 testes" no plano estava incorreta, registrado como desvio nao-bloqueante). Passo intermediario confirmado: antes de criar `render_queue.py`, `python -m pytest test_render_queue.py -v` falhou com `ModuleNotFoundError: No module named 'render_queue'` em toda a coleta, como esperado (TDD). Commit `13d2d17` — `feat(batch): módulo render_queue com estado de job, ETA e relatório final`. |
+| V2 | done | Reels_Encoder_v2_FINAL.py | py_compile limpo; pytest test_render_queue.py enhance/ ui/ -q -> 4 failed, 377 passed (mesmas 4 falhas nominais do baseline: enhance/test_ebu_meter.py::test_measure_cmd_basic_shape, enhance/test_ebu_meter.py::test_ffplay_args_basic, ui/test_readme_assets.py::test_anchor_strings_present, ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii; zero falhas em test_render_queue.py; zero regressao nova), commit c0e04e2 |
