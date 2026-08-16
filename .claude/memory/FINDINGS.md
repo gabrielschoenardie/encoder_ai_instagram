@@ -245,7 +245,7 @@ Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-
   quebra futura de compatibilidade do Pester chegaria como falha surpresa num run que não
   mudou nada do repo. Fixar com `-MaximumVersion` ou `-RequiredVersion` resolve.
 
-## Achado — 2026-08-16 (ciclo V, regressão da fila de render) — em correção no ciclo W
+## Achado — 2026-08-16 (ciclo V, regressão da fila de render) — CORRIGIDO no ciclo W
 
 Evidência: usuário reportou com captura de tela real (barra "MCTF masks" piscando linha a
 linha durante `--batch` real com `--mctf on --enhance-ai on`). Orquestrador confirmou a
@@ -267,3 +267,11 @@ causa via leitura direta de `enhance_visualizer.py:488-496` e do call site em
   `Reels_Encoder_v2_FINAL.py:4011`) resolve: `show_progress: bool` novo em
   `generate_mctf_mask_video`, `Progress(..., disable=not show_progress)`, repassado como
   `show_progress=not is_batch` no call site.
+
+**Corrigido (ciclo W, commits `6d86eb6` + `035c53d`):** `show_progress: bool = True`
+adicionado à assinatura de `generate_mctf_mask_video`; `Progress(..., disable=not
+show_progress)`; call site passa `show_progress=not is_batch`. Smoke test real com
+`--batch --mctf on --enhance-ai on` confirmou 0 ocorrências de "MCTF masks" na saída,
+máscaras geradas de verdade (`mctf_deband_mask.mp4` 211290216 bytes,
+`mctf_sharpen_mask.mp4` 513079464 bytes — `disable=True` só desliga o desenho, não a
+lógica), fila terminou `✓ Sucesso: 1/1` sem flicker, zero regressão na suíte.
