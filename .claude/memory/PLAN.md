@@ -1,61 +1,52 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo U: Pester para o launcher.ps1
+# PLAN — Ciclo V: Render Queue profissional (batch de verdade)
 
-Data: 2026-08-14 | Ciclo: U | Origem: decisão do usuário após o fechamento do
-Ciclo T (`97090ee`). Spec:
-`docs/superpowers/specs/2026-08-14-pester-launcher-design.md`. Plano detalhado
-(com o código literal dos testes):
-`docs/superpowers/plans/2026-08-14-pester-launcher.md`.
+Data: 2026-08-16 | Ciclo: V | Origem: pedido direto do usuário. Spec:
+`docs/superpowers/specs/2026-08-16-render-queue-design.md`. Plano detalhado
+(com o código literal do módulo, dos testes e do diff de integração):
+`docs/superpowers/plans/2026-08-16-render-queue.md`.
 
 ## Diagnóstico
 
-`launcher.ps1` é o caminho de entrada comercial do produto — a primeira coisa
-que um usuário pagante toca — e é o único artefato do repo com **zero teste
-automatizado**. Os dois bugs conhecidos dele (`QF1`, `QF2`, ver `FINDINGS.md`)
-foram achados por **execução manual** nos ciclos Q/R/S/T; `QF1` precisou de
-três ciclos e um repro sintético escrito à mão. Validação manual acha bug uma
-vez, não protege contra regressão — o Ciclo T mudou três funções de bootstrap e
-nada além da leitura do Orquestrador garantiu que `Build-*`, `Resolve-Binaries`
-e `Open-LauncherTabs` continuaram intactos.
+O `--batch` de `Reels_Encoder_v2_FINAL.py` (bloco `# ─── BATCH MODE ───`,
+linhas ~4311-4394) hoje é uma lista sequencial: `for` loop simples,
+`console.print`/`console.rule` por arquivo, resumo final em texto puro no
+fim. Não há progresso global, ETA, nem visão de status por arquivo enquanto
+a fila roda — só se sabe o que aconteceu com um arquivo depois que ele
+termina. É o gap identificado pelo usuário frente a qualquer ferramenta de
+encode paga (Handbrake queue, Adobe Media Encoder).
 
-O spec e o plano do launcher (2026-08-13) **proibiam** Pester por escrito. O
-spec novo abre revertendo isso explicitamente (§ Supersedes): a restrição fazia
-sentido quando o script ainda não existia; hoje ele está estável, validado, e o
-guard de dot-source (`launcher.ps1:270`) já foi projetado exatamente para isto.
-
-`launcher.ps1` e `launch-config.json` são **read-only** neste ciclo
-(`CLAUDE.md` § Anti-escopo). Nenhum arquivo Python é tocado.
+O projeto já importa `rich.live.Live`, `rich.table.Table` e `rich.panel.Panel`
+(usados no medidor EBU R128) — a fila reaproveita a mesma biblioteca, sem
+nova dependência. `render_queue.py` é um módulo novo e isolado (raiz do
+projeto, mesmo nível de `ebu_meter.py`); o único arquivo de produção
+modificado é `Reels_Encoder_v2_FINAL.py`, e só dentro do bloco `--batch` —
+nenhum outro modo (single file, Cineon fora de batch) é tocado.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| U1 | Contrato do `launch-config.json`: JSON válido, `defaultProfile` existente, exatamente 5 perfis, `flags` não-vazias + `description` presente por perfil, **nenhum `--crf`** (Regra de Ouro), só `batch` com `requiresBatchDir`, todo `paths` string não-vazia, `encoderScript`/`requirements` existem no disco. Só campos ASCII. Código literal: plano § Task 1. | `executor` | `tests/launch-config.Tests.ps1` | arquivo criado como no plano; `git check-ignore` confirma que não é ignorado; nenhum `.py`/`launcher.ps1` modificado |
-| U2 | `BeforeAll` de topo (save/restore de `$ErrorActionPreference`, dot-source via `$PSScriptRoot`, `$script:OnWindows`, `$script:Config`) + contrato de dot-source (14 funções) + testes puros de `Build-ProfileArgs`/`Build-SetupCommand`/`Build-EncodeCommand`. Path sempre por `-match`, nunca `-eq`. Código literal: plano § Task 2. | `executor` | `tests/launcher.Tests.ps1` | arquivo criado como no plano; `git diff --stat -- launcher.ps1 launch-config.json` vazio |
-| U3 | Orquestradores por mock das próprias funções do script: `Initialize-Environment` (`Mock Test-VenvExists` → `Should -Invoke New-ProjectVenv -Times 0/1`) e `Resolve-Binaries` (`Mock Test-RequiredBinary` + `Mock Test-Path -ParameterFilter wt.exe` → 5 membros, `WtAvailable` falso sem throw). Código literal: plano § Task 3. | `executor` | `tests/launcher.Tests.ps1` (append) | `grep` confirma que os 8 nomes mockados existem em `launcher.ps1`; `git diff --stat -- launcher.ps1` vazio |
-| U4 | `Read-LauncherConfig` (ausente → `nao encontrado`, malformado em `$TestDrive` → `invalido`, válido parseia), `Write-LauncherLog` (prefixos `[OK]`/`[ERRO]`/`[AVISO]`/`[INFO]` via `Mock Write-Host`, `Debug` suprimido) e o fallback de `Open-LauncherTabs` (`Mock Start-Process`, 2 invocações). Ramo `wt.exe` não coberto — comentar por quê. Código literal: plano § Task 4. | `executor` | `tests/launcher.Tests.ps1` (append) | arquivo completo; nenhuma fixture em disco do repo (tudo em `$TestDrive`) |
-| U5 | Job `pester` no CI: matriz `os: [ubuntu-latest, windows-latest]`, `fail-fast: false`, `actions/checkout@v4`, passo de `$PSVersionTable`, `Install-Module Pester -MinimumVersion 5.5.0`, `Invoke-Pester -Path ./tests -CI`, tudo em `shell: pwsh`. Append puro — não tocar nos jobs `lint`/`tests`. YAML literal: plano § Task 5. | `executor` | `.github/workflows/ci.yml` | `git diff` do arquivo só tem linhas `+`; parse YAML lista `['lint','pester','tests']` |
-| U6 | Push, ler o run do CI nos **dois** legs da matriz, colar saída real (`Invoke-Pester` + `$PSVersionTable` + URL do run) em `STATE.md` § `## Ciclo U — Pester para o launcher — 2026-08-14`. Divergência entre legs = achado real sobre o script → `FINDINGS.md` como `UF1`, `UF2`, … antes de qualquer "conserto". Confirmar suíte pytest inalterada. | `executor-pesado` | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md` | CI verde nos dois legs com saída bruta colada, ou BLOCKED com a evidência da falha |
+| V1 | Criar `render_queue.py` (dataclass `QueueJob` + `format_duration`/`format_eta`/`estimate_eta`/`build_table`/`run_job`/`render_final_report`) via TDD: escrever `test_render_queue.py` (13 testes) primeiro, confirmar falha por módulo ausente, então implementar. Código literal: plano § Task 1. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 13 passed |
+| V2 | Integrar a fila no loop `--batch`: `import render_queue` após os imports do `rich`; substituir o loop + resumo atual (linhas ~4339-4394) pelo bloco que constrói `list[QueueJob]`, roda cada job dentro de `with Live(...) as live:`, atualiza a tabela a cada transição de status, e delega o relatório final a `render_queue.render_final_report`. Código literal: plano § Task 2. | `executor` | `Reels_Encoder_v2_FINAL.py` | `py_compile` limpo; `python -m pytest test_render_queue.py enhance/ ui/ -q` → só as 4 falhas nominais do baseline (ver Notas), zero novas |
+| V3 | Smoke test real de ponta a ponta (ffmpeg de verdade, já confirmado disponível nesta máquina): 1 clipe válido + 1 arquivo inválido forçando falha, batch rodado duas vezes (2ª vez confirma skip-se-já-existe). Colar saída real em `STATE.md` § `## Ciclo V`. Passo a passo: plano § Task 3. | `executor` | `.claude/memory/STATE.md` | relatório final da fila mostra `1/2` sucesso, `1/2` falha com log capturado, e `pulado` no 2º run; suíte completa roda de novo sem regressão |
 
 ## Notas de execução
 
-- **Não há `pwsh` neste sandbox** (`pwsh: command not found`, não disponível
-  via apt; PSGallery é alcançável mas não há motor para instalar o Pester).
-  Consequência: U1-U5 **não conseguem** colar saída local real. Isso é um desvio
-  documentado de `superpowers:verification-before-completion` — do ambiente, não
-  da política. A evidência do ciclo vem do CI (U6) e, opcionalmente, da máquina
-  Windows do usuário. Até U6 rodar, o estado correto é *implementado, não
-  verificado*; reportar assim, sem arredondar.
-- `launcher.ps1` e `launch-config.json` são read-only. U2, U3, U4 e U6 têm step
-  explícito de `git diff --stat` esperando vazio. Se um teste for difícil de
-  escrever, ajusta-se o teste — nunca o script de produção.
-- Superfícies declaradas não-testáveis (não tentar): `& $pythonCmd`,
-  `& $VenvPython`, `& $WtPath`. `Mock` engancha em nomes de comando; caminho
-  vindo de variável resolve como Application em runtime. Evidência dessas
-  superfícies já existe em `STATE.md` §§ Ciclo Q/S/T — citar, não re-derivar.
-- Gotchas que o código do plano já mitiga (não "corrigir" de novo):
-  separador de path (`-match`, nunca `-eq`), encoding sem BOM lido como ANSI em
-  PS 5.1 (nunca assertar em `description`), `$IsWindows` inexistente em 5.1,
-  vazamento de `$ErrorActionPreference = "Stop"` pelo dot-source.
-- U2-U4 escrevem no **mesmo arquivo** `tests/launcher.Tests.ps1`, sempre por
-  append no fim. Não editar o `BeforeAll`/`AfterAll` de topo depois de U2.
+- Baseline de regressão a preservar (documentado em `STATE.md`, ciclos
+  I3/H2c/K7/L4/N7): 4 falhas nominais pré-existentes, nenhuma delas
+  relacionada a este ciclo — `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
+  `enhance/test_ebu_meter.py::test_ffplay_args_basic`,
+  `ui/test_readme_assets.py::test_anchor_strings_present`,
+  `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`. Qualquer
+  falha nova é regressão real, não ruído.
+- Sem paralelismo, sem abstração `Queue` reutilizável — só o ponto de uso
+  atual (`--batch` da CLI). Ver spec § Non-goals.
+- V1 e V2 são sequenciais (V2 consome as funções que V1 define); V3 depende
+  de V2 estar commitado. Não paralelizar.
+- `render_queue.py` não sabe nada sobre FFmpeg/`EncodeConfig`/pipeline
+  Cineon — só recebe uma `encode_fn` já fechada sobre esses detalhes. Não
+  vazar lógica de encode para dentro do módulo novo.
+- V3 roda ffmpeg real contra arquivos fora do repo (`tempfile.mkdtemp()`);
+  não deixar pasta de teste dentro da árvore do projeto. `git status` limpo
+  ao final do smoke test é parte do critério de done.
 - Retorno de cada agente: ponteiro + veredito (uma linha por ID + sha do
   commit). Detalhe vai para `STATE.md`.
