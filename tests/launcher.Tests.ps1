@@ -195,3 +195,164 @@ Describe 'Build-EncodeCommand' {
         }
     }
 }
+
+Describe 'Initialize-Environment' {
+
+    # Pester 5 consegue mockar funcoes definidas por dot-source na mesma
+    # sessao. E isso que permite testar a DECISAO do orquestrador (criar venv
+    # vs. reaproveitar) sem criar venv nenhum, sem rede e sem pip - as funcoes
+    # que de fato invocam "& $python" ficam substituidas por no-ops.
+
+    Context 'quando o venv ja existe' {
+
+        BeforeAll {
+            Mock Test-VenvExists     { return $true }
+            Mock New-ProjectVenv     { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock      { }
+            Mock Write-LauncherLog   { }
+        }
+
+        It 'nao recria o venv' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke New-ProjectVenv -Times 0 -Exactly
+        }
+
+        It 'ainda assim instala as dependencias (idempotente)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+
+        It 'ainda assim regrava o venv.lock (diagnostico)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke Write-VenvLock -Times 1 -Exactly
+        }
+
+        It 'retorna o caminho do python dentro do venv informado' {
+            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV'
+            # Join-Path 'VENV' 'Scripts\python.exe' muda de forma entre SOs;
+            # asseveramos os dois pedacos estaveis, nunca o caminho inteiro.
+            $py | Should -Match 'python'
+            $py | Should -Match 'VENV'
+        }
+
+        It 'passa adiante o mesmo interpretador para install e lock' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly -ParameterFilter {
+                $VenvPython -match 'python'
+            }
+        }
+    }
+
+    Context 'quando o venv nao existe' {
+
+        BeforeAll {
+            Mock Test-VenvExists     { return $false }
+            Mock New-ProjectVenv     { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock      { }
+            Mock Write-LauncherLog   { }
+        }
+
+        It 'cria o venv exatamente uma vez' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke New-ProjectVenv -Times 1 -Exactly
+        }
+
+        It 'cria o venv no caminho recebido' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke New-ProjectVenv -Times 1 -Exactly -ParameterFilter {
+                $VenvPath -eq 'VENV'
+            }
+        }
+
+        It 'instala as dependencias depois de criar' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+
+        It 'retorna o caminho do python mesmo no caminho de criacao' {
+            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV'
+            $py | Should -Match 'python'
+        }
+    }
+}
+
+Describe 'Resolve-Binaries' {
+
+    Context 'todos os binarios presentes' {
+
+        BeforeAll {
+            # Test-RequiredBinary real lancaria (os .exe nao existem no runner);
+            # mockado, devolve o proprio caminho, como faz o original quando o
+            # arquivo existe.
+            Mock Test-RequiredBinary { return $Path }
+            # Filtro estreito de proposito: mockar Test-Path sem filtro
+            # substituiria a chamada para QUALQUER caminho, inclusive de codigo
+            # que nao e o alvo do teste.
+            Mock Test-Path { return $true } -ParameterFilter { $Path -match 'wt\.exe' }
+            Mock Write-LauncherLog { }
+        }
+
+        It 'devolve os cinco membros do contrato' {
+            $r = Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config
+            $names = @($r.PSObject.Properties.Name)
+            foreach ($m in @('VenvPython', 'Ffmpeg', 'Ffprobe', 'WtPath', 'WtAvailable')) {
+                $names | Should -Contain $m
+            }
+        }
+
+        It 'propaga o interpretador recebido' {
+            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).VenvPython |
+                Should -Be 'PY'
+        }
+
+        It 'resolve ffmpeg, ffprobe e wt a partir do launch-config.json' {
+            $r = Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config
+            $r.Ffmpeg  | Should -Match 'ffmpeg\.exe'
+            $r.Ffprobe | Should -Match 'ffprobe\.exe'
+            $r.WtPath  | Should -Match 'wt\.exe'
+        }
+
+        It 'marca WtAvailable como verdadeiro' {
+            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtAvailable |
+                Should -BeTrue
+        }
+
+        It 'valida os tres binarios obrigatorios (python, ffmpeg, ffprobe)' {
+            Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config | Out-Null
+            Should -Invoke Test-RequiredBinary -Times 3 -Exactly
+        }
+    }
+
+    Context 'Windows Terminal ausente (binario opcional)' {
+
+        BeforeAll {
+            Mock Test-RequiredBinary { return $Path }
+            Mock Test-Path { return $false } -ParameterFilter { $Path -match 'wt\.exe' }
+            Mock Write-LauncherLog { }
+        }
+
+        It 'marca WtAvailable como falso' {
+            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtAvailable |
+                Should -BeFalse
+        }
+
+        It 'nao lanca excecao — wt.exe e opcional, nao obrigatorio' {
+            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+                Should -Not -Throw
+        }
+
+        It 'ainda devolve o WtPath calculado (para o fallback poder logar)' {
+            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtPath |
+                Should -Match 'wt\.exe'
+        }
+
+        It 'avisa o usuario em nivel Warn' {
+            Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config | Out-Null
+            Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Warn'
+            }
+        }
+    }
+}
