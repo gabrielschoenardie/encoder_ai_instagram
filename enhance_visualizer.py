@@ -406,6 +406,7 @@ _MCTF_SCENE_FLOW_THR = 2.0    # magnitude média de flow (px a 1/4 res) → scen
 def generate_mctf_mask_video(
     video_path: str,
     out_dir: str = "enhance_maps",
+    show_progress: bool = True,
 ) -> dict:
     """
     Pré-processamento MCTF: gera vídeos de máscara temporalmente suavizados.
@@ -492,6 +493,7 @@ def generate_mctf_mask_video(
             BarColumn(),
             TextColumn("{task.completed}/{task.total} frames"),
             TimeRemainingColumn(),
+            disable=not show_progress,
         ) as progress:
             task = progress.add_task("", total=total or None)
 

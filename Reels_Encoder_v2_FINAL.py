@@ -3939,7 +3939,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 "[cyan]✨ MCTF: gerando vídeo de máscaras (todos os frames)...[/cyan]"
             )
-            _mctf_result = generate_mctf_mask_video(input_file, out_dir="enhance_maps")
+            _mctf_result = generate_mctf_mask_video(input_file, out_dir="enhance_maps", show_progress=not is_batch)
             if _mctf_result:
                 _mctf_masks = {
                     "deband":  _mctf_result.get("deband", ""),
