@@ -198,3 +198,26 @@ Evidência: executor-pesado (execução real de ponta a ponta, Steps 0-7 do plan
 
 - **QF1:** não afeta o uso normal (duplo-clique ou shell interativo, sem fusão de streams) — só chamadores que capturam `*>&1` (ex.: CI, harness de automação, ou `Tee-Object` como o usado para provar o Step 3 da Task 9). Resultado observado: stack trace do PowerShell no lugar de uma mensagem útil, **depois** de o setup já ter dado certo (falso negativo de falha).
 - **QF2:** não é um bug do `launcher.ps1` isoladamente — é uma interação entre dois scripts do próprio plano (`fetch_ffmpeg.ps1` deixa FFmpeg global; `-SkipValidation` só teria efeito visível numa máquina sem FFmpeg em lugar nenhum do PATH). Se o objetivo for isolamento portátil estrito, vale considerar preferir `./bin/ffmpeg.exe` mesmo quando há uma cópia global no PATH.
+
+## Achado — 2026-08-15 (ciclo U, infra/CI — não é bug do `launcher.ps1`)
+
+Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-pester-launcher.md`; saídas brutas em `STATE.md` § "Ciclo U", evidência U6-b). Achado **bloqueia a U6**: sem run de `CI`, não existe a evidência dos dois legs que a task pede.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| UF1 | cobertura de gatilho de CI | `.github/workflows/ci.yml:4-7` | Filtro `branches:` do `push` não cobre branches de worktree; job `pester` nunca roda nelas | S3 | esperado: push de branch de trabalho dispara `CI` (lint + tests + pester); medido: `worktree-pester-launcher` não casa com `main`/`claude/**`/`feature/**` → zero run de `CI`; só o `Pylint` (`on: [push]`, sem filtro) rodou |
+
+### Contexto
+
+- **UF1 (S3):** não é regressão do ciclo U — o filtro é anterior e nunca foi problema porque
+  os ciclos passados trabalharam em `main` ou em branches `claude/**` (ex.: PR #38). O ciclo U
+  é o primeiro a rodar num worktree isolado nativo, cuja convenção de nome (`worktree-*`) fica
+  fora do filtro. O efeito colateral é maior agora: o job `pester` criado em U5 só existe no
+  `ci.yml`, então **nenhum** teste do launcher roda em branch de worktree, e o `Pylint` verde
+  dá falsa sensação de "CI passou".
+- Não corrigido neste ciclo: `ci.yml` está fora da lista de arquivos da U6, e mudar gatilho de
+  CI é decisão de escopo do Orquestrador. As três saídas possíveis (PR para `main`, push para
+  nome que case com o filtro, ou alterar o filtro/adicionar `workflow_dispatch`) estão
+  descritas no fim de `STATE.md` § "Ciclo U".
+- Também vale avaliar, no mesmo item futuro, se `pull_request: branches: [main]` deve ganhar
+  `workflow_dispatch` — hoje não há como forçar um run de `CI` pelo `gh` sem abrir PR.
