@@ -339,7 +339,7 @@ def render_final_report(jobs: list[QueueJob], console: Console) -> None:
 - [ ] **Step 4: Rodar os testes e confirmar que passam**
 
 Run: `python -m pytest test_render_queue.py -v`
-Expected: todos os testes `PASSED` (13 testes).
+Expected: todos os testes `PASSED` (12 testes).
 
 - [ ] **Step 5: Commit**
 
