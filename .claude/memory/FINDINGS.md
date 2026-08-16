@@ -206,6 +206,8 @@ Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-
 | ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|----------------|------------------------|------------|--------------------|
 | UF1 | cobertura de gatilho de CI | `.github/workflows/ci.yml:4-7` | Filtro `branches:` do `push` não cobre branches de worktree; job `pester` nunca roda nelas | S3 | esperado: push de branch de trabalho dispara `CI` (lint + tests + pester); medido: `worktree-pester-launcher` não casa com `main`/`claude/**`/`feature/**` → zero run de `CI`; só o `Pylint` (`on: [push]`, sem filtro) rodou |
+| UF2 | cobertura de motor no CI | `.github/workflows/ci.yml` (job `pester`, `shell: pwsh` nos dois legs) | Nenhum leg roda Windows PowerShell 5.1 — o motor de produção do launcher e o único onde `QF1` reproduzia | S3 | esperado: matriz cobre o motor real do usuário final; medido: os dois legs rodam pwsh 7.6.4 Core (`C:\Program Files\PowerShell\7\pwsh.EXE` no leg Windows); o que varia é o SO, não o motor |
+| UF3 | versão de dependência não fixada no CI | `.github/workflows/ci.yml` (job `pester`, `Install-Module`/`Import-Module -MinimumVersion 5.5.0`) | `-MinimumVersion` sem teto: o CI segue silenciosamente o major mais novo do Pester disponível no runner | S4 | esperado: versão de Pester determinística entre runs; medido: runners têm 6.1.0 e 5.9.0, a suíte rodou sob a 6.x (banner `Running tests from 2 files.` vs `Starting discovery in 2 files.` da 5.7.1 local) — passou, mas por acaso, não por escolha |
 
 ### Contexto
 
@@ -221,3 +223,24 @@ Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-
   descritas no fim de `STATE.md` § "Ciclo U".
 - Também vale avaliar, no mesmo item futuro, se `pull_request: branches: [main]` deve ganhar
   `workflow_dispatch` — hoje não há como forçar um run de `CI` pelo `gh` sem abrir PR.
+- **Contornado na própria U6, não corrigido.** Ruling do humano: abrir o PR #39
+  (`worktree-pester-launcher` → `main`, sem merge) só para acionar o gatilho
+  `on.pull_request`. Funcionou — run `31921343582`, `CI` verde nos 5 jobs. O veredito do
+  achado não muda: continua sendo defeito de infra do `ci.yml`, não do `launcher.ps1`, e o
+  arquivo **não** foi editado. Efeito colateral a não esquecer: o PR #39 fica aberto como
+  instrumento de diagnóstico e não deve ser mergeado por engano.
+- **UF2 (S3):** o `windows-latest` do GitHub Actions só oferece pwsh 7 como `shell: pwsh`;
+  cobrir 5.1 exigiria um passo com `shell: powershell` (que existe nesse runner). Enquanto
+  isso não for feito, a única evidência de que a suíte passa em Windows PowerShell 5.1 é
+  local (máquina do usuário, Tasks 1-4 — ver `STATE.md` § "Ciclo U", evidências U6-c e
+  U6-k). Como o `QF1` só reproduzia em 5.1, essa é a lacuna de cobertura mais relevante que
+  sobrou do ciclo: uma regressão específica de 5.1 passaria verde no CI hoje.
+- **UF3 (S4):** os dois achados anteriores (`UF1`, `UF2`) e este são a mesma família — o job
+  `pester` funciona, mas depende do que o runner traz por acaso. Não é um impedimento para
+  corrigir o `UF2`: `Find-Module Pester -MinimumVersion 6.0.0` reporta
+  `PowerShellVersion required: 5.1` para a 6.1.0, ou seja, a 6.x declara suporte a Windows
+  PowerShell 5.1 (verificado, não presumido — a suposição inicial de que a 6 exigiria pwsh 7
+  estava errada). O risco do `UF3` é só de determinismo: a suíte foi escrita e validada
+  localmente sob 5.7.1 e roda no CI sob a 6.x sem ninguém ter decidido isso, então uma
+  quebra futura de compatibilidade do Pester chegaria como falha surpresa num run que não
+  mudou nada do repo. Fixar com `-MaximumVersion` ou `-RequiredVersion` resolve.

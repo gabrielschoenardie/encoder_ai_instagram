@@ -1306,3 +1306,293 @@ branch. Existem três caminhos, e a escolha é de escopo — não improviso:
    precisa de item próprio no PLAN.
 
 Nenhuma foi executada.
+
+## Ciclo U — U6 desbloqueada: CI verde nos dois legs — 2026-08-15
+
+Ruling do humano, via Orquestrador: **caminho 1** (abrir PR para `main`, sem
+merge, só para disparar o gatilho `pull_request`). `ci.yml` **não** foi editado —
+a correção do `UF1` continua fora do escopo desta task. Esta seção é append; a
+linha `| U6 | blocked |` da tabela acima fica preservada por causa da regra
+append-only do arquivo, e é substituída pela linha abaixo.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| U6 | done | .claude/memory/STATE.md, .claude/memory/FINDINGS.md | CI **verde nos dois legs**, 91/91 em cada um. Run: <https://github.com/gabrielschoenardie/encoder_ai_instagram/actions/runs/31921343582> (evento `pull_request`, PR de diagnóstico <https://github.com/gabrielschoenardie/encoder_ai_instagram/pull/39>, sha `16e3a2a`). Zero divergência entre legs |
+
+### Evidência U6-f — como o run foi disparado (parte do `UF1`)
+
+O run **não** veio de push direto: o filtro `on.push.branches` do `ci.yml` não
+cobre `worktree-pester-launcher` (`UF1`). Foi preciso abrir o PR #39
+(`worktree-pester-launcher` → `main`) só para acionar o gatilho
+`on.pull_request.branches: [main]`. O PR fica **aberto e sem merge** — é
+instrumento de diagnóstico, não entrega.
+
+```text
+$ gh pr create --base main --head worktree-pester-launcher --title "test(launcher): cobertura Pester para launcher.ps1 (Ciclo U)" ...
+https://github.com/gabrielschoenardie/encoder_ai_instagram/pull/39
+```
+
+```text
+$ gh run list --workflow=ci.yml --limit 3
+in_progress    test(launcher): cobertura Pester para launcher.ps1 (Ciclo U)  CI  worktree-pester-launcher  pull_request  31921343582  4s   2026-08-16T02:11:53Z
+completed  success  docs: design + plano dos testes Pester para o launcher (Ciclo U) (#38)  CI  main  push  31887342201  33s  2026-08-15T13:29:25Z
+completed  success  docs: design + plano dos testes Pester para o launcher (Ciclo U)        CI  claude/slack-session-fp2uqr  pull_request  31887211825  41s  2026-08-15T13:26:25Z
+```
+
+Consequência prática do `UF1`, agora medida e não só prevista: **enquanto o
+filtro não for corrigido, o job `pester` só roda se alguém abrir um PR.** Um
+push direto para uma branch de worktree passa com `Pylint` verde e zero teste do
+launcher executado.
+
+### Evidência U6-g — resultado do run (Step 2)
+
+```text
+$ gh run view 31921343582 --json status,conclusion,url,headSha,event
+status=completed conclusion=success event=pull_request sha=16e3a2a89039eb3e8de574c4a7245badd55da825
+url=https://github.com/gabrielschoenardie/encoder_ai_instagram/actions/runs/31921343582
+```
+
+```text
+$ gh run view 31921343582 --json jobs
+Pester (launcher.ps1) (windows-latest) | completed | success | .../job/95101567161
+Pester (launcher.ps1) (ubuntu-latest)  | completed | success | .../job/95101567167
+Tests (Python 3.12)                    | completed | success | .../job/95101567189
+Lint (ruff)                            | completed | success | .../job/95101567203
+Tests (Python 3.11)                    | completed | success | .../job/95101567253
+```
+
+### Evidência U6-h — leg `ubuntu-latest` (saída bruta, ANSI removido)
+
+`$PSVersionTable` do passo de diagnóstico:
+
+```text
+shell: /usr/bin/pwsh -command ". '{0}'"
+
+Name  : PSVersion
+Value : 7.6.4
+
+Name  : PSEdition
+Value : Core
+
+Name  : GitCommitId
+Value : 7.6.4
+
+Name  : OS
+Value : Ubuntu 24.04.4 LTS
+
+Name  : Platform
+Value : Unix
+
+Name  : PSCompatibleVersions
+Value : {1.0, 2.0, 3.0, 4.0…}
+
+Name  : PSRemotingProtocolVersion
+Value : 2.4
+
+Name  : SerializationVersion
+Value : 1.1.0.1
+```
+
+`OS matrix leg: ubuntu-latest`
+
+Pester disponível após o `Install-Module` e a execução:
+
+```text
+Name   Version
+----   -------
+Pester 6.1.0
+Pester 5.9.0
+
+Running tests from 2 files.
+[+] /home/runner/work/encoder_ai_instagram/encoder_ai_instagram/tests/launch-config.Tests.ps1 838ms (21 tests)
+[+] /home/runner/work/encoder_ai_instagram/encoder_ai_instagram/tests/launcher.Tests.ps1 2.74s (70 tests)
+Tests completed in 3.61s
+Tests Passed: 91, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+```
+
+### Evidência U6-i — leg `windows-latest` (saída bruta, ANSI removido)
+
+`$PSVersionTable` do passo de diagnóstico:
+
+```text
+shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+
+Name  : PSVersion
+Value : 7.6.4
+
+Name  : PSEdition
+Value : Core
+
+Name  : GitCommitId
+Value : 7.6.4
+
+Name  : OS
+Value : Microsoft Windows 10.0.26100
+
+Name  : Platform
+Value : Win32NT
+
+Name  : PSCompatibleVersions
+Value : {1.0, 2.0, 3.0, 4.0…}
+```
+
+`OS matrix leg: windows-latest`
+
+Pester disponível após o `Install-Module` e a execução:
+
+```text
+Name   Version
+----   -------
+Pester 6.1.0
+Pester 5.9.0
+Pester 3.4.0
+
+Running tests from 2 files.
+[+] D:\a\encoder_ai_instagram\encoder_ai_instagram\tests\launch-config.Tests.ps1 1.29s (21 tests)
+[+] D:\a\encoder_ai_instagram\encoder_ai_instagram\tests\launcher.Tests.ps1 2.35s (70 tests)
+Tests completed in 3.78s
+Tests Passed: 91, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+```
+
+### Evidência U6-j — divergência entre legs (Step 3)
+
+**Nenhuma.** `91 passed / 0 failed` idênticos nos dois legs, mesma partição por
+arquivo (21 + 70), inclusive com separador de path oposto (`/home/runner/...`
+vs `D:\a\...`) e com case-sensitivity de sistema de arquivos diferente. Os três
+candidatos a divergir previstos no spec § "Riscos conhecidos" — asserção de path
+que escapou do `-match`, `Mock Write-Host` interferindo na saída do Pester, e
+`ConvertFrom-Json` de JSON malformado emitindo erro não-terminante num dos
+motores — **não** se materializaram. Nenhum `UF` de divergência foi aberto.
+
+Duas observações de cobertura saíram desta leitura; nenhuma é falha de teste nem
+bug do `launcher.ps1`, e as duas foram registradas em `FINDINGS.md`:
+
+- **`UF2`** — o leg `windows-latest` roda `C:\Program Files\PowerShell\7\pwsh.EXE`
+  (PSVersion 7.6.4, PSEdition Core), **não** Windows PowerShell 5.1. Ou seja: o
+  motor de produção real do launcher — e o único onde o `QF1` reproduzia — não é
+  exercitado por nenhum leg do CI. Os dois legs são o mesmo pwsh 7.6.4; o que
+  varia entre eles é o SO, não o motor.
+- **`UF3`** — `Import-Module Pester -MinimumVersion 5.5.0` sem teto: os runners
+  têm 6.1.0 e 5.9.0 instaladas, e a suíte rodou sob a 6.x (o banner
+  `Running tests from 2 files.` difere do `Starting discovery in 2 files.` que a
+  5.7.1 local imprime). Passou nas duas famílias de versão, o que é uma boa
+  notícia, mas não foi uma decisão — é a versão que o runner tinha no dia.
+
+### Evidência U6-k — cobertura combinada (local + CI)
+
+Somando as duas fontes, a suíte tem `91 passed / 0 failed` em **quatro**
+combinações motor×SO, e nenhuma delas divergiu:
+
+| onde | motor | SO | resultado |
+|------|-------|----|-----------|
+| local (Tasks 1-4) | Windows PowerShell 5.1, Pester 5.7.1 | Windows 10 19045 | 91 passed, 0 failed |
+| local (Tasks 1-4) | pwsh 7.5.1, Pester 5.7.1 | Windows 10 19045 | 91 passed, 0 failed |
+| CI leg 1 | pwsh 7.6.4 Core, Pester 6.1.0 | Ubuntu 24.04.4 LTS | 91 passed, 0 failed |
+| CI leg 2 | pwsh 7.6.4 Core, Pester 6.1.0 | Windows 10.0.26100 | 91 passed, 0 failed |
+
+A linha do 5.1 vem só do local (`UF2`): o CI não a cobre.
+
+### Evidência U6-l — suíte pytest sem regressão, no estado final (Step 5)
+
+```text
+$ python -m pytest ui/ enhance/ -q
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionErr...
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: as...
+4 failed, 365 passed in 5.19s
+```
+
+Mesmas 4 falhas nominais do baseline histórico (itens L4 e N7). O job
+`Tests (Python 3.11)` e o `Tests (Python 3.12)` do mesmo run do CI passaram
+verdes — na máquina limpa do runner as 4 falhas de encoding de console do
+Windows nem aparecem.
+
+### Evidência U6-m — `launcher.ps1` intacto no fim do ciclo (Step 6)
+
+```text
+$ git diff --stat origin/main -- launcher.ps1 launch-config.json
+(nenhuma linha de saída)
+```
+
+Diff completo do ciclo contra `origin/main`, para o registro — 5 arquivos, todos
+só-adição, nenhum deles `launcher.ps1`, `launch-config.json` ou `.py`:
+
+```text
+$ git diff --stat origin/main
+ .claude/memory/FINDINGS.md    |  23 ++
+ .claude/memory/STATE.md       | 169 +++++++++++++++
+ .github/workflows/ci.yml      |  29 +++
+ tests/launch-config.Tests.ps1 | 121 +++++++++++
+ tests/launcher.Tests.ps1      | 476 ++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 818 insertions(+)
+```
+
+### Conclusão do Ciclo U
+
+Objetivo do ciclo cumprido: `launcher.ps1` deixou de ser o único artefato do
+repo com zero teste automatizado. 91 testes verdes em CI nos dois legs, mais 91
+verdes localmente nos dois motores de Windows, com `launcher.ps1` e
+`launch-config.json` sem uma linha alterada. Três achados de infra abertos
+(`UF1`, `UF2`, `UF3`) — nenhum é bug do launcher, nenhum foi corrigido aqui.
+Pendência operacional: o **PR #39 está aberto e não deve ser mergeado por
+engano** — foi aberto como instrumento para disparar o CI.
+*(Linha acima escrita às ~02:18Z e **superada** ~4 min depois: o PR já tinha sido
+mergeado às 02:14:36Z, o que o executor só descobriu ao fim da task. Preservada
+por causa da regra append-only do arquivo; ver a nota U6-n logo abaixo.)*
+
+### Nota U6-n — o PR #39 foi mergeado pelo humano durante a task
+
+A instrução ao executor era abrir o PR **sem** mergear (instrumento de
+diagnóstico). O merge aconteceu mesmo assim, feito pela conta dona do repo,
+enquanto o executor ainda lia os logs dos legs:
+
+```text
+$ gh pr view 39 --json state,mergedAt,mergedBy,mergeCommit,autoMergeRequest
+state=MERGED
+mergedAt=2026-08-16T02:14:36Z
+mergedBy=gabrielschoenardie
+mergeCommit=d78bd2d967994b84d8906a11a4d438008d04a694
+autoMerge=null
+```
+
+Cronologia: PR criado ~02:11:50Z → CI concluído 02:12:26Z (verde) → merge
+02:14:36Z. Não foi ação do executor nem auto-merge (`autoMerge=null`); foi merge
+manual da conta `gabrielschoenardie`, ~2 min depois do CI ficar verde. Registrado
+aqui porque muda o estado do repo, não como reclamação: o Ciclo U está em `main`.
+
+Consequências medidas:
+
+1. `main` avançou para `d78bd2d` (squash de `worktree-pester-launcher`). A
+   Regra de Ouro do ciclo continua válida **no próprio `main`**, o que é uma
+   verificação mais forte que a do Step 6:
+
+   ```text
+   $ git diff --stat ef7b0e3 d78bd2d -- launcher.ps1 launch-config.json
+   (nenhuma linha de saída)
+
+   $ git diff --stat ef7b0e3 d78bd2d
+    .claude/memory/FINDINGS.md    |  23 ++
+    .claude/memory/STATE.md       | 169 +++++++++++++++
+    .github/workflows/ci.yml      |  29 +++
+    tests/launch-config.Tests.ps1 | 121 +++++++++++
+    tests/launcher.Tests.ps1      | 476 ++++++++++++++++++++++++++++++++++++++++++
+    5 files changed, 818 insertions(+)
+   ```
+
+   `launcher.ps1` e `launch-config.json` são byte-idênticos entre o `main`
+   pré-ciclo (`ef7b0e3`) e o `main` pós-merge (`d78bd2d`).
+2. O merge levou o estado do ciclo até `16e3a2a` — ou seja, `main` tem a seção
+   `## Ciclo U` **com a linha `| U6 | blocked |`** e sem nenhuma das evidências
+   de CI. Tudo o que está desta seção `## Ciclo U — U6 desbloqueada` em diante
+   (evidências U6-f…U6-n, `UF2`, `UF3`) foi commitado **depois** do merge e vive
+   só na branch `worktree-pester-launcher`. `git diff --stat origin/main` na
+   ponta da branch: `2 files changed, 252 insertions(+)`, só `STATE.md` e
+   `FINDINGS.md`.
+3. Decisão de escopo pendente para o Orquestrador: como levar esses 252 linhas
+   para `main` (novo PR da mesma branch, ou cherry-pick). O executor não abriu
+   segundo PR — o ruling autorizou um PR de diagnóstico, não uma política de
+   merge.
+
+Os blocos de `git diff --stat origin/main` das evidências U6-d e U6-m foram
+medidos **antes** deste merge, contra o `main` de então (`ef7b0e3`); continuam
+sendo a saída real do momento em que rodaram, e o parágrafo 1 acima refaz a mesma
+verificação contra o `main` novo.
