@@ -1,6 +1,9 @@
 import io
+import time
 
 import pytest
+from rich.console import Console
+
 from render_queue import (
     QueueJob,
     build_table,
@@ -10,7 +13,6 @@ from render_queue import (
     render_final_report,
     run_job,
 )
-from rich.console import Console
 
 
 def _finished_job(duration_seconds, status="ok", input_path="job.mp4"):
@@ -145,3 +147,35 @@ def test_render_final_report_truncates_long_logs_keeping_the_tail():
     text = output.getvalue()
     assert "TAIL-MARKER" in text
     assert "HEAD-MARKER" not in text
+
+
+def test_run_job_calls_on_tick_while_encode_runs():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    console = Console(file=io.StringIO())
+    tick_count = {"n": 0}
+
+    def encode_fn():
+        time.sleep(0.2)
+
+    def on_tick():
+        tick_count["n"] += 1
+
+    run_job(job, encode_fn, console, on_tick=on_tick, tick_interval=0.05)
+
+    assert job.status == "ok"
+    assert tick_count["n"] >= 2
+
+
+def test_build_table_shows_ticking_duration_for_running_job():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4", status="processando")
+    job.started_at = time.time() - 5.0
+
+    table = build_table([job], eta_seconds=None)
+
+    output = io.StringIO()
+    console = Console(file=output, width=120)
+    console.print(table)
+    text = output.getvalue()
+
+    assert "—" not in text.split("a.mp4", 1)[1].split("\n", 1)[0]
+    assert any(f"00:0{n}" in text for n in (3, 4, 5, 6, 7))

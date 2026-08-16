@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -82,6 +83,8 @@ def build_table(
             and job.finished_at is not None
         ):
             duration = format_duration(job.finished_at - job.started_at)
+        elif job.status == "processando" and job.started_at is not None:
+            duration = format_duration(time.time() - job.started_at)
         else:
             duration = "—"
         table.add_row(str(idx), job.input_path, symbol, duration)
@@ -89,20 +92,39 @@ def build_table(
     return table
 
 
-def run_job(job: QueueJob, encode_fn: Callable[[], None], console: Console) -> None:
+def run_job(
+    job: QueueJob,
+    encode_fn: Callable[[], None],
+    console: Console,
+    on_tick: Callable[[], None] | None = None,
+    tick_interval: float = 0.25,
+) -> None:
     job.status = "processando"
     job.started_at = time.time()
     failure: Exception | None = None
-    with console.capture() as capture:
-        try:
-            encode_fn()
-        except Exception as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
-            failure = exc
+    log_text = ""
+
+    def _target() -> None:
+        nonlocal failure, log_text
+        with console.capture() as capture:
+            try:
+                encode_fn()
+            except Exception as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
+                failure = exc
+        log_text = capture.get()
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    while worker.is_alive():
+        if on_tick is not None:
+            on_tick()
+        worker.join(timeout=tick_interval)
+
     job.finished_at = time.time()
     if failure is not None:
         job.status = "falha"
         job.error = str(failure)
-        job.log = capture.get()
+        job.log = log_text
     else:
         job.status = "ok"
 
