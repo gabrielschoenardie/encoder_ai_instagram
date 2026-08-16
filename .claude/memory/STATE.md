@@ -1533,6 +1533,11 @@ repo com zero teste automatizado. 91 testes verdes em CI nos dois legs, mais 91
 verdes localmente nos dois motores de Windows, com `launcher.ps1` e
 `launch-config.json` sem uma linha alterada. Três achados de infra abertos
 (`UF1`, `UF2`, `UF3`) — nenhum é bug do launcher, nenhum foi corrigido aqui.
+Pendência operacional: o **PR #39 está aberto e não deve ser mergeado por
+engano** — foi aberto como instrumento para disparar o CI.
+*(Linha acima escrita às ~02:18Z e **superada** ~4 min depois: o PR já tinha sido
+mergeado às 02:14:36Z, o que o executor só descobriu ao fim da task. Preservada
+por causa da regra append-only do arquivo; ver a nota U6-n logo abaixo.)*
 
 ### Nota U6-n — o PR #39 foi mergeado pelo humano durante a task
 
