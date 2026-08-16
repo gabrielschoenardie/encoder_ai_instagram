@@ -58,3 +58,32 @@ jobs:
 
       - name: Run tests
         run: python -m pytest enhance/ ui/ -v --timeout=60
+
+  pester:
+    name: Pester (launcher.ps1)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PowerShell version (diagnostico)
+        shell: pwsh
+        run: |
+          $PSVersionTable | Format-List
+          Write-Host "OS matrix leg: ${{ matrix.os }}"
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+          Get-Module Pester -ListAvailable | Select-Object Name, Version | Format-Table
+
+      - name: Run Pester
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          Invoke-Pester -Path ./tests -CI
