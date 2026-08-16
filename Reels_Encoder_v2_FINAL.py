@@ -97,6 +97,8 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
+import render_queue
+
 # =============================================================================
 # CINEON PIPELINE IMPORTS
 # =============================================================================
@@ -4340,11 +4342,8 @@ COMPARAÇÃO:
             console.print(f"[dim]   {i:2d}. {os.path.basename(vf)}[/dim]")
         console.print()
 
-        results_ok: list = []
-        results_skipped: list = []
-        results_failed: list = []
-
-        for idx, input_file in enumerate(video_files, 1):
+        jobs: list[render_queue.QueueJob] = []
+        for input_file in video_files:
             base_name = os.path.splitext(os.path.basename(input_file))[0]
             if args.cineon_pipeline == "on":
                 out_name = f"{base_name}_Cineon_Film.mp4"
@@ -4353,45 +4352,37 @@ COMPARAÇÃO:
             else:
                 out_name = f"{base_name}_Hollywood_2Pass.mp4"
             output_file = os.path.join(output_folder, out_name)
+            jobs.append(render_queue.QueueJob(input_path=input_file, output_path=output_file))
 
-            if os.path.exists(output_file):
-                console.print(
-                    f"[yellow]○ [{idx}/{total}] Já existe, pulando: {out_name}[/yellow]"
-                )
-                results_skipped.append(os.path.basename(input_file))
-                continue
+        with Live(
+            render_queue.build_table(jobs, eta_seconds=None),
+            console=console,
+            refresh_per_second=4,
+        ) as live:
+            for job in jobs:
+                if os.path.exists(job.output_path):
+                    job.status = "pulado"
+                    remaining = sum(1 for j in jobs if j.status == "aguardando")
+                    live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+                    continue
 
-            console.rule(
-                f"[bold cyan][ {idx}/{total} ]  {os.path.basename(input_file)}"
-            )
-            try:
-                _encode_single_file(input_file, output_file, args, is_batch=True)
-                results_ok.append(os.path.basename(input_file))
-            except KeyboardInterrupt:
-                console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
-                sys.exit(1)
-            except Exception as e:
-                console.print(f"[red]✗ Falhou: {e}[/red]")
-                results_failed.append((os.path.basename(input_file), str(e)))
+                # Padrão default-arg: fixa o valor de `job` no momento da definição,
+                # evitando o late-binding de closures dentro de loops em Python.
+                def _do_encode(_input=job.input_path, _output=job.output_path):
+                    _encode_single_file(_input, _output, args, is_batch=True)
 
-        # ── Summary ──────────────────────────────────────────────────────────
-        console.print()
-        console.rule("[bold magenta]📊 Batch Summary")
-        console.print(
-            f"[green]✓ Sucesso:  {len(results_ok)}/{total}[/green]"
-        )
-        for name in results_ok:
-            console.print(f"[green]     • {name}[/green]")
-        if results_skipped:
-            console.print(f"[yellow]○ Pulados:  {len(results_skipped)}/{total}[/yellow]")
-            for name in results_skipped:
-                console.print(f"[yellow]     • {name}[/yellow]")
-        if results_failed:
-            console.print(f"[red]✗ Falhas:   {len(results_failed)}/{total}[/red]")
-            for name, err in results_failed:
-                console.print(f"[red]     • {name}  →  {err}[/red]")
-        console.print()
-        sys.exit(0 if not results_failed else 1)
+                try:
+                    render_queue.run_job(job, _do_encode, console)
+                except KeyboardInterrupt:
+                    live.stop()
+                    console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
+                    sys.exit(1)
+
+                remaining = sum(1 for j in jobs if j.status == "aguardando")
+                live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+
+        render_queue.render_final_report(jobs, console)
+        sys.exit(0 if not any(job.status == "falha" for job in jobs) else 1)
 
     # ─── SINGLE FILE MODE ─────────────────────────────────────────────────────
     input_file = args.input
