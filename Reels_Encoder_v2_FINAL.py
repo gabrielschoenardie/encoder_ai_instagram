@@ -4359,11 +4359,15 @@ COMPARAÇÃO:
             console=console,
             refresh_per_second=4,
         ) as live:
+
+            def _refresh_table() -> None:
+                remaining = sum(1 for j in jobs if j.status == "aguardando")
+                live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+
             for job in jobs:
                 if os.path.exists(job.output_path):
                     job.status = "pulado"
-                    remaining = sum(1 for j in jobs if j.status == "aguardando")
-                    live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+                    _refresh_table()
                     continue
 
                 # Padrão default-arg: fixa o valor de `job` no momento da definição,
@@ -4372,14 +4376,13 @@ COMPARAÇÃO:
                     _encode_single_file(_input, _output, args, is_batch=True)
 
                 try:
-                    render_queue.run_job(job, _do_encode, console)
+                    render_queue.run_job(job, _do_encode, console, on_tick=_refresh_table)
                 except KeyboardInterrupt:
                     live.stop()
                     console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
                     sys.exit(1)
 
-                remaining = sum(1 for j in jobs if j.status == "aguardando")
-                live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+                _refresh_table()
 
         render_queue.render_final_report(jobs, console)
         sys.exit(0 if not any(job.status == "falha" for job in jobs) else 1)
