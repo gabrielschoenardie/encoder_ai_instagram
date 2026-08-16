@@ -1533,5 +1533,61 @@ repo com zero teste automatizado. 91 testes verdes em CI nos dois legs, mais 91
 verdes localmente nos dois motores de Windows, com `launcher.ps1` e
 `launch-config.json` sem uma linha alterada. Três achados de infra abertos
 (`UF1`, `UF2`, `UF3`) — nenhum é bug do launcher, nenhum foi corrigido aqui.
-Pendência operacional: o **PR #39 está aberto e não deve ser mergeado por
-engano** — foi aberto como instrumento para disparar o CI.
+
+### Nota U6-n — o PR #39 foi mergeado pelo humano durante a task
+
+A instrução ao executor era abrir o PR **sem** mergear (instrumento de
+diagnóstico). O merge aconteceu mesmo assim, feito pela conta dona do repo,
+enquanto o executor ainda lia os logs dos legs:
+
+```text
+$ gh pr view 39 --json state,mergedAt,mergedBy,mergeCommit,autoMergeRequest
+state=MERGED
+mergedAt=2026-08-16T02:14:36Z
+mergedBy=gabrielschoenardie
+mergeCommit=d78bd2d967994b84d8906a11a4d438008d04a694
+autoMerge=null
+```
+
+Cronologia: PR criado ~02:11:50Z → CI concluído 02:12:26Z (verde) → merge
+02:14:36Z. Não foi ação do executor nem auto-merge (`autoMerge=null`); foi merge
+manual da conta `gabrielschoenardie`, ~2 min depois do CI ficar verde. Registrado
+aqui porque muda o estado do repo, não como reclamação: o Ciclo U está em `main`.
+
+Consequências medidas:
+
+1. `main` avançou para `d78bd2d` (squash de `worktree-pester-launcher`). A
+   Regra de Ouro do ciclo continua válida **no próprio `main`**, o que é uma
+   verificação mais forte que a do Step 6:
+
+   ```text
+   $ git diff --stat ef7b0e3 d78bd2d -- launcher.ps1 launch-config.json
+   (nenhuma linha de saída)
+
+   $ git diff --stat ef7b0e3 d78bd2d
+    .claude/memory/FINDINGS.md    |  23 ++
+    .claude/memory/STATE.md       | 169 +++++++++++++++
+    .github/workflows/ci.yml      |  29 +++
+    tests/launch-config.Tests.ps1 | 121 +++++++++++
+    tests/launcher.Tests.ps1      | 476 ++++++++++++++++++++++++++++++++++++++++++
+    5 files changed, 818 insertions(+)
+   ```
+
+   `launcher.ps1` e `launch-config.json` são byte-idênticos entre o `main`
+   pré-ciclo (`ef7b0e3`) e o `main` pós-merge (`d78bd2d`).
+2. O merge levou o estado do ciclo até `16e3a2a` — ou seja, `main` tem a seção
+   `## Ciclo U` **com a linha `| U6 | blocked |`** e sem nenhuma das evidências
+   de CI. Tudo o que está desta seção `## Ciclo U — U6 desbloqueada` em diante
+   (evidências U6-f…U6-n, `UF2`, `UF3`) foi commitado **depois** do merge e vive
+   só na branch `worktree-pester-launcher`. `git diff --stat origin/main` na
+   ponta da branch: `2 files changed, 252 insertions(+)`, só `STATE.md` e
+   `FINDINGS.md`.
+3. Decisão de escopo pendente para o Orquestrador: como levar esses 252 linhas
+   para `main` (novo PR da mesma branch, ou cherry-pick). O executor não abriu
+   segundo PR — o ruling autorizou um PR de diagnóstico, não uma política de
+   merge.
+
+Os blocos de `git diff --stat origin/main` das evidências U6-d e U6-m foram
+medidos **antes** deste merge, contra o `main` de então (`ef7b0e3`); continuam
+sendo a saída real do momento em que rodaram, e o parágrafo 1 acima refaz a mesma
+verificação contra o `main` novo.
