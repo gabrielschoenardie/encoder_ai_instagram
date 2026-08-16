@@ -1137,3 +1137,172 @@ sobrevivem agora em Windows PowerShell 5.1 (o motor de produção real) com
 `*>&1`/streams mesclados pelo chamador, sem regressão em pwsh 7. `FINDINGS.md`
 atualizado de "parcialmente corrigido — bloqueado (ciclo S)" para "corrigido
 — ciclo T".
+
+## Ciclo U — Pester para o launcher — 2026-08-15
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| U1 | done | tests/launch-config.Tests.ps1 | contrato do JSON — 13 blocos `It`, 21 testes expandidos |
+| U2 | done | tests/launcher.Tests.ps1 | dot-source + `Build-*` — total acumulado 57 testes |
+| U3 | done | tests/launcher.Tests.ps1 | `Initialize-Environment` / `Resolve-Binaries` — total acumulado 75 testes |
+| U4 | done | tests/launcher.Tests.ps1 | `Read-LauncherConfig` / `Write-LauncherLog` / fallback — total acumulado 91 testes |
+| U5 | done | .github/workflows/ci.yml | job `pester`, matriz ubuntu-latest + windows-latest, `fail-fast: false` |
+| U6 | **blocked** | .claude/memory/STATE.md, .claude/memory/FINDINGS.md | push feito, mas o workflow `CI` **não disparou** na branch `worktree-pester-launcher` (o filtro `branches:` não cobre esse nome) — sem run, sem evidência dos dois legs. Ver `UF1` em FINDINGS.md e a pergunta exata no fim desta seção |
+
+### Evidência U6-a — push real (Step 1)
+
+```text
+$ git push -u origin HEAD
+remote:
+remote: Create a pull request for 'worktree-pester-launcher' on GitHub by visiting:
+remote:      https://github.com/gabrielschoenardie/encoder_ai_instagram/pull/new/worktree-pester-launcher
+remote:
+branch 'worktree-pester-launcher' set up to track 'origin/worktree-pester-launcher'.
+To https://github.com/gabrielschoenardie/encoder_ai_instagram.git
+ * [new branch]      HEAD -> worktree-pester-launcher
+```
+
+HEAD empurrado: `1e82cee6c61d0dfe0bbcbea05800d2517aa5bd4c`
+(`ci: rodar Pester do launcher em ubuntu-latest e windows-latest`).
+
+### Evidência U6-b — o workflow `CI` não disparou (Step 1/2, causa do bloqueio)
+
+```text
+$ gh run list --branch worktree-pester-launcher --limit 10
+in_progress    ci: rodar Pester do launcher em ubuntu-latest e windows-latest    Pylint    worktree-pester-launcher    push    31921009460    33s    2026-08-16T02:03:58Z
+```
+
+```text
+$ gh run list --workflow=ci.yml --limit 5
+completed  success  docs: design + plano dos testes Pester para o launcher (Ciclo U) (#38)   CI  main                      push          31887342201  33s  2026-08-15T13:29:25Z
+completed  success  docs: design + plano dos testes Pester para o launcher (Ciclo U)         CI  claude/slack-session-...  pull_request  31887211825  41s  2026-08-15T13:26:25Z
+completed  success  docs(plans): plano de implementação dos testes Pester (6 tasks, Ciclo U) CI  claude/slack-session-...  push          31887149285  39s  2026-08-15T13:25:01Z
+completed  success  fix(launcher): isolar EAP por chamada nativa - resolve QF1 em Windows... CI  main                      push          31853015423  38s  2026-08-15T00:14:49Z
+completed  success  docs(memory): registrar plano do Ciclo R (esclarecimento QF2)            CI  main                      push          31823201266  41s  2026-08-14T17:16:08Z
+```
+
+Nenhum run de `CI` para a branch empurrada — só o `Pylint` rodou. Causa raiz
+medida, comparando os gatilhos dos dois workflows:
+
+```text
+$ head -8 .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**", "feature/**"]
+  pull_request:
+    branches: [main]
+```
+
+```text
+$ head -4 .github/workflows/pylint.yml
+name: Pylint
+
+on: [push]
+```
+
+`worktree-pester-launcher` não casa com `main`, `claude/**` nem `feature/**`,
+então o `push` não dispara o `CI` — e o `CI` é quem contém o job `pester`
+criado em U5. O `Pylint` usa `on: [push]` sem filtro, por isso apareceu.
+`gh run watch` não tem run para observar; `ci.yml` não tem `workflow_dispatch`,
+então `gh workflow run` também não é opção sem alterar o arquivo.
+
+Steps 3 e 4 do brief (ler os dois legs / colar evidência de CI) ficam **sem
+evidência** até o desbloqueio. Não houve divergência entre legs a interpretar
+porque não houve leg nenhum.
+
+### Evidência U6-c — evidência local real, anterior ao CI (contexto)
+
+Ao contrário do que o spec original assumia (§ Validação: "não há `pwsh` no
+sandbox de desenvolvimento"), **este** ambiente tem pwsh 7.5.1 e Windows
+PowerShell 5.1 com Pester 5.7.1, e os 91 testes já rodaram nos dois motores
+durante as Tasks 1-4. Saída bruta, copiada de
+`.superpowers/sdd/2026-08-14-pester-launcher/task-4-report.md` (estado final da
+suíte, após U4):
+
+```text
+$ pwsh -NoProfile -Command "Invoke-Pester -Path ./tests -CI"
+
+Starting discovery in 2 files.
+Discovery found 91 tests in 261ms.
+Running tests.
+[+] ...\tests\launch-config.Tests.ps1 849ms (245ms|432ms)
+[+] ...\tests\launcher.Tests.ps1 1.28s (918ms|298ms)
+Tests completed in 2.16s
+Tests Passed: 91, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+```
+
+```text
+$ powershell.exe -NoProfile -Command "Invoke-Pester -Path ./tests -CI"
+
+Starting discovery in 2 files.
+Discovery found 91 tests in 1.02s.
+Running tests.
+[+] launch-config.Tests.ps1 3.95s (1.35s|1.87s)
+[+] launcher.Tests.ps1 3.08s (2.42s|476ms)
+Tests completed in 7.14s
+Tests Passed: 91, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+```
+
+Isso **não substitui** a evidência de CI que a U6 pede — os runners do GitHub
+Actions são outro ambiente (`ubuntu-latest` não tem Windows PowerShell 5.1, tem
+pwsh 7 sobre Linux, com separador de path e case-sensitivity diferentes, que é
+exatamente a superfície que o Step 3 do brief manda vigiar). Mas registra-se
+aqui que a suíte **não** está "implementada e nunca executada": ela já rodou
+verde nos dois motores de PowerShell da máquina Windows antes do push.
+
+### Evidência U6-d — suíte pytest sem regressão (Step 5)
+
+```text
+$ python -m pytest ui/ enhance/ -q
+=========================== short test summary info ===========================
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeE...
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - Assertion...
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionErr...
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: as...
+4 failed, 365 passed in 6.90s
+```
+
+As 4 falhas são exatamente as 4 nominais do baseline histórico (encoding de
+console no Windows; ver item L4 do Ciclo L e item N7 do Ciclo N nesta mesma
+página). Zero regressão. Prova mais forte que a contagem: nenhum arquivo Python
+foi tocado pelo ciclo — o diff completo contra `origin/main` são 3 arquivos,
+todos só-adição:
+
+```text
+$ git diff --stat origin/main
+ .github/workflows/ci.yml      |  29 +++
+ tests/launch-config.Tests.ps1 | 121 +++++++++++
+ tests/launcher.Tests.ps1      | 476 ++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 626 insertions(+)
+```
+
+### Evidência U6-e — `launcher.ps1` intacto no ciclo inteiro (Step 6)
+
+```text
+$ git diff --stat origin/main -- launcher.ps1 launch-config.json
+(nenhuma linha de saída)
+```
+
+Saída vazia, como o critério exige. A Global Constraint mais importante do
+plano (read-only em `launcher.ps1` e `launch-config.json`) está fechada: os
+dois arquivos não têm uma linha alterada desde `origin/main`.
+
+### Pergunta exata ao Orquestrador (desbloqueio da U6)
+
+O trabalho das Tasks 1-5 está completo e empurrado; falta só um run de `CI` na
+branch. Existem três caminhos, e a escolha é de escopo — não improviso:
+
+1. **Abrir PR `worktree-pester-launcher` → `main`.** Dispara o `CI` pelo gatilho
+   `pull_request: branches: [main]`, sem tocar em arquivo nenhum e sem merge. É
+   o caminho usado pelo próprio ciclo anterior (PR #38). Recomendado.
+2. **Empurrar o mesmo HEAD para um nome que case com o filtro** (ex.:
+   `git push origin HEAD:feature/pester-launcher`). Dispara pelo gatilho de
+   `push`, mas deixa uma branch duplicada no remote.
+3. **Alterar `.github/workflows/ci.yml`** para cobrir o padrão de nome que a
+   ferramenta de worktree gera e/ou adicionar `workflow_dispatch`. É a correção
+   real do `UF1`, mas é arquivo fora da lista da U6 e mudança de escopo —
+   precisa de item próprio no PLAN.
+
+Nenhuma foi executada.
