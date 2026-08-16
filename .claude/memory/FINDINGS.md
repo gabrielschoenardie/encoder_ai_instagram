@@ -275,3 +275,14 @@ show_progress)`; call site passa `show_progress=not is_batch`. Smoke test real c
 máscaras geradas de verdade (`mctf_deband_mask.mp4` 211290216 bytes,
 `mctf_sharpen_mask.mp4` 513079464 bytes — `disable=True` só desliga o desenho, não a
 lógica), fila terminou `✓ Sucesso: 1/1` sem flicker, zero regressão na suíte.
+
+## Achado — 2026-08-16 (ciclo W, gap de UX descoberto ao corrigir VF1) — corrigindo no ciclo X
+
+Evidência: usuário testou o fix do VF1 no terminal real e reportou que o `--batch` "parece
+travado" durante um job — sem crash, sem erro, só sem nenhum sinal visual de progresso.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| VF2 | gap de UX no design original do Ciclo V | `render_queue.py` (`run_job`, `build_table`) | Nenhum sinal de progresso durante um job em andamento; tabela só atualiza em transição de status | S3 | esperado: usuário distingue "rodando" de "travado" durante um job longo; medido: coluna Duração mostra `—` estático do início ao fim do job, nenhuma atualização entre "processando" e "ok"/"falha" |
+
+- **VF2:** consequência direta do design original do spec do Ciclo V (`docs/superpowers/specs/2026-08-16-render-queue-design.md` § "Por que capturar output em vez de deixá-lo rolar"): capturar e esconder TODO output por-job durante o batch, incluindo qualquer indicador de progresso legítimo. Antes do ciclo W, a barra do MCTF (que não passava pela nossa captura, por usar o console global do Rich — ver `VF1`) era, sem querer, o único sinal de vida visível durante um job. Ao corrigir `VF1` (suprimir a barra do MCTF em batch), esse sinal acidental desapareceu, expondo o gap real: `run_job` bloqueia o loop principal por toda a duração do encode, e `Live` só repinta o que foi explicitamente mandado via `.update()` — sem chamadas novas durante o job, a tabela fica congelada. Fix: `run_job` roda o encode numa thread em background e chama um callback `on_tick` a cada ~250ms; `build_table` calcula a duração ao vivo (`time.time() - job.started_at`) para o job em "processando", dando um cronômetro que incrementa visivelmente. Ver `.claude/memory/PLAN.md` § Ciclo X.
