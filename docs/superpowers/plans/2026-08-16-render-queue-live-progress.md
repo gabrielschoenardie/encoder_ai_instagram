@@ -15,7 +15,7 @@
 - Sem nova dependência — só `threading` (stdlib) e `rich`, já usados no projeto.
 - Não reintroduzir o conflito de dois `Live`s concorrentes corrigido no ciclo W (`VF1`) — o `on_tick` só chama `live.update()` a partir do **mesmo** `Live`/thread principal que já existe; nenhuma segunda `Progress`/`Live` é criada.
 - `on_tick` é opcional (`None` por padrão) — chamadas existentes de `run_job` sem esse argumento continuam funcionando exatamente como antes (comportamento do Ciclo V/W preservado).
-- `console.capture()` continua envolvendo a execução completa de `encode_fn` (rodando agora dentro da thread) — o design de "capturar e só mostrar se falhar" do Ciclo V não muda.
+- `console.capture()` continua envolvendo a execução completa de `encode_fn` e o design de "capturar e só mostrar se falhar" do Ciclo V não muda — mas o `with console.capture()` precisa abrir/fechar **dentro da worker thread** (dentro de `_target()`), nunca no thread principal, porque o buffer de captura do Rich é thread-local (ver nota de correção na Task 1).
 
 ---
 
@@ -76,6 +76,21 @@ Expected: `test_run_job_calls_on_tick_while_encode_runs` falha porque `run_job` 
 
 Adicionar `import threading` junto dos outros imports do topo (`import statistics`, `import time`). Substituir a função `run_job` inteira por:
 
+**Nota de correção (pós-implementação real do X1):** a primeira versão deste
+plano envolvia a criação/join da thread com `with console.capture()` no
+thread **principal**. Isso não funciona: `rich.console.Console` guarda o
+buffer de captura em `_thread_locals` (thread-local storage) — um
+`console.print()` chamado de dentro da worker thread grava no buffer
+*daquela* thread, nunca no buffer do thread principal onde o
+`with console.capture()` está aberto, então `capture.get()` sempre retorna
+`""`. Confirmado empiricamente pelo executor com um repro isolado antes de
+qualquer commit. Correção: `console.capture()` precisa abrir e fechar
+**dentro** de `_target()` (rodando na própria worker thread) — não em volta
+da criação/join da thread. `job.log`/`failure` são gravados via `nonlocal`
+dentro de `_target()`; como `worker.join()` sincroniza (happens-before) as
+escritas da thread finalizada antes do thread principal continuar, ler esses
+`nonlocal` depois do `while worker.is_alive(): ...` é seguro.
+
 ```python
 def run_job(
     job: QueueJob,
@@ -87,27 +102,29 @@ def run_job(
     job.status = "processando"
     job.started_at = time.time()
     failure: Exception | None = None
+    log_text = ""
 
     def _target() -> None:
-        nonlocal failure
-        try:
-            encode_fn()
-        except Exception as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
-            failure = exc
+        nonlocal failure, log_text
+        with console.capture() as capture:
+            try:
+                encode_fn()
+            except Exception as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
+                failure = exc
+        log_text = capture.get()
 
-    with console.capture() as capture:
-        worker = threading.Thread(target=_target, daemon=True)
-        worker.start()
-        while worker.is_alive():
-            if on_tick is not None:
-                on_tick()
-            worker.join(timeout=tick_interval)
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    while worker.is_alive():
+        if on_tick is not None:
+            on_tick()
+        worker.join(timeout=tick_interval)
 
     job.finished_at = time.time()
     if failure is not None:
         job.status = "falha"
         job.error = str(failure)
-        job.log = capture.get()
+        job.log = log_text
     else:
         job.status = "ok"
 ```
