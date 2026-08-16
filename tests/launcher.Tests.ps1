@@ -356,3 +356,121 @@ Describe 'Resolve-Binaries' {
         }
     }
 }
+
+Describe 'Read-LauncherConfig' {
+
+    It 'lanca mensagem clara quando o arquivo nao existe' {
+        { Read-LauncherConfig -Path (Join-Path $TestDrive 'nao-existe.json') } |
+            Should -Throw -ExpectedMessage '*nao encontrado*'
+    }
+
+    It 'lanca mensagem clara quando o JSON esta malformado' {
+        $bad = Join-Path $TestDrive 'malformado.json'
+        '{ "defaultProfile": ' | Set-Content -Path $bad -Encoding utf8
+        { Read-LauncherConfig -Path $bad } | Should -Throw -ExpectedMessage '*invalido*'
+    }
+
+    It 'parseia um JSON valido' {
+        $good = Join-Path $TestDrive 'ok.json'
+        '{ "defaultProfile": "balanced" }' | Set-Content -Path $good -Encoding utf8
+        (Read-LauncherConfig -Path $good).defaultProfile | Should -Be 'balanced'
+    }
+
+    It 'carrega o launch-config.json real do repositorio' {
+        $real = Read-LauncherConfig -Path (Join-Path $script:RepoRootDir 'launch-config.json')
+        $real.defaultProfile | Should -Be 'balanced'
+        @($real.profiles.PSObject.Properties.Name).Count | Should -Be 5
+    }
+}
+
+Describe 'Write-LauncherLog' {
+
+    BeforeAll {
+        Mock Write-Host { }
+    }
+
+    It 'usa o prefixo [OK] no nivel Success' {
+        Write-LauncherLog -Message 'msg' -Level 'Success'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match '^\[OK\]' }
+    }
+
+    It 'usa o prefixo [ERRO] no nivel Error' {
+        Write-LauncherLog -Message 'msg' -Level 'Error'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match '^\[ERRO\]' }
+    }
+
+    It 'usa o prefixo [AVISO] no nivel Warn' {
+        Write-LauncherLog -Message 'msg' -Level 'Warn'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match '^\[AVISO\]' }
+    }
+
+    It 'usa o prefixo [INFO] no nivel padrao' {
+        Write-LauncherLog -Message 'msg'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match '^\[INFO\]' }
+    }
+
+    It 'inclui a mensagem recebida na saida' {
+        Write-LauncherLog -Message 'CANARIO-123' -Level 'Info'
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match 'CANARIO-123' }
+    }
+
+    It 'suprime o nivel Debug quando -Debug nao foi passado' {
+        # launcher.ps1 NAO declara [CmdletBinding()] (deliberado: evita colidir
+        # com o [switch]$Debug explicito do param block). Logo $Debug e um
+        # switch comum e, sob dot-source sem argumentos, vale $false.
+        Write-LauncherLog -Message 'nao deve aparecer' -Level 'Debug'
+        Should -Invoke Write-Host -Times 0 -Exactly
+    }
+
+    It 'rejeita um nivel fora do ValidateSet' {
+        { Write-LauncherLog -Message 'msg' -Level 'Trace' } | Should -Throw
+    }
+}
+
+Describe 'Open-LauncherTabs — fallback sem Windows Terminal' {
+
+    # O ramo $WtAvailable = $true NAO e coberto, de proposito: ele invoca
+    # "& $WtPath new-tab ...". O Mock do Pester engancha em nomes de comando;
+    # um caminho vindo de variavel resolve como Application em runtime e nunca
+    # passa pelo mock. Cobrir esse ramo exigiria refatorar launcher.ps1, o que
+    # este ciclo proibe. Evidencia real do ramo wt.exe: .claude/memory/STATE.md
+    # § "Ciclo Q" (2 abas abertas de verdade numa maquina Windows).
+
+    BeforeAll {
+        Mock Start-Process { }
+        Mock Write-LauncherLog { }
+    }
+
+    It 'abre duas janelas PowerShell quando o Windows Terminal nao esta disponivel' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Start-Process -Times 2 -Exactly
+    }
+
+    It 'passa o comando de setup para uma das janelas' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList -contains 'SETUP'
+        }
+    }
+
+    It 'passa o comando de encode para a outra janela' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList -contains 'ENCODE'
+        }
+    }
+
+    It 'mantem as janelas abertas (-NoExit)' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Start-Process -Times 2 -Exactly -ParameterFilter {
+            $ArgumentList -contains '-NoExit'
+        }
+    }
+
+    It 'registra que entrou no caminho de fallback' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
+            $Message -match 'fallback'
+        }
+    }
+}
