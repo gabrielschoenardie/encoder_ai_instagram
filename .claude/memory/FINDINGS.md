@@ -244,3 +244,26 @@ Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-
   localmente sob 5.7.1 e roda no CI sob a 6.x sem ninguém ter decidido isso, então uma
   quebra futura de compatibilidade do Pester chegaria como falha surpresa num run que não
   mudou nada do repo. Fixar com `-MaximumVersion` ou `-RequiredVersion` resolve.
+
+## Achado — 2026-08-16 (ciclo V, regressão da fila de render) — em correção no ciclo W
+
+Evidência: usuário reportou com captura de tela real (barra "MCTF masks" piscando linha a
+linha durante `--batch` real com `--mctf on --enhance-ai on`). Orquestrador confirmou a
+causa via leitura direta de `enhance_visualizer.py:488-496` e do call site em
+`Reels_Encoder_v2_FINAL.py:3933-3947`.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| VF1 | regressão introduzida pelo Ciclo V | `enhance_visualizer.py:489` (`Progress(...)` sem `console=`) vs `Reels_Encoder_v2_FINAL.py` (novo `Live(tabela)` do `--batch`) | Dois displays `rich` ao vivo simultâneos (console global do MCTF + `console` da fila) brigam pela mesma região do terminal | S3 | esperado: um único display ao vivo por vez durante o batch; medido: barra "MCTF masks" pisca a cada frame, sobreposta à tabela da fila |
+
+- **VF1 (S3):** só ocorre com `--mctf on` **e** `--enhance-ai on` explícitos (default de
+  `--mctf` é `off`) — batch padrão não é afetado. Antes do Ciclo V não havia conflito porque
+  nada mais desenhava no terminal durante o loop `--batch`; a fila nova (`with Live(...) as
+  live:`, `Reels_Encoder_v2_FINAL.py`) introduziu o segundo display concorrente.
+  `generate_mctf_mask_video()` usa `Progress(...)` sem `console=` explícito, então cai no
+  console global singleton do Rich (`rich.get_console()`), diferente do `console` que a fila
+  usa — por isso não colide com erro (`LiveError`), só visualmente. Mesmo padrão já usado
+  para suprimir o medidor EBU em batch (`_show_meter = ... and not is_batch`,
+  `Reels_Encoder_v2_FINAL.py:4011`) resolve: `show_progress: bool` novo em
+  `generate_mctf_mask_video`, `Progress(..., disable=not show_progress)`, repassado como
+  `show_progress=not is_batch` no call site.
