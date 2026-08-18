@@ -90,6 +90,13 @@ cd encoder_ai_instagram
 `launcher.ps1` cria um venv local, valida o FFmpeg embarcado e abre o wizard
 interativo — zero configuração manual.
 
+Cria um venv local em `./venv` (instala via `requirements.txt`, mesma fonte
+de sempre), valida `bin/ffmpeg.exe`/`bin/ffprobe.exe` e abre 2 abas
+(Setup + Encode) no Windows Terminal — se `.\tools\fetch_wt_portable.ps1`
+não tiver sido rodado ainda, cai automaticamente em duas janelas
+PowerShell separadas. Nenhum perfil fixa CRF — a análise adaptativa do
+encoder continua decidindo isso.
+
 ```powershell
 .\launcher.ps1                                                # wizard interativo
 .\launcher.ps1 -InputFile "video.mp4" -Profile "cinematic"    # preset direto, sem wizard
