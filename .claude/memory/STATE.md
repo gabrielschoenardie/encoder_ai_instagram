@@ -2041,3 +2041,87 @@ ordem, mesmas exceções, só o tempo final difere):
 
 AC3 fecha aqui: Steps 1-3 (matriz de SO + verificação de shell) + Step 4 (lista real
 colhida acima) completos.
+
+## Ciclo AC — Task 4 (corrigir as falhas de Windows) — 2026-08-18
+
+Executor: `executor-pesado`. Brief: `.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-4-brief.md`.
+Relatório completo: `.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-4-report.md`.
+Plataforma: máquina Windows real (Windows 10 Pro 19045, Python 3.12) — as 4 falhas
+reproduzem localmente, então correção e verificação foram feitas onde o bug ocorre.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AC4-1 | done | (classificação, sem arquivo) | 4 falhas classificadas: 2× "teste acoplado a detalhe POSIX", 2× "teste acoplado ao ambiente"; zero bug de produto, zero `skipif` |
+| AC4-2a | done | `enhance/test_ebu_meter.py` | commit `ee26691` — asserção passa a comparar o stem do basename de `argv[0]`, não o caminho literal |
+| AC4-2b | done | `ui/test_readme_assets.py` | commit `f968c19` — SVGs lidos com `encoding="utf-8"` explícito |
+| AC4-2c | done | `ui/test_theme.py` | commit `503a7ae` — ramo utf do teste de glifos usa console explícito, não `Console()` do ambiente |
+| AC4-3 | done | `.claude/memory/FINDINGS.md` | commit `da71b1f` — zero `skipif` concedido (registrado explicitamente); ACF1/ACF2 abertos como achados vizinhos fora de escopo |
+| AC4-4 | done | (verificação) | `392 passed` local (era `4 failed, 388 passed`), `ruff check enhance/` limpo |
+
+### Step 1 — classificação das 4 falhas (categorias do brief)
+
+| # | teste | categoria | por quê | ação |
+|---|-------|-----------|---------|------|
+| 1 | `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape` | teste acoplado a detalhe POSIX | `argv[0]` vem de `ui.binaries.resolve_binary`, que devolve o caminho **invocável**: `ffmpeg` (Linux sem ffmpeg), `ffmpeg.exe` (Windows sem ffmpeg, = CI), `C:\ffmpeg\bin\ffmpeg.EXE` (Windows com ffmpeg no PATH, = esta máquina), `bin/ffmpeg` (bundled). O produto está certo; a asserção `== "ffmpeg"` só passava no CI Linux porque o runner não tem ffmpeg no PATH | afrouxar a asserção para o stem do basename |
+| 2 | `enhance/test_ebu_meter.py::test_ffplay_args_basic` | idem (mesma causa, `FFPLAY`) | idem | idem |
+| 3 | `ui/test_readme_assets.py::test_anchor_strings_present` | teste acoplado a detalhe POSIX (encoding implícito) | `read_text()` sem `encoding=` usa o default da plataforma (cp1252 no Windows). O gerador está correto: `rich.Console.save_svg` grava UTF-8 sempre — e o próprio arquivo de teste já lia o `.html` com `encoding="utf-8"` na linha 45 | declarar `encoding="utf-8"` na leitura |
+| 4 | `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii` | teste acoplado ao ambiente | `glyphs()` **não** tem bug: medido nesta máquina, `Console()` reporta `legacy_windows=True` e `encoding=cp1252`, então o set ASCII é a resposta correta. O teste é que afirmava o glifo Unicode incondicionalmente a partir de um `Console()` nu, contradizendo o próprio docstring | declarar os dois consoles (o ramo cp1252 já usava `_FakeConsole`; o ramo utf passa a usar o mesmo idioma) |
+
+Nenhuma das 4 caiu em "ausência de ffmpeg no runner" (nenhuma invoca subprocesso) nem em
+"genuinamente só-POSIX" (as 4 testam comportamento que existe e importa em Windows) — as
+duas únicas categorias do brief que autorizariam `skipif`. **Zero `skipif` adicionado.**
+
+### Step 2 — correção, uma categoria por commit
+
+```
+ee26691 test(ebu): assertar o binario invocado, nao a forma do caminho (ABF1)
+f968c19 test(readme-assets): ler os SVGs com encoding explicito UTF-8 (ABF1)
+503a7ae test(theme): declarar os dois consoles do teste de glifos (ABF1)
+da71b1f docs(findings): ACF1/ACF2 achados na Task 4; zero skipif concedido (ABF1)
+```
+
+Nenhum arquivo de produto foi tocado — as 3 correções são nos próprios testes, e em cada
+caso o produto foi verificado como correto **antes** de a asserção ser mexida (não é
+mascarar sintoma: `resolve_binary` deve devolver `.exe` em Windows; `save_svg` deve gravar
+UTF-8; `glyphs()` deve cair para ASCII num console cp1252/legacy).
+
+Red-check das 3 asserções afrouxadas (prova de que continuam pegando quebra real):
+
+```
+RED-CHECK theme: detectou a quebra (bom)      # _GLYPHS_UNICODE['tab_l']='X'
+RED-CHECK ebu: detectou binario errado (bom)  # FFMPEG := C:\bin\ffprobe.exe
+RED-CHECK ffplay: detectou binario errado (bom)  # FFPLAY := /usr/bin/ffmpeg
+```
+
+### Step 4 — verificação (literal)
+
+Antes (baseline desta máquina, HEAD `8300881`):
+
+```
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionError: assert 'C:\ffmpeg\bin\ffmpeg.EXE' == 'ffmpeg'
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: assert 'C:\ffmpeg\bin\ffplay.EXE' == 'ffplay'
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 5207...
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - AssertionError: assert '|' == '▎'
+4 failed, 388 passed in 5.54s
+```
+
+Depois (`python -m pytest test_render_queue.py enhance/ ui/ -q`, HEAD `da71b1f`):
+
+```
+........................................................................ [ 91%]
+................................                                         [100%]
+392 passed in 4.98s
+```
+
+`392 passed` também sob `PYTHONUTF8=1` (4.90s) — as correções não dependem do modo UTF-8
+do interpretador. `python -m ruff check enhance/` → `All checks passed!`.
+
+Nota de ambiente (registrada como ACF2 no `FINDINGS.md`): a sessão do agente herda
+`FORCE_COLOR=3`/`COLORTERM=truecolor`, e com isso 4 testes de `test_render_queue.py`
+falham por ANSI nas asserções de substring (`8 failed, 384 passed`). Não é regressão nem
+tem relação com as 4 falhas desta task — some ao rodar sem `FORCE_COLOR`, que é a
+condição do CI e a do baseline do Orquestrador. Todos os números acima foram medidos com
+`FORCE_COLOR` fora do ambiente.
+
+As duas pernas Windows do CI **não** foram verificadas aqui: push e leitura do CI real
+ficaram explicitamente com o Orquestrador (instrução da task).
