@@ -220,6 +220,67 @@ def test_discard_partial_output_returns_false_when_absent(tmp_path):
     assert discard_partial_output(job) is False
 
 
+def test_discard_partial_output_retries_until_handle_is_released():
+    # Simula o ffmpeg do Windows soltando o arquivo so na terceira tentativa.
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    calls = {"remove": 0, "sleep": 0}
+
+    def fake_remove(path):
+        calls["remove"] += 1
+        if calls["remove"] < 3:
+            raise OSError(13, "Permission denied")
+
+    def fake_sleep(seconds):
+        calls["sleep"] += 1
+
+    ok = discard_partial_output(
+        job,
+        remove=fake_remove,
+        exists=lambda path: True,
+        sleep=fake_sleep,
+        attempts=3,
+        delay=0.0,
+    )
+
+    assert ok is True
+    assert calls["remove"] == 3
+    assert calls["sleep"] == 2
+
+
+def test_discard_partial_output_gives_up_after_attempts():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+
+    def always_locked(path):
+        raise OSError(13, "Permission denied")
+
+    ok = discard_partial_output(
+        job,
+        remove=always_locked,
+        exists=lambda path: True,
+        sleep=lambda seconds: None,
+        attempts=3,
+        delay=0.0,
+    )
+
+    assert ok is False
+
+
+def test_discard_partial_output_does_not_sleep_when_first_try_wins():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    slept = []
+
+    ok = discard_partial_output(
+        job,
+        remove=lambda path: None,
+        exists=lambda path: True,
+        sleep=lambda seconds: slept.append(seconds),
+        delay=0.0,
+    )
+
+    assert ok is True
+    assert slept == []
+
+
 def test_run_job_marks_interrupted_and_reraises():
     # O KeyboardInterrupt precisa vir do on_tick: ele roda na main thread dentro
     # do laco do run_job. Levantado de dentro do encode_fn morreria no worker.

@@ -48,20 +48,37 @@ def format_eta(eta_seconds: float | None) -> str:
     return format_duration(eta_seconds)
 
 
-def discard_partial_output(job: QueueJob) -> bool:
+def discard_partial_output(
+    job: QueueJob,
+    *,
+    remove=os.remove,
+    exists=os.path.exists,
+    sleep=time.sleep,
+    attempts: int = 3,
+    delay: float = 0.5,
+) -> bool:
     """Remove o output parcial de um job interrompido.
 
-    Retorna True se removeu de fato. Nunca levanta: um arquivo travado pelo
-    processo do ffmpeg ainda encerrando (comum no Windows) devolve False.
+    Retorna True se removeu de fato. Tenta `attempts` vezes: no Windows o
+    subprocesso do ffmpeg pode ainda estar soltando o handle do arquivo logo
+    apos o terminate(), e a primeira tentativa falha com OSError. Nunca levanta
+    — quem chama decide o que dizer ao usuario quando o retorno e False.
+
+    Os argumentos injetaveis existem para o teste; producao usa os defaults.
     """
     path = job.output_path
-    if not path or not os.path.exists(path):
+    if not path:
         return False
-    try:
-        os.remove(path)
-        return True
-    except OSError:
-        return False
+    for attempt in range(attempts):
+        if not exists(path):
+            return False
+        try:
+            remove(path)
+            return True
+        except OSError:
+            if attempt < attempts - 1:
+                sleep(delay)
+    return False
 
 
 def estimate_eta(
