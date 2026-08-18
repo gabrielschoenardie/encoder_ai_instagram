@@ -1989,4 +1989,43 @@ se materializou.
 |----|------------------|-----------------|------------------------|
 | AC3 (steps 1-3) | done (parcial) | .github/workflows/ci.yml | job tests convertido p/ matriz os:[ubuntu-latest,windows-latest] x python-version, continue-on-error só na perna windows-latest, fail-fast:false; nenhum step da tests precisou de shell: bash (nenhum run: usa sintaxe POSIX-only); commit 618b5f9, sem push |
 
-Step 4 (colher a lista real de FAILED em Windows via logs do CI) fica pendente — nao ha acesso a um run de CI real neste worktree local; responsabilidade do orquestrador apos push+PR. AC3 so fecha (criterio de done completo) quando essa lista for registrada aqui.
+Step 4 (colher a lista real de FAILED em Windows via logs do CI) ficou pendente nesta
+passagem — nao havia acesso a um run de CI real neste worktree local. **Fechado abaixo**
+pelo Orquestrador apos push + PR #41, que disparou o workflow e colheu os logs reais.
+
+### Step 4 — lista real de falhas (run 32159250931, PR #41)
+
+Evidencia colada literalmente pelo Orquestrador, a partir de `gh run view --job <id> --log`,
+step "Run tests", das duas pernas Windows do run `32159250931`.
+
+**Windows, Python 3.11** (job 95783890924):
+
+```
+enhance/test_ebu_meter.py::test_measure_cmd_basic_shape FAILED           [ 19%]
+enhance/test_ebu_meter.py::test_ffplay_args_basic FAILED                 [ 21%]
+ui/test_readme_assets.py::test_anchor_strings_present FAILED             [ 92%]
+ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii FAILED        [ 98%]
+
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionError: assert 'ffmpeg.exe' == 'ffmpeg'
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: assert 'ffplay.exe' == 'ffplay'
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 5207: character maps to <undefined>
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - AssertionError: assert '|' == '▎'\n  \n  - ▎\n  + '|'
+======================== 4 failed, 388 passed in 5.05s ========================
+```
+
+**Windows, Python 3.12** (job 95783891099): mesmas 4 linhas `FAILED`, na mesma ordem
+(`test_measure_cmd_basic_shape`, `test_ffplay_args_basic`, `test_anchor_strings_present`,
+`test_idle_glyphs_wired_unicode_and_ascii`), `4 failed, 388 passed in 5.03s`.
+
+Confirmações:
+
+- 3.11 e 3.12 falham nos **mesmos 4 testes**, mesma ordem, mesmas exceções — nenhuma
+  divergência entre versões de Python.
+- A contagem bate com as "4 falhas nominais" relatadas à mão (mesmos 4 nomes já
+  documentados como baseline pré-existente em ciclos anteriores — I3/H2c/K7/L4/N7/O1 —
+  rodando em Linux/local); confirmado adicionalmente pelo Orquestrador batendo com a
+  suíte local rodada na mesma máquina Windows antes da Task 1. **Não é achado novo de
+  divergência de contagem.**
+
+AC3 fecha aqui: Steps 1-3 (matriz de SO + verificação de shell) + Step 4 (lista real
+colhida acima) completos.
