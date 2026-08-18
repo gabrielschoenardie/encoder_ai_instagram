@@ -1,63 +1,29 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo Y: interrupção segura, log preservado e ETA correto (XF1/XF2/XF3)
+# PLAN — Ciclo Z: remover opção 5 "Instalar FFmpeg completo" do menu Ferramentas
 
-Data: 2026-08-17 | Ciclo: Y | Origem: auditoria pós-fila (Ciclo X) — achados
-`XF1`/`XF2`/`XF3` em `.claude/memory/FINDINGS.md` § "Achado — 2026-08-17
-(ciclo X, auditoria pós-fila)". Plano detalhado (código literal):
-`docs/superpowers/plans/2026-08-17-fila-interrupcao.md`. Spec:
-`docs/superpowers/specs/2026-08-17-fila-interrupcao-design.md`.
+Data: 2026-08-17 | Ciclo: Z | Origem: pedido direto do usuário.
 
 ## Diagnóstico
 
-`XF1`: `Ctrl+C` durante `--batch` para o `Live`, imprime um aviso e sai com
-1 — sem remover o `.mp4` truncado do job em andamento. Como o loop pula
-qualquer job cujo output já exista, o arquivo parcial é promovido a
-"pronto" na execução seguinte, entregando vídeo cortado. O caminho
-single-file já resolve isso desde o PR #22; o batch nunca ganhou
-equivalente.
+`ui/launcher.py:55-61` define a constante `TOOLS`, uma lista de tuplas
+`(label, cmd)` renderizada como o menu "Ferramentas" (`_flow_tools`,
+linhas 152-166). O dispatch é por índice — `TOOLS[choice - 1]` — sem
+`if/elif` por opção, então remover a tupla da linha 60 (opção 5,
+"Instalar FFmpeg completo" → `tools/fetch_ffmpeg.ps1`) reordena o menu
+automaticamente (a antiga opção 6 "Voltar" passa a ser a opção 5) sem
+exigir nenhuma outra mudança de dispatch.
 
-`XF2`: `run_job` captura a saída de cada job via `console.capture()` na
-worker thread, mas só transfere o buffer para `job.log` no ramo de falha.
-Avisos legítimos de um job bem-sucedido (preflight, MCTF, dither) são
-descartados sem deixar rastro.
-
-`XF3`: `estimate_eta` multiplica a média de duração pelo `remaining` que
-recebe, e o chamador só passa a contagem de jobs `aguardando` — o job
-`processando` fica fora da conta. No último job da fila, `remaining == 0`
-e o ETA exibe `00:00` durante o encode inteiro.
-
-Causa raiz comum ao XF1: desde o Ciclo X, `encode_fn` roda numa daemon
-thread; o CPython só entrega `KeyboardInterrupt` à main thread (bloqueada
-em `on_tick()`/`worker.join(...)`), então o `except Exception` interno de
-`_target` nunca vê o sinal e o fechamento do job nunca executa. Detalhe
-completo do mecanismo: spec § Architecture.
+Fora de escopo: `tools/fetch_ffmpeg.ps1` (script em si) e o hint de erro
+em `launcher.ps1:176,180` que aponta para ele — o pedido é remover a
+*opção de menu*, não o instalador. Não deletar o script.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| Y1 | Registrar os achados XF1/XF2/XF3 e abrir o ciclo: FINDINGS.md, spec, plano salvo, este PLAN.md. Detalhe: plano § Task 1. | `executor` | `docs/superpowers/specs/2026-08-17-fila-interrupcao-design.md`, `docs/superpowers/plans/2026-08-17-fila-interrupcao.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | arquivos criados/atualizados conforme o plano; commit feito — **done**, commits `fe74225` + `1b28a2a` (fix round: baseline `379 passed` restaurado) |
-| Y2 | `render_queue.py`: preservar `job.log` em qualquer desfecho de `run_job` (XF2) e estender `estimate_eta` com `in_flight_elapsed` (XF3), TDD. Detalhe: plano § Task 2. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 18 passed — **done**, commit `134c1ac` |
-| Y3 | `render_queue.py`: status `"interrompido"` + `discard_partial_output` + `run_job` marca e repropaga `KeyboardInterrupt` (XF1), TDD. Detalhe: plano § Task 3. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 23 passed — **done**, commit `23fdcc8` |
-| Y4 | Engine: ligar `estimate_eta(..., in_flight_elapsed=...)` e `discard_partial_output` no loop `--batch`, sair com 130 na interrupção. Detalhe: plano § Task 4. | `executor` | `Reels_Encoder_v2_FINAL.py` | `py_compile` limpo; `python -m pytest test_render_queue.py enhance/ ui/ -q` → 384 passed, 4 failed nominais — **done**, commit `baaa66d` (contagem real medida no Y5: `388 passed, 4 failed`, não 384 — `379` do baseline + `9` testes novos de Y2/Y3; as 4 falhas são as nominais de sempre) |
-| Y5 | Smoke test real de interrupção + evidência colada no STATE.md; marcar Y1..Y5 como done no PLAN.md. Detalhe: plano § Task 5. | `executor-pesado` | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md` | evidência real de `exit=130`, ausência de `.mp4` truncado, job refeito na execução seguinte, ETA > `00:00` no último job (ou achado novo registrado se algo divergir) — **done**, commit `3d75423` (todos os quatro critérios medidos com execução real: `exit=130`, `⚡ Interrompidos: 1/3`, `clip2` refeito em `02:10` em vez de `○ pulado`, ETA do último job de `02:13` até `00:00`; `kill -INT` do git-bash e `CTRL_C_EVENT` não entregam sinal neste ambiente — o `KeyboardInterrupt` foi entregue de verdade na main thread via `_thread.interrupt_main()` rodando o `--batch` real, sem tocar código de produção; achado novo `YF1` registrado no FINDINGS.md) |
+| Z1 | Remover a tupla `("Instalar FFmpeg completo", [...])` de `TOOLS` em `ui/launcher.py:60`. Atualizar `docs/launcher-portavel-reels-encoder.md` (linhas 55, 86, 226) removendo a referência à opção de menu, se a doc listar as opções numeradas. Atualizar `ui/test_launcher.py`: `test_tools_flow_runs_tool_then_returns_to_menu` e `test_tools_flow_subprocess_exception_does_not_crash` hardcodam `ask_choice=[..., 6, ...]` assumindo "Voltar" = índice 6 (5 itens em `TOOLS` + 1); com `TOOLS` em 4 itens, "Voltar" passa a ser índice 5 — ajustar a sequência de índices desses 2 testes para bater com o novo tamanho do menu, sem mudar o que cada teste verifica. | `executor` | `ui/launcher.py`, `docs/launcher-portavel-reels-encoder.md`, `ui/test_launcher.py` | `py_compile ui/launcher.py` limpo; `python -m pytest ui/ -q` sem regressão (baseline: mesmas 4 falhas nominais pré-existentes, ver Notas); commit feito — **done**, commit `bf6d637` |
+| Z2 | Revisão de control-flow do wizard pós-remoção (índices de menu, `cfg` vinculado, ordem de dispatch). | `ui-flow-reviewer` | `ui/launcher.py` | veredito: sem branch morto, sem drift de índice — reporta ponteiro + veredito — **done**, `FLOW OK`, sem achados; `pytest ui/ -v` → 128 passed, 2 failed (as 2 falhas nominais pré-existentes, sem relação) |
 
 ## Notas de execução
 
-- Baseline de regressão a preservar (inalterado desde os ciclos V/W/X):
-  `python -m pytest test_render_queue.py enhance/ ui/ -q` → `379 passed, 4
-  failed`. As 4 falhas nominais pré-existentes — `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
-  `enhance/test_ebu_meter.py::test_ffplay_args_basic`,
-  `ui/test_readme_assets.py::test_anchor_strings_present`,
-  `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`.
-- Y1 é pré-requisito de Y2-Y5 (produz os IDs `XF1`/`XF2`/`XF3` citados nas
-  mensagens de commit). Y2 e Y3 tocam os mesmos dois arquivos e devem ser
-  sequenciais (Y3 assume a assinatura de `estimate_eta` que Y2 introduz).
-  Y4 consome as interfaces de Y2 e Y3. Y5 depende de Y4 commitado.
-- Não alterar o caminho single-file (`Reels_Encoder_v2_FINAL.py:4411-4424`)
-  — já correto, fora de escopo.
-- Não ampliar o escopo para `<base>_temp.mp4` órfão do remux do átomo
-  `colr` — registrar como achado novo se observado no smoke test, não
-  corrigir neste ciclo.
-- Mudança de comportamento deliberada: `--batch` passa a sair com **130**
-  em interrupção (hoje sai `1`), alinhando com o caminho single-file.
-- Retorno de cada agente: ponteiro + veredito (uma linha por ID + sha do
-  commit). Detalhe vai para `STATE.md`.
+- Baseline de regressão a preservar: `python -m pytest test_render_queue.py enhance/ ui/ -q` → `388 passed, 4 failed` (falhas nominais pré-existentes, listadas em ciclos anteriores: `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`, `enhance/test_ebu_meter.py::test_ffplay_args_basic`, `ui/test_readme_assets.py::test_anchor_strings_present`, `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`).
+- Não remover/alterar `tools/fetch_ffmpeg.ps1` nem o hint em `launcher.ps1`.
+- Retorno de cada agente: ponteiro + veredito (uma linha por ID + sha do commit). Detalhe vai para `STATE.md`.
