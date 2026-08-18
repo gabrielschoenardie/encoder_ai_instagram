@@ -156,6 +156,12 @@ def run_job(
         # O KeyboardInterrupt chega na main thread (aqui), nunca no worker: o
         # `except Exception` de _target nao ve BaseException. Sem isto o job
         # ficaria preso em "processando" com finished_at=None.
+        # `log_text` so e atribuido depois que o `with console.capture()`
+        # sai normalmente dentro de `_target`, o que uma interrupcao no
+        # meio do encode impede: aqui ele ainda esta no valor inicial ""
+        # (a worker thread nunca chega a fechar o context manager). Ou
+        # seja, job.log fica vazio para um job interrompido durante o
+        # encode, nao o log parcial capturado ate aquele ponto.
         job.finished_at = time.time()
         job.log = log_text
         job.status = "interrompido"

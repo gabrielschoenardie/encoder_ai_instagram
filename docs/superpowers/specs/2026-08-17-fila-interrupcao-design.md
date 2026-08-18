@@ -55,9 +55,14 @@ ter encerrado.
 
 A correção estrutural é envolver o laço `while worker.is_alive():` num
 `try`/`except KeyboardInterrupt:` na main thread, marcar o job como
-`"interrompido"` (com `finished_at` e o log capturado até aquele ponto) e
+`"interrompido"` (com `finished_at` e `job.log = log_text`) e
 **repropagar** a exceção — o chamador (`Reels_Encoder_v2_FINAL.py`) decide
 o que fazer com a fila (parar tudo, remover output parcial, sair com 130).
+Na prática `job.log` fica vazio (`""`) quando a interrupção cai durante o
+encode: `log_text` só é atribuído depois que o `with console.capture()`
+sai normalmente dentro de `_target`, e uma interrupção no meio do job
+nunca deixa a worker thread chegar lá — o buffer de captura ainda não foi
+fechado nesse ponto. Não é o log parcial capturado até aquele ponto.
 
 **Consequência para os testes.** Um `encode_fn` que levanta
 `KeyboardInterrupt` diretamente **não** reproduz o cenário real: `_target`
