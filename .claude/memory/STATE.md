@@ -1621,3 +1621,349 @@ verificação contra o `main` novo.
 X1 (retomado após correção do Orquestrador, plano atualizado em `3b8bd2d`) | done | render_queue.py, test_render_queue.py | `console.capture()` movido para dentro de `_target()` (worker thread) por instrução explícita do Orquestrador — thread principal só lê `failure`/`log_text` via `nonlocal` depois de `worker.join()` (happens-before). `python -m pytest test_render_queue.py -v` → `14 passed in 0.53s`, todos os testes incluindo `test_run_job_marks_failure_and_captures_log`. Commit `d14d4a9`.
 | X2 | done | Reels_Encoder_v2_FINAL.py | Código literal do plano § Task 2 aplicado sem desvio: `_refresh_table()` extraída dentro do `with Live(...) as live:`, chamada no caminho "pulado" e após cada `run_job`, passada como `on_tick=_refresh_table` para `render_queue.run_job(job, _do_encode, console, on_tick=_refresh_table)`. `python -m py_compile Reels_Encoder_v2_FINAL.py` → sem saída, exit 0. `python -m pytest test_render_queue.py enhance/ ui/ -q` → `4 failed, 379 passed in 5.34s`, exatamente as 4 falhas nominais do baseline (`enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`, `enhance/test_ebu_meter.py::test_ffplay_args_basic`, `ui/test_readme_assets.py::test_anchor_strings_present`, `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`), zero falhas novas. Commit `1fd79c4`.
 | X3 | done | .claude/memory/STATE.md | Smoke test real (plano § Task 3, adaptado p/ Windows: `tempfile.mkdtemp()`/`tempfile.mkstemp()` em vez de `/tmp` literal). Fila com 1 clipe (`teste.mp4` copiado p/ pasta IN via `tempfile.mkdtemp`), `python Reels_Encoder_v2_FINAL.py --batch <IN> --output-dir <OUT> --performance speed --enhance off` redirecionado p/ arquivo de log (`tempfile.mkstemp`) — exit code 0. Log inspecionado (34 linhas): coluna Duração da linha do clipe aparece só **uma vez**, com o valor final (`00:29`), tanto na tabela do job quanto no "Resumo da fila" — **limitação de ambiente confirmada, não falha do fix**: o redirecionamento não-interativo do `> log 2>&1` só captura o snapshot final que o `rich.Live` escreve ao encerrar (mais o output bruto do `x264`/console de progresso do encode em si), não os frames intermediários do `live.update()` chamados via `on_tick` a cada ~250ms — exatamente a limitação já antecipada no plano § Task 3 Step 2 ("se o terminal não é interativo... documentar isso explicitamente"). O mecanismo de tick em si já está provado pelo teste automatizado `test_run_job_calls_on_tick_while_encode_runs` (X1, `tick_count["n"] >= 2` com `tick_interval=0.05`) — essa é só a confirmação best-effort adicional, não bloqueante, conforme o próprio PLAN.md previa. Cleanup: `shutil.rmtree` nas pastas IN/OUT temporárias + remoção do arquivo de log; `git status --short` pós-cleanup mostra só `.claude/memory/PLAN.md` (M pré-existente, não tocado por este item), `.claude/memory/STATE.md` (M, esta edição) e 2 untracked pré-existentes não relacionados (`docs/launcher-portavel-reels-encoder.md`, `videos/`) — nenhum resíduo do smoke test. Suíte completa re-executada: `python -m pytest test_render_queue.py enhance/ ui/ -q` → `4 failed, 379 passed in 5.39s`, exatamente as mesmas 4 falhas nominais do baseline, zero regressão nova.
+
+## Ciclo Y — interrupção segura, log e ETA — 2026-08-17
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| Y5 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Smoke test real de ponta a ponta: `exit=130` real, `⚡ Interrompidos: 1/3`, job interrompido **refeito** (não `○ pulado`) na execução seguinte, ETA `01:59` > `00:00` durante o último job. Um achado novo registrado: `YF1` (janela em que `discard_partial_output` falha no Windows). Detalhe colado abaixo. |
+
+### Ambiente
+
+Windows 10 Pro 10.0.19045, git-bash (MSYS), Python 3.12.10, ffmpeg 7.1.1-full_build-www.gyan.dev.
+Pastas do smoke test dentro do worktree (`./.smoke/batch_in`, `./.smoke/batch_out`) em vez de
+`/tmp/batch_in` e `/tmp/batch_out` do plano — decisão de ambiente, para não depender de como
+`/tmp` resolve no git-bash local. Removidas ao final (ver § Cleanup).
+
+### Suíte
+
+```
+$ python -m pytest test_render_queue.py enhance/ ui/ -q
+=========================== short test summary info ===========================
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionErr...
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: as...
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeE...
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - Assertion...
+4 failed, 388 passed in 5.37s
+```
+
+As 4 falhas são exatamente as nominais do baseline. `388 passed` = `379` do baseline
+pré-ciclo + `9` testes novos das Tasks 2/3.
+
+```
+$ python -m pytest test_render_queue.py -q -k "discard_partial_output"
+..                                                                       [100%]
+2 passed, 21 deselected in 0.12s
+```
+
+### Step 1 — pasta de batch
+
+`ffmpeg -version` presente no PATH (`ffmpeg version 7.1.1-full_build-www.gyan.dev`). 3 clipes
+sintéticos gerados exatamente com o comando do plano
+(`testsrc=size=1080x1920:rate=30:duration=8` + `sine=frequency=440:duration=8`,
+`-c:v libx264 -c:a aac -shortest`), só com o caminho trocado:
+
+```
+gen_exit=0
+total 552
+drwxr-xr-x 1 Usuario 197121      0 Aug 17 21:36 .
+drwxr-xr-x 1 Usuario 197121      0 Aug 17 21:36 ..
+-rw-r--r-- 1 Usuario 197121 187935 Aug 17 21:36 clip1.mp4
+-rw-r--r-- 1 Usuario 197121 187935 Aug 17 21:36 clip2.mp4
+-rw-r--r-- 1 Usuario 197121 187935 Aug 17 21:36 clip3.mp4
+```
+
+### Step 2a — `kill -INT` do git-bash NÃO entrega o sinal (condição do escape hatch)
+
+Comando literal do plano (`python ... --batch ... &` / `sleep 12` / `kill -INT $PID` /
+`wait $PID; echo "exit=$?"` / `ls -la`):
+
+```
+=== ls batch_out ANTES ===
+total 4
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 21:35 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 21:36 ..
+=== run ===
+exit=130
+=== ls batch_out DEPOIS ===
+total 10940
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:43 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:36 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:39 clip1_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:39 clip1_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2761 Aug 17 21:39 clip1_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:41 clip2_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:41 clip2_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2760 Aug 17 21:41 clip2_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:43 clip3_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:43 clip3_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2761 Aug 17 21:43 clip3_Hollywood_CRF18.qc.json
+```
+
+O `exit=130` acima é **artefato do shell MSYS, não do processo**: os três jobs rodaram até o
+fim, 7 minutos depois do `kill -INT`. Fim real do log da mesma execução:
+
+```
+✓ Sucesso:  3/3
+Tempo total da fila: 06:55
+```
+
+Segunda tentativa de sinal real, com `CREATE_NEW_PROCESS_GROUP` +
+`os.kill(pid, signal.CTRL_C_EVENT)` a partir de um pai Python:
+
+```
+sent=CTRL_C_EVENT ok
+child_rc= TIMEOUT (nao interrompido)
+```
+
+Também não entrega. Confirmado: **este ambiente não entrega um Ctrl+C de console** a um
+Python+ffmpeg Win32 nativo — a condição exata do escape hatch pré-autorizado do plano.
+
+### Step 2b — interrupção real via `_thread.interrupt_main()` (em vez de parar no teste unitário)
+
+Em vez de cair direto no escape hatch (validar `XF1` só pelo teste unitário), foi executado o
+caminho `--batch` **real e completo** (`runpy.run_path(".../Reels_Encoder_v2_FINAL.py",
+run_name="__main__")` com o `sys.argv` do plano), entregando um `KeyboardInterrupt` **real na
+main thread** via `_thread.interrupt_main()` a partir de uma thread-timer — o mesmo mecanismo
+que o CPython usa para o Ctrl+C do console, e exatamente o ponto de entrega que o fix assume
+(spec § Architecture). Nenhum código de produção foi tocado nem monkey-patchado.
+
+Interrupção aos 200 s (job 1 concluído, job 2 em voo):
+
+```
+=== ls batch_out ANTES ===
+total 8
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 21:46 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 21:46 ..
+=== run (interrupt em 200s) ===
+exit_do_processo=130
+=== ls batch_out DEPOIS ===
+total 3652
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:48 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:46 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:48 clip1_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:48 clip1_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2759 Aug 17 21:48 clip1_Hollywood_CRF18.qc.json
+```
+
+Relatório final real (colado do log):
+
+```
+                           Job 2 de 3  ·  ETA: 03:29
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:15
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⏳       01:02
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+
+⚠ Fila interrompida pelo usuário
+
+────────────────────────── 📊 Fila — Relatório Final ──────────────────────────
+                                Resumo da fila
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:15
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⚡           —
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+
+✓ Sucesso:  1/3
+⚡ Interrompidos: 1/3
+Tempo total da fila: 02:15
+
+exit=130
+```
+
+Bate com o esperado do plano: `exit=130`, `⚡ Interrompidos: 1/3`, nenhum `.mp4` do job
+interrompido em `batch_out`, job já concluído preservado. Nota: a linha
+`● output parcial removido: ...` **não** apareceu — aos 200 s o job 2 ainda estava na fase de
+análise e o ffmpeg ainda não havia criado o arquivo de saída, então `discard_partial_output`
+devolveu `False` sem nada para remover. Ver `YF1` para o que acontece quando o arquivo
+**existe**.
+
+### Step 3 — o job interrompido é refeito, não pulado (prova direta do XF1)
+
+```
+=== ls batch_out ANTES ===
+total 3652
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:48 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:50 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:48 clip1_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:48 clip1_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2759 Aug 17 21:48 clip1_Hollywood_CRF18.qc.json
+=== run completo ===
+exit=0
+=== ls batch_out DEPOIS ===
+total 10940
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:55 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 21:50 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:48 clip1_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:48 clip1_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2759 Aug 17 21:48 clip1_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:52 clip2_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:52 clip2_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2759 Aug 17 21:52 clip2_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 21:55 clip3_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 17 21:55 clip3_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2761 Aug 17 21:55 clip3_Hollywood_CRF18.qc.json
+```
+
+Relatório final real:
+
+```
+────────────────────────── 📊 Fila — Relatório Final ──────────────────────────
+                                Resumo da fila
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ○            —
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:10
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:10
+
+✓ Sucesso:  2/3
+○ Pulados:  1/3
+Tempo total da fila: 04:20
+```
+
+Exatamente o esperado: clip1 (concluído antes da interrupção) = `○ pulado`; **clip2 (o
+interrompido) = `✓`, reprocessado do zero em 02:10, não pulado**; clip3 = `✓`.
+
+### Step 4 — ETA > 00:00 durante o último job (XF3)
+
+O `rich.Live` só escreve o frame final quando a saída é um pipe, então o log vanilla do Step 3
+registra apenas uma linha de título — e nela os 3 jobs já tinham terminado:
+
+```
+$ grep -n "ETA:" step3.log
+37:                           Job 3 de 3  ·  ETA: 00:00
+```
+
+Para observar o título **durante** o último job, o mesmo estado do Step 3 foi reproduzido (só
+`clip1_*` em `batch_out`) e a execução repetida com `FORCE_COLOR=1`, que faz o Rich emitir
+todos os frames de refresh. Nada além do rendering muda. Linha de título observada com o
+**último** job em voo:
+
+```
+                           Job 3 de 3  ·  ETA: 01:59
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ○            —
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:13
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⏳       00:14
+```
+
+Contagem regressiva completa no job 3 (498 frames com `Job 3 de 3`), do máximo até zero:
+
+```
+$ grep -a -o "Job 3 de 3  ·  ETA: [0-9][0-9:]*" step4.log | head -6
+Job 3 de 3  ·  ETA: 02:13
+Job 3 de 3  ·  ETA: 02:13
+Job 3 de 3  ·  ETA: 02:13
+Job 3 de 3  ·  ETA: 02:12
+Job 3 de 3  ·  ETA: 02:12
+Job 3 de 3  ·  ETA: 02:12
+$ grep -a -o "Job 3 de 3  ·  ETA: [0-9][0-9:]*" step4.log | tail -3
+Job 3 de 3  ·  ETA: 00:00
+Job 3 de 3  ·  ETA: 00:00
+Job 3 de 3  ·  ETA: 00:00
+$ grep -a -o "Job 3 de 3  ·  ETA: [0-9][0-9:]*" step4.log | sort -t: -k2 | tail -1
+Job 3 de 3  ·  ETA: 02:13
+```
+
+`XF3` provado: no último job (`remaining == 0`) o ETA parte de `02:13` e decresce até `00:00`,
+em vez de exibir `00:00` durante o encode inteiro.
+
+### Achado novo — YF1 (registrado em FINDINGS.md, não corrigido aqui)
+
+Sondagem da janela em que o `.mp4` parcial existe de fato no disco (poll a cada 5 s no
+`batch_out` durante o job 1; linhas `mp4=nao` omitidas):
+
+```
+t=115s mp4=SIM size=0
+t=120s mp4=SIM size=524336
+t=125s mp4=SIM size=1310768
+t=130s mp4=SIM size=2097200
+t=135s mp4=SIM size=3710103
+t=140s mp4=SIM size=3710103
+t=140s job1 CONCLUIDO
+probe done
+```
+
+Interrupção real dentro dessa janela (125 s), com o parcial já no disco:
+
+```
+=== ls batch_out ANTES ===
+total 8
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 22:06 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 17 22:06 ..
+=== run (interrupt em 125s, com o .mp4 parcial ja no disco) ===
+exit_do_processo=130
+=== ls batch_out DEPOIS ===
+total 1800
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:08 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:06 ..
+-rw-r--r-- 1 Usuario 197121 1310768 Aug 17 22:08 clip1_Hollywood_CRF18.mp4
+```
+
+```
+$ grep -a -n "output parcial|Fila interrompida|Interrompidos|Sucesso|exit=" step2d.log
+33:⚠ Fila interrompida pelo usuário
+44:✓ Sucesso:  0/3
+45:⚡ Interrompidos: 1/3
+48:exit=130
+```
+
+`⚡ Interrompidos: 1/3` e `exit=130` corretos, mas **o parcial de 1310768 bytes sobreviveu** e a
+linha `● output parcial removido:` não foi impressa — `discard_partial_output` devolveu `False`
+(o `os.remove` falha porque o ffmpeg filho, órfão, ainda mantém o arquivo aberto no Windows).
+Segundos depois esse ffmpeg órfão terminou de escrever sozinho e morreu:
+
+```
+$ ffprobe -v error -show_entries format=duration,size -of default=nw=1 clip1_Hollywood_CRF18.mp4
+duration=8.000000
+size=3710103
+ffprobe_exit=0
+$ ls -la .smoke/batch_out
+total 3632
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:08 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:06 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 22:08 clip1_Hollywood_CRF18.mp4
+$ tasklist | grep -i ffmpeg
+nenhum ffmpeg em execucao agora
+```
+
+Consequência confirmada na execução seguinte — o output do job interrompido é promovido a
+pronto:
+
+```
+=== ls batch_out ANTES (sobrou o output do job interrompido) ===
+total 3632
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:08 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 17 22:08 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 17 22:08 clip1_Hollywood_CRF18.mp4
+=== run seguinte (interrompido em 20s so para ler o status do job 1) ===
+exit_do_processo=130
+=== frame ===
+                           Job 2 de 3  ·  ETA: --:--
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ○            —
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⏳       00:17
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+
+⚠ Fila interrompida pelo usuário
+```
+
+Nenhum `.qc.json`/`.qc.html` foi gerado para esse arquivo — ele nunca passou pelo pós-encode
+(remux do átomo `colr`, QC), mas o loop o trata como pronto. Registrado como `YF1`; **não
+corrigido neste ciclo** (fora do escopo do PLAN.md do Ciclo Y). Nenhum `<base>_temp.mp4` órfão
+foi observado em nenhuma das execuções — o risco residual citado na Self-Review do plano não
+se materializou.
+
+### Cleanup
+
+`.smoke/` (clipes de entrada, outputs, logs e scripts do smoke test) removida ao final;
+`git status --short` pós-cleanup colado no relatório da task.
