@@ -4362,7 +4362,22 @@ COMPARAÇÃO:
 
             def _refresh_table() -> None:
                 remaining = sum(1 for j in jobs if j.status == "aguardando")
-                live.update(render_queue.build_table(jobs, render_queue.estimate_eta(jobs, remaining)))
+                in_flight = next(
+                    (j for j in jobs if j.status == "processando"), None
+                )
+                elapsed = (
+                    time.time() - in_flight.started_at
+                    if in_flight is not None and in_flight.started_at is not None
+                    else None
+                )
+                live.update(
+                    render_queue.build_table(
+                        jobs,
+                        render_queue.estimate_eta(
+                            jobs, remaining, in_flight_elapsed=elapsed
+                        ),
+                    )
+                )
 
             for job in jobs:
                 if os.path.exists(job.output_path):
@@ -4379,8 +4394,16 @@ COMPARAÇÃO:
                     render_queue.run_job(job, _do_encode, console, on_tick=_refresh_table)
                 except KeyboardInterrupt:
                     live.stop()
-                    console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
-                    sys.exit(1)
+                    console.print("\n[yellow]⚠ Fila interrompida pelo usuário[/yellow]")
+                    # Paridade com o caminho single-file: um output truncado seria
+                    # tratado como pronto pelo skip da proxima execucao.
+                    if render_queue.discard_partial_output(job):
+                        console.print(
+                            f"[dim]  ● output parcial removido: "
+                            f"{os.path.basename(job.output_path)}[/dim]"
+                        )
+                    render_queue.render_final_report(jobs, console)
+                    sys.exit(130)
 
                 _refresh_table()
 
