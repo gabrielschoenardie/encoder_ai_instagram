@@ -1986,11 +1986,11 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
         cwd=cwd,
     )
     _register_ffmpeg(process)
-    t = threading.Thread(
-        target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
-    )
-    t.start()
     try:
+        t = threading.Thread(
+            target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
+        )
+        t.start()
         with Live(hud.render(), refresh_per_second=7, console=console) as live:
             while process.poll() is None:
                 time.sleep(0.1)
