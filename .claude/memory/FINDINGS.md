@@ -301,7 +301,7 @@ Evidência: leitura direta de `Reels_Encoder_v2_FINAL.py:4367-4383` e `render_qu
 - **XF2:** `run_job` captura stdout do job na worker thread (`render_queue.py:109-114`) mas só transfere para `job.log` dentro do ramo de falha (`:127`). Antes do Ciclo V essa saída rolava visível no terminal; agora some. Não há `--verbose` nem log em arquivo para recuperar.
 - **XF3:** O bug é inteiramente do chamador. `estimate_eta` multiplica a média pelo `remaining` que recebe, e o engine passa apenas a contagem de `aguardando` — o job `processando` fica de fora. No último job, `remaining == 0` e o título exibe `ETA: 00:00` durante o encode inteiro.
 
-## Achado — 2026-08-17 (ciclo Y, smoke test real da Task 5) — não corrigido
+## Achado — 2026-08-17 (ciclo Y, smoke test real da Task 5) — CORRIGIDO no ciclo AD
 
 Evidência: execução real do `--batch` interrompida dentro da janela de escrita do ffmpeg; saída completa colada em `.claude/memory/STATE.md` § "Ciclo Y — interrupção segura, log e ETA — 2026-08-17" § "Achado novo — YF1".
 
@@ -312,6 +312,15 @@ Evidência: execução real do `--batch` interrompida dentro da janela de escrit
 - **YF1:** o fix do `XF1` cobre o caso comum (interrupção antes de o ffmpeg criar a saída) — provado no smoke test da Task 5: `exit=130`, `⚡ Interrompidos: 1/3`, job interrompido refeito na execução seguinte. Resta uma janela: quando a interrupção cai **enquanto o ffmpeg escreve** o `.mp4` (medido: t≈113 s a t≈135 s de um job de ~140 s), o `os.remove` de `discard_partial_output` falha com `OSError` porque o subprocesso ffmpeg — que o handler não encerra — ainda mantém o arquivo aberto. O `except OSError: return False` engole o erro, nada é impresso, e a linha `● output parcial removido:` nunca aparece. Pior: o ffmpeg órfão sobrevive à saída do Python e termina de escrever sozinho, deixando um `.mp4` de tamanho "normal" que nunca passou pelo pós-encode (remux do átomo `colr`, `.qc.json`/`.qc.html`) — e que a execução seguinte marca `○ pulado`, exatamente o sintoma que o `XF1` queria eliminar.
 - Correção provável (fora do escopo do Ciclo Y): guardar o `Popen` do ffmpeg do job e chamar `terminate()`/`kill()` no handler de `KeyboardInterrupt` antes de tentar remover, e/ou tornar a falha de remoção visível em vez de silenciosa (avisar que o arquivo pode estar truncado). O `except OSError: return False` foi decisão deliberada do Ciclo Y ("nunca levanta") e continua correta — falta o `terminate()` e o aviso.
 - O caminho single-file (`Reels_Encoder_v2_FINAL.py:4435-4447`) tem a mesma estrutura (`os.remove` guardado por `except OSError: pass`) e provavelmente a mesma janela; não medido nesta task.
+
+### Status (2026-08-18, fechamento do Ciclo AD, Task 9)
+
+| ID | status | onde |
+|----|--------|------|
+| YF1 | **corrigido (x264 e Cineon)** | AD2 (`f98a6b5`, retentativa em `discard_partial_output` + 3 testes) + AD3 (`4656a41`, `terminate_active_ffmpeg()` nos dois handlers de `KeyboardInterrupt` e aviso vermelho quando o parcial sobrevive) + AD4 (smoke test real em Windows, na janela medida, caminho x264/Hollywood_CRF18). Evidência: `.claude/memory/STATE.md` § "Ciclo AD — interrupção robusta (YF1) — 2026-08-18" — os três sintomas verificados na plataforma onde o bug existe, mais o ramo do aviso reproduzido com o handle do parcial preso por um processo separado. O caminho Cineon tinha o mesmo gap (`Popen` da linha ~3486 nunca registrado, ver preocupação #1 do `task-8-report.md`) — fechado depois pela fix wave da revisão final de branch (commits `ed338f2`/`a2578ae`, ver `.claude/memory/STATE.md` § "Fix wave da revisão final de branch — Ciclo AD (2026-08-18)"), com smoke test real confirmando ausência de órfão e de parcial no caminho Cineon também. |
+| ABF3 | **aberto — adiado** | reconfirmado nesta task, entrada acima intocada; segue candidato natural ao próximo ciclo |
+
+- **Cobertura da prova:** o caminho `--batch` foi exercitado de ponta a ponta em Windows real (interrupção em t=125 s com o `.mp4` parcial no disco): sem órfão, parcial removido, `exit=130`, job refeito na execução seguinte; e, forçando a remoção a falhar, o aviso impresso com `exit=130` e ainda sem órfão. O caminho single-file recebeu a **mesma** correção na AD3 (`terminate_active_ffmpeg()` + aviso no `except OSError`) mas **não** foi exercitado por este smoke test — ali a prova é de código e de unitária, não de execução. Registrado para não ser lido como mais do que é.
 
 ## Achado — 2026-08-18 (ciclo AB, auditoria de cobertura de CI) — corrigindo no ciclo AC
 
@@ -346,3 +355,24 @@ Evidência: executor-pesado, Task 4 (`.superpowers/sdd/windows-ci-e-interrupcao-
 
 - **ACF1 (S3):** mesma família da 3ª falha do `ABF1` (`ui/test_readme_assets.py` lia SVG UTF-8 sem `encoding=`), mas do lado do **produto**, não do teste — por isso ficou fora do escopo da Task 4, restrita às 4 falhas listadas pela Task 3. Não é reprodutível com a LUT do próprio repo: `tools/generate_portra400_baseline_lut.py:73` grava com `encoding="ascii"`, e o parser só consome `LUT_3D_SIZE` e números. O risco é o `.cube` de terceiro — Resolve/FCPX gravam UTF-8, e um `TITLE "Portra 400 — Skin"` já basta para estourar em Windows. Fix de uma linha: `open(path, "r", encoding="utf-8")`. Nenhum teste cobre `_load_cube_file` com título não-ASCII.
 - **ACF2 (S4):** não afeta o CI (o runner não exporta `FORCE_COLOR`) nem o baseline do Orquestrador. Aparece em qualquer shell que force cor — o caso concreto foi a sessão do agente da Task 4, com `FORCE_COLOR=3`/`COLORTERM=truecolor` herdados, onde a suíte dá `8 failed, 384 passed` em vez de `4 failed, 388 passed`. Dois dos quatro (`test_run_job_*`) somem com `NO_COLOR=1`; os outros dois (`test_render_final_report_*`) constroem `Console(file=StringIO(), width=120)` e ainda assim recebem ANSI, porque `FORCE_COLOR` vence a detecção de terminal do `rich`. Fix possível em ciclo próprio: passar `no_color=True` nos `Console` de teste, ou comparar contra o texto sem ANSI. Enquanto não corrigido, medir a suíte com `FORCE_COLOR` fora do ambiente — é a diferença entre o baseline do Orquestrador e o do agente.
+
+## Achado — 2026-08-18 (ciclo AD, smoke test do fix I2) — não corrigido neste ciclo
+
+Evidência: observado durante o smoke test manual do fix I2 (registro do `Popen` Cineon em
+`_register_ffmpeg`), mesma sessão descrita em `.claude/memory/STATE.md` § "Fix wave da
+revisão final de branch — Ciclo AD (2026-08-18)". Mesma família de defeito do `YF1`/`ABF1`
+(processo ffmpeg não registrado / não observado em interrupção) — não corrigido neste ciclo,
+candidato a ciclo futuro.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| ADF1 | processo não registrado (fase de análise) | `cineon_pipeline.py`/`Reels_Encoder_v2_FINAL.py` (`subprocess.run` de probes de loudnorm e de-rotação, não o `Popen` principal do encode) | `subprocess.run()` de análise (loudnorm, de-rotação) não passa por `_register_ffmpeg`; pode sobreviver segundos após `exit=130` | S4 | esperado: todo subprocesso ffmpeg registrado e encerrado por `terminate_active_ffmpeg()`; medido: os `subprocess.run()` de fase de análise seguem fora do registro, auto-terminam sozinhos em segundos |
+
+- **ADF1 (S4, mais branda que o `YF1`):** mesma classe de gap do `YF1`/`ABF1` (processo
+  ffmpeg fora de `_register_ffmpeg`), mas em outro ponto do pipeline — os `subprocess.run()`
+  de fase de análise (probes de loudnorm, de-rotação), não o `Popen` principal do encode.
+  Diferença relevante: esses processos de análise **nunca escrevem o arquivo de saída
+  final**, então não produzem o sintoma enganoso do `YF1` (um `.mp4` "íntegro" que passa
+  despercebido e é promovido a `○ pulado`). Eles auto-terminam sozinhos em poucos segundos
+  após o `exit=130`, sem deixar artefato de entrega corrompido. Não corrigido neste ciclo —
+  candidato a ciclo futuro, mesma família do `YF1`/`ABF1`.
