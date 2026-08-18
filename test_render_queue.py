@@ -249,8 +249,10 @@ def test_discard_partial_output_retries_until_handle_is_released():
 
 def test_discard_partial_output_gives_up_after_attempts():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    calls = {"remove": 0}
 
     def always_locked(path):
+        calls["remove"] += 1
         raise OSError(13, "Permission denied")
 
     ok = discard_partial_output(
@@ -263,6 +265,7 @@ def test_discard_partial_output_gives_up_after_attempts():
     )
 
     assert ok is False
+    assert calls["remove"] == 3
 
 
 def test_discard_partial_output_does_not_sleep_when_first_try_wins():
