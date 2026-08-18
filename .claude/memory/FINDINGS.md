@@ -327,6 +327,14 @@ Evidência: leitura de `.github/workflows/ci.yml`; comparação entre o comando 
 - **ABF2:** O job `tests` executa `pytest enhance/ ui/ -v --timeout=60`. O `test_render_queue.py` mora na raiz do repo, fora dos dois diretórios. Consequência: os 23 testes da fila de render — 14 do Ciclo X mais os 9 do Ciclo Y — nunca rodaram no CI. Toda a validação do modo `--batch` depende hoje de execução manual. É o achado mais barato de corrigir e o de maior retorno.
 - **ABF3:** Registrado e **adiado deliberadamente**. Alargar o `ruff` para o repo inteiro num arquivo de 4453 linhas que nunca foi lintado produz um volume de erros que exige ciclo próprio; misturá-lo aqui inviabilizaria a revisão do Ciclo AC.
 
+### Status (2026-08-18, fechamento do Ciclo AC, Task 5)
+
+| ID | status | onde |
+|----|--------|------|
+| ABF1 | **corrigido** | Task 3 (matriz de SO, commits `618b5f9`/`20f0967`/`2fbd858`) + Task 4 (as 4 falhas reais corrigidas, zero `skipif`) + Task 5 (commit `cc0e99c`, `continue-on-error` removido — perna Windows agora bloqueante); evidência de verde no run `32166523153` |
+| ABF2 | **corrigido** | Task 2 — `test_render_queue.py` incluído no alvo do `pytest` do job `tests` |
+| ABF3 | **aberto — adiado** | fora do escopo do Ciclo AC; candidato a ciclo futuro |
+
 ## Achado — 2026-08-18 (ciclo AC, Task 4 — correção das 4 falhas de Windows) — não corrigido
 
 Evidência: executor-pesado, Task 4 (`.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-4-brief.md`), enquanto classificava as 4 falhas do `ABF1`. Nenhum dos dois itens abaixo é uma das 4; ambos apareceram ao procurar a mesma família de defeito em volta delas. **Zero `skipif` foi concedido na Task 4** — nenhuma das 4 falhas era "ausência de ffmpeg" nem "genuinamente só-POSIX", então todas foram corrigidas de verdade (3 commits, ver `STATE.md` § "Ciclo AC — Task 4") e não há dívida silenciosa a registrar aqui.

@@ -2125,3 +2125,31 @@ condição do CI e a do baseline do Orquestrador. Todos os números acima foram 
 
 As duas pernas Windows do CI **não** foram verificadas aqui: push e leitura do CI real
 ficaram explicitamente com o Orquestrador (instrução da task).
+
+## Ciclo AC — Task 5 (fecha o Ciclo AC) — 2026-08-18
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AC5-S1 | done | (só verificação) | Step 1 satisfeito com evidência real já colhida pelo Orquestrador: run de CI `32166523153` (branch deste worktree, via PR #41 aberto só para disparar o workflow) — os 7 jobs do workflow `CI` terminaram `success`, incluindo `Tests (windows-latest, Python 3.11): success` e `Tests (windows-latest, Python 3.12): success`. Nenhum `skipif` pendente de justificativa (Task 4 corrigiu as 4 falhas reais, zero `skipif` concedido). Nada reproduzido nesta máquina; o run é citado diretamente conforme instrução do Orquestrador. |
+| AC5-S2 | done | .github/workflows/ci.yml | Removida a linha `continue-on-error: ${{ matrix.os == 'windows-latest' }}` e o comentário de duas linhas acima dela ("A perna Windows entra não-bloqueante..."); `fail-fast: false` mantido intocado. `python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml')); print('OK')"` → `OK`. |
+| AC5-S3 | done | .github/workflows/ci.yml | Commit `cc0e99c` ("ci: tornar a perna windows bloqueante no job tests (fecha ABF1)"), 1 file changed, 3 deletions(-). **Nenhum push** foi feito — fica a cargo do Orquestrador, conforme instrução recebida. |
+| AC5-S4 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | `PLAN.md`: linha AC5 marcada **done** com sha `cc0e99c`; AC1–AC4 também anotadas **done** explicitamente (antes só descritas em prosa, sem o marcador). `FINDINGS.md`: nova seção "Status (2026-08-18, fechamento do Ciclo AC, Task 5)" — ABF1 e ABF2 marcados **corrigido**, ABF3 mantido **aberto — adiado**. |
+
+### Nota sobre a contagem de jobs (Step 4)
+
+A contagem real do workflow `CI` confirmada pelo run `32166523153` é **7 jobs**, não 6
+como uma nota antiga do brief da Task 5 estimava: `Lint (ruff)` ×1, `Tests` ×4 (2 SO × 2
+versões de Python: ubuntu-latest/windows-latest × 3.11/3.12), `Pester (launcher.ps1)` ×2
+(ubuntu-latest + windows-latest). Os 7 terminaram `success` nesse run, incluindo as duas
+pernas Windows do job `tests` — na época do run `32166523153` essa perna ainda era
+non-blocking (`continue-on-error: true`), mas o resultado real já era verde.
+
+### O que falta (fora do alcance desta task)
+
+O Step 2 (remoção do `continue-on-error`) só foi commitado (`cc0e99c`) DEPOIS do run
+`32166523153` — ou seja, ainda não existe um run de CI real que prove a perna Windows
+bloqueante **e** verde ao mesmo tempo (a evidência atual prova "verde", não "verde com a
+rede de segurança removida"). Registrado explicitamente aqui: a confirmação final "perna
+Windows bloqueante e verde" fica para o Orquestrador, após o push deste commit — ele
+mesmo registra o run novo (ou chama o executor de volta com o número do run). Nenhum run
+posterior a `cc0e99c` foi inventado ou presumido nesta entrada.
