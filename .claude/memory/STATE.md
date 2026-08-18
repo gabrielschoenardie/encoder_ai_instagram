@@ -2168,3 +2168,9 @@ Pester (launcher.ps1) (windows-latest): success
 ```
 
 Lacuna fechada.
+
+## Ciclo AD — Task 6 (abrir o ciclo, YF1) — 2026-08-18
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AD1 | done | .claude/memory/PLAN.md | reescrito para Ciclo AD (YF1), tabela AD1..AD4 espelhando Tasks 6-9, commit 86a5d93 |
