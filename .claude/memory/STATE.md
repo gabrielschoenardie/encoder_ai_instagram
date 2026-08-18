@@ -1982,3 +1982,11 @@ se materializou.
 | AB5 | done | enhance/__init__.py, enhance/test_processors.py | docstrings de módulo limpos, resto da frase preservado |
 | AB6 | done | enhance/test_mock_cnn.py, enhance/test_processors.py | 3 prints de banner de teste limpos, bordas `=`/`─` não realinhadas (não fazia parte do critério) |
 | AB7 | done | (verificação) | grep `-ri "fase 27\|fase27"` repo-wide: zero match fora de `.claude/memory/PLAN.md` (não editável); `pytest enhance/ ui/ -q` → 4 failed/365 passed, mas 2 falhas extras (`test_ebu_meter.py::test_measure_cmd_basic_shape`, `::test_ffplay_args_basic`) confirmadas pré-existentes via `git stash` antes das edições — baseline preservado; commit 7422051 |
+
+## Ciclo AC — Task 3 (Steps 1-3) — 2026-08-18
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AC3 (steps 1-3) | done (parcial) | .github/workflows/ci.yml | job tests convertido p/ matriz os:[ubuntu-latest,windows-latest] x python-version, continue-on-error só na perna windows-latest, fail-fast:false; nenhum step da tests precisou de shell: bash (nenhum run: usa sintaxe POSIX-only); commit 618b5f9, sem push |
+
+Step 4 (colher a lista real de FAILED em Windows via logs do CI) fica pendente — nao ha acesso a um run de CI real neste worktree local; responsabilidade do orquestrador apos push+PR. AC3 so fecha (criterio de done completo) quando essa lista for registrada aqui.
