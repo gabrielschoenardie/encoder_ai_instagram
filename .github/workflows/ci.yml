@@ -27,9 +27,6 @@ jobs:
   tests:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    # A perna Windows entra nao-bloqueante ate a lista real de falhas ser
-    # corrigida (ABF1). Vira bloqueante na task AC5.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
