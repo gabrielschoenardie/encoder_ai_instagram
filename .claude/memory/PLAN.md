@@ -1,56 +1,62 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo X: progresso ao vivo durante o job (VF2)
+# PLAN — Ciclo Y: interrupção segura, log preservado e ETA correto (XF1/XF2/XF3)
 
-Data: 2026-08-16 | Ciclo: X | Origem: usuário testou o fix do `VF1` (Ciclo W) no
-terminal real e reportou que o `--batch` "parece travado" durante um job — sem
-crash, sem erro, só sem nenhum sinal visual de progresso. Achado:
-`.claude/memory/FINDINGS.md` § "Ciclo W, gap de UX descoberto ao corrigir VF1"
-(`VF2`). Plano detalhado (código literal):
-`docs/superpowers/plans/2026-08-16-render-queue-live-progress.md`.
+Data: 2026-08-17 | Ciclo: Y | Origem: auditoria pós-fila (Ciclo X) — achados
+`XF1`/`XF2`/`XF3` em `.claude/memory/FINDINGS.md` § "Achado — 2026-08-17
+(ciclo X, auditoria pós-fila)". Plano detalhado (código literal):
+`docs/superpowers/plans/2026-08-17-fila-interrupcao.md`. Spec:
+`docs/superpowers/specs/2026-08-17-fila-interrupcao-design.md`.
 
 ## Diagnóstico
 
-`render_queue.run_job` (Ciclo V) chama `encode_fn()` de forma **bloqueante**
-— o loop principal do `--batch` fica parado esperando o encode inteiro
-terminar, sem chance de redesenhar a tabela nesse meio-tempo. `rich.live.Live`
-só repinta o que foi explicitamente mandado via `.update()`; sem chamadas
-novas durante o job, a tabela fica congelada do início ao fim.
+`XF1`: `Ctrl+C` durante `--batch` para o `Live`, imprime um aviso e sai com
+1 — sem remover o `.mp4` truncado do job em andamento. Como o loop pula
+qualquer job cujo output já exista, o arquivo parcial é promovido a
+"pronto" na execução seguinte, entregando vídeo cortado. O caminho
+single-file já resolve isso desde o PR #22; o batch nunca ganhou
+equivalente.
 
-Antes do Ciclo W, a barra "MCTF masks" (que não passava pela nossa captura,
-por usar o console global do Rich — achado `VF1`) era, sem querer, o único
-sinal de vida visível durante um job longo. Corrigir `VF1` removeu esse sinal
-acidental e expôs o gap real do design original do Ciclo V.
+`XF2`: `run_job` captura a saída de cada job via `console.capture()` na
+worker thread, mas só transfere o buffer para `job.log` no ramo de falha.
+Avisos legítimos de um job bem-sucedido (preflight, MCTF, dither) são
+descartados sem deixar rastro.
 
-Fix: `run_job` roda `encode_fn` numa `threading.Thread` em background; o
-loop principal chama um callback `on_tick` a cada ~250ms enquanto a thread
-roda, redesenhando a tabela. `build_table` calcula a duração **ao vivo**
-(`time.time() - job.started_at`) para o job com `status == "processando"`,
-em vez do `"—"` estático atual — um cronômetro que incrementa é a prova
-visual mais direta de "ainda rodando" vs. "travado". Não recria o conflito
-de dois `Live`s do `VF1`: nenhuma `Progress`/`Live` nova é criada, só
-chamadas a `live.update()` do mesmo `Live` que já existe.
+`XF3`: `estimate_eta` multiplica a média de duração pelo `remaining` que
+recebe, e o chamador só passa a contagem de jobs `aguardando` — o job
+`processando` fica fora da conta. No último job da fila, `remaining == 0`
+e o ETA exibe `00:00` durante o encode inteiro.
+
+Causa raiz comum ao XF1: desde o Ciclo X, `encode_fn` roda numa daemon
+thread; o CPython só entrega `KeyboardInterrupt` à main thread (bloqueada
+em `on_tick()`/`worker.join(...)`), então o `except Exception` interno de
+`_target` nunca vê o sinal e o fechamento do job nunca executa. Detalhe
+completo do mecanismo: spec § Architecture.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| X1 | Reescrever `run_job` (thread + `on_tick`/`tick_interval`) e o cálculo de duração em `build_table` (ao vivo para `status == "processando"`), TDD: 2 testes novos primeiro (`on_tick` chamado múltiplas vezes durante um encode fake de 0.2s; duração ticking na tabela), confirmar que falham do jeito certo, então implementar. Código literal: plano § Task 1. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 14 passed — **done**, commit `d14d4a9` (desvio real corrigido em conjunto: `Console.capture()` do Rich é thread-local, `with console.capture()` teve que mover pra dentro de `_target()`/worker thread — plano corrigido em `3b8bd2d` antes do commit final) |
-| X2 | Fiar `on_tick=_refresh_table` no loop `--batch`: extrair a lógica duplicada de `remaining=...; live.update(...)` numa função local `_refresh_table()` dentro do `with Live(...) as live:`, chamada tanto no caminho "pulado" quanto após cada `run_job`, e passada como `on_tick` pro `run_job`. Código literal: plano § Task 2. | `executor` | `Reels_Encoder_v2_FINAL.py` | `py_compile` limpo; `python -m pytest test_render_queue.py enhance/ ui/ -q` → só as 4 falhas nominais do baseline, zero novas — **done**, commit `1fd79c4` (379 passed, 4 failed nominais) |
-| X3 | Smoke test real: batch de 1 clipe, confirmar (via teste automatizado do X1 + inspeção manual da saída) que a coluna Duração incrementa de verdade enquanto o job roda, não só no final. Colar saída real em `STATE.md` § `## Ciclo X`. Passo a passo: plano § Task 3. | `executor` | `.claude/memory/STATE.md` | evidência de duração ticking (ou nota explícita se a captura não-interativa não registrar os frames intermediários); suíte completa sem regressão — **done**, commit `59429d9` (redirecionamento não-interativo só capturou o snapshot final, limitação prevista e documentada; mecanismo já provado pelo teste automatizado do X1; 379 passed, 4 failed nominais — **confirmação visual definitiva pendente do usuário no terminal real**) |
+| Y1 | Registrar os achados XF1/XF2/XF3 e abrir o ciclo: FINDINGS.md, spec, plano salvo, este PLAN.md. Detalhe: plano § Task 1. | `executor` | `docs/superpowers/specs/2026-08-17-fila-interrupcao-design.md`, `docs/superpowers/plans/2026-08-17-fila-interrupcao.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | arquivos criados/atualizados conforme o plano; commit feito |
+| Y2 | `render_queue.py`: preservar `job.log` em qualquer desfecho de `run_job` (XF2) e estender `estimate_eta` com `in_flight_elapsed` (XF3), TDD. Detalhe: plano § Task 2. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 18 passed |
+| Y3 | `render_queue.py`: status `"interrompido"` + `discard_partial_output` + `run_job` marca e repropaga `KeyboardInterrupt` (XF1), TDD. Detalhe: plano § Task 3. | `executor` | `render_queue.py`, `test_render_queue.py` | `python -m pytest test_render_queue.py -v` → 23 passed |
+| Y4 | Engine: ligar `estimate_eta(..., in_flight_elapsed=...)` e `discard_partial_output` no loop `--batch`, sair com 130 na interrupção. Detalhe: plano § Task 4. | `executor` | `Reels_Encoder_v2_FINAL.py` | `py_compile` limpo; `python -m pytest test_render_queue.py enhance/ ui/ -q` → 384 passed, 4 failed nominais |
+| Y5 | Smoke test real de interrupção + evidência colada no STATE.md; marcar Y1..Y5 como done no PLAN.md. Detalhe: plano § Task 5. | `executor-pesado` | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md` | evidência real de `exit=130`, ausência de `.mp4` truncado, job refeito na execução seguinte, ETA > `00:00` no último job (ou achado novo registrado se algo divergir) |
 
 ## Notas de execução
 
-- Baseline de regressão a preservar (inalterado desde os ciclos V/W): 4
+- Baseline de regressão a preservar (inalterado desde os ciclos V/W/X): 4
   falhas nominais pré-existentes — `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
   `enhance/test_ebu_meter.py::test_ffplay_args_basic`,
   `ui/test_readme_assets.py::test_anchor_strings_present`,
   `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`.
-- X1 e X2 são sequenciais (X2 consome a assinatura nova de `run_job` que X1
-  define); X3 depende de X2 commitado.
-- Não mexer no design de captura de log (`console.capture()` continua
-  envolvendo o encode inteiro, agora dentro da thread) nem no fix do `VF1`
-  (barra do MCTF continua desligada em batch) — escopo é só dar sinal de
-  vida durante o job.
-- `on_tick` só é chamado a partir da mesma thread principal que já possui o
-  `Live` — a thread de background só roda `encode_fn`, nunca toca em `live`
-  nem em `render_queue`/`console` diretamente.
+- Y1 é pré-requisito de Y2-Y5 (produz os IDs `XF1`/`XF2`/`XF3` citados nas
+  mensagens de commit). Y2 e Y3 tocam os mesmos dois arquivos e devem ser
+  sequenciais (Y3 assume a assinatura de `estimate_eta` que Y2 introduz).
+  Y4 consome as interfaces de Y2 e Y3. Y5 depende de Y4 commitado.
+- Não alterar o caminho single-file (`Reels_Encoder_v2_FINAL.py:4411-4424`)
+  — já correto, fora de escopo.
+- Não ampliar o escopo para `<base>_temp.mp4` órfão do remux do átomo
+  `colr` — registrar como achado novo se observado no smoke test, não
+  corrigir neste ciclo.
+- Mudança de comportamento deliberada: `--batch` passa a sair com **130**
+  em interrupção (hoje sai `1`), alinhando com o caminho single-file.
 - Retorno de cada agente: ponteiro + veredito (uma linha por ID + sha do
   commit). Detalhe vai para `STATE.md`.
