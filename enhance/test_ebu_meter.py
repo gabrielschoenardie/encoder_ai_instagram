@@ -64,13 +64,24 @@ _SUMMARY_SILENT = """\
 """
 
 
+def _binary_stem(argv0: str) -> str:
+    """Nome do binário em `argv[0]`, sem diretório nem extensão.
+
+    `ui.binaries.resolve_binary` devolve o caminho realmente invocável — o
+    bundle `bin/`, o hit do PATH (`C:\\ffmpeg\\bin\\ffmpeg.EXE`) ou o nome nu
+    (`ffmpeg.exe` no Windows). A asserção é sobre QUAL binário é chamado, não
+    sobre a forma do caminho.
+    """
+    return os.path.splitext(os.path.basename(argv0))[0].lower()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # build_ebur128_measure_cmd
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_measure_cmd_basic_shape():
     cmd = E.build_ebur128_measure_cmd("clip.mp4")
-    assert cmd[0] == "ffmpeg"
+    assert _binary_stem(cmd[0]) == "ffmpeg"
     assert "-i" in cmd and "clip.mp4" in cmd
     # ebur128 with peak=true so True Peak appears in the summary
     af_idx = cmd.index("-af")
@@ -144,7 +155,7 @@ def test_parse_summary_missing_field_is_none():
 
 def test_ffplay_args_basic():
     args = E.build_ffplay_meter_args("clip.mp4", target_i=-14, title="DEPOIS")
-    assert args[0] == "ffplay"
+    assert _binary_stem(args[0]) == "ffplay"
     assert "-f" in args and "lavfi" in args
     # window title threaded through
     wt = args.index("-window_title")
