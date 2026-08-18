@@ -3529,359 +3529,363 @@ def run_ffmpeg_with_cineon(
         container.close()
         raise
 
-    console.print(f"[green]✓ FFmpeg subprocess iniciado (PID: {ffmpeg_process.pid})[/green]")
+    try:
+        _register_ffmpeg(ffmpeg_process)
+        console.print(f"[green]✓ FFmpeg subprocess iniciado (PID: {ffmpeg_process.pid})[/green]")
 
-    # Progress HUD
-    hud = ResolveProgressHUD(total_frames, source_fps=output_fps)
+        # Progress HUD
+        hud = ResolveProgressHUD(total_frames, source_fps=output_fps)
 
-    # Thread para capturar stderr do FFmpeg em tempo real
-    def ffmpeg_stderr_reader(pipe, hud):
-        """
-        Lê stderr do FFmpeg em tempo real para atualizar progress HUD.
+        # Thread para capturar stderr do FFmpeg em tempo real
+        def ffmpeg_stderr_reader(pipe, hud):
+            """
+            Lê stderr do FFmpeg em tempo real para atualizar progress HUD.
 
-        CORREÇÃO: Trata gracefully o fechamento do pipe.
-        """
-        try:
-            for line in iter(pipe.readline, b""):
-                if not line:
-                    break
-                try:
-                    line_str = line.decode("utf-8", errors="ignore")
-                    if "frame=" in line_str:
-                        parts = line_str.split("frame=")
-                        if len(parts) > 1:
-                            frame_str = parts[1].split()[0]
-                            frame_num = int(
-                                "".join(ch for ch in frame_str if ch.isdigit())
-                            )
-                            hud.update_frame(frame_num)
-                except Exception:
-                    pass
-        except (OSError, ValueError):
-            pass
-
-    stderr_thread = threading.Thread(
-        target=ffmpeg_stderr_reader, args=(ffmpeg_process.stderr, hud), daemon=True
-    )
-    stderr_thread.start()
-
-    # ═══════════════════════════════════════════════════════════════
-    # MAIN PROCESSING LOOP
-    # ═══════════════════════════════════════════════════════════════
-
-    frame_count = 0
-    error_occurred = False
-    interrupted = False
-
-    with Live(hud.render(), refresh_per_second=7, console=console) as live:
-        try:
-            for frame in container.decode(video=0):
-                # PyAV frame → NumPy array (RGB)
-                frame_rgb = frame.to_ndarray(format="rgb24")
-
-                # CRITICAL: Aplicar rotação iPhone (se necessário)
-                if rotation_degrees != 0:
-                    frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
-
-                # Normalizar para float32 [0.0-1.0]
-                frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
-
-                # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
-                if target_resolution is not None:
-                    t_w, t_h = target_resolution
-                    if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
-                        frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
-
-                # ── Enhancement Engine (antes do Cineon) ─────────────────────
-                if _enhance_fn is not None:
-                    frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
-
-                # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
-                frame_processed = process_frame_full_pipeline(
-                    frame_rgb_normalized,
-                    portra_lut,
-                    exposure_offset=exposure_offset,
-                    saturation=saturation,
-                )
-
-                # Validação: Garantir array C-contiguous uint8
-                if not frame_processed.flags["C_CONTIGUOUS"]:
-                    frame_processed = np.ascontiguousarray(frame_processed)
-
-                if frame_processed.dtype != np.uint8:
-                    frame_processed = quantize_uint8_dithered(
-                        frame_processed, rng=_dither_rng
-                    )
-
-                # Validar dimensões esperadas (após rotação + downscale)
-                if target_resolution is not None:
-                    expected_shape = (target_resolution[1], target_resolution[0], 3)
-                else:
-                    expected_shape = (effective_height, effective_width, 3)
-                if frame_processed.shape != expected_shape:
-                    console.print(
-                        f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
-                    )
-                    error_occurred = True
-                    break
-
-                # Converter para bytes
-                frame_bytes = frame_processed.tobytes()
-
-                # Escrever no pipe do FFmpeg (binary mode)
-                try:
-                    ffmpeg_process.stdin.write(frame_bytes)
-                except (BrokenPipeError, OSError) as e:
-                    console.print(f"[red]✗ Erro ao escrever no pipe FFmpeg: {e}[/red]")
-                    console.print(
-                        f"[yellow]   FFmpeg process poll: {ffmpeg_process.poll()}[/yellow]"
-                    )
-                    error_occurred = True
-                    break
-
-                frame_count += 1
-                hud.update_frame(frame_count)
-                live.update(hud.render())
-
-                # Check se FFmpeg morreu prematuramente
-                if ffmpeg_process.poll() is not None:
-                    console.print(
-                        f"[red]✗ FFmpeg terminou prematuramente (returncode={ffmpeg_process.poll()})[/red]"
-                    )
-                    error_occurred = True
-                    break
-
-        except KeyboardInterrupt:
-            console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
-            error_occurred = True
-            interrupted = True
-
-        except Exception as e:
-            console.print(f"\n[red]✗ Erro durante processamento: {e}[/red]")
-            import traceback
-
-            traceback.print_exc()
-            error_occurred = True
-
-        finally:
-            # Fechar pipe de escrita (sinaliza EOF para FFmpeg)
+            CORREÇÃO: Trata gracefully o fechamento do pipe.
+            """
             try:
-                if ffmpeg_process.stdin:
-                    ffmpeg_process.stdin.close()
-            except Exception:
+                for line in iter(pipe.readline, b""):
+                    if not line:
+                        break
+                    try:
+                        line_str = line.decode("utf-8", errors="ignore")
+                        if "frame=" in line_str:
+                            parts = line_str.split("frame=")
+                            if len(parts) > 1:
+                                frame_str = parts[1].split()[0]
+                                frame_num = int(
+                                    "".join(ch for ch in frame_str if ch.isdigit())
+                                )
+                                hud.update_frame(frame_num)
+                    except Exception:
+                        pass
+            except (OSError, ValueError):
                 pass
 
-            # Fechar container PyAV
-            container.close()
-
-    # ═══════════════════════════════════════════════════════════════
-    # WAIT FOR FFMPEG COMPLETION
-    # ═══════════════════════════════════════════════════════════════
-
-    if not error_occurred:
-        console.print()
-        console.print(
-            "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
+        stderr_thread = threading.Thread(
+            target=ffmpeg_stderr_reader, args=(ffmpeg_process.stderr, hud), daemon=True
         )
+        stderr_thread.start()
 
-        try:
-            stdout, stderr = ffmpeg_process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
-            ffmpeg_process.kill()
-            stdout, stderr = ffmpeg_process.communicate()
+        # ═══════════════════════════════════════════════════════════════
+        # MAIN PROCESSING LOOP
+        # ═══════════════════════════════════════════════════════════════
 
-        returncode = ffmpeg_process.returncode
+        frame_count = 0
+        error_occurred = False
+        interrupted = False
 
-        if returncode != 0:
-            console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
+        with Live(hud.render(), refresh_per_second=7, console=console) as live:
+            try:
+                for frame in container.decode(video=0):
+                    # PyAV frame → NumPy array (RGB)
+                    frame_rgb = frame.to_ndarray(format="rgb24")
+
+                    # CRITICAL: Aplicar rotação iPhone (se necessário)
+                    if rotation_degrees != 0:
+                        frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
+
+                    # Normalizar para float32 [0.0-1.0]
+                    frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
+
+                    # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
+                    if target_resolution is not None:
+                        t_w, t_h = target_resolution
+                        if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
+                            frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
+
+                    # ── Enhancement Engine (antes do Cineon) ─────────────────────
+                    if _enhance_fn is not None:
+                        frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
+
+                    # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
+                    frame_processed = process_frame_full_pipeline(
+                        frame_rgb_normalized,
+                        portra_lut,
+                        exposure_offset=exposure_offset,
+                        saturation=saturation,
+                    )
+
+                    # Validação: Garantir array C-contiguous uint8
+                    if not frame_processed.flags["C_CONTIGUOUS"]:
+                        frame_processed = np.ascontiguousarray(frame_processed)
+
+                    if frame_processed.dtype != np.uint8:
+                        frame_processed = quantize_uint8_dithered(
+                            frame_processed, rng=_dither_rng
+                        )
+
+                    # Validar dimensões esperadas (após rotação + downscale)
+                    if target_resolution is not None:
+                        expected_shape = (target_resolution[1], target_resolution[0], 3)
+                    else:
+                        expected_shape = (effective_height, effective_width, 3)
+                    if frame_processed.shape != expected_shape:
+                        console.print(
+                            f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
+                        )
+                        error_occurred = True
+                        break
+
+                    # Converter para bytes
+                    frame_bytes = frame_processed.tobytes()
+
+                    # Escrever no pipe do FFmpeg (binary mode)
+                    try:
+                        ffmpeg_process.stdin.write(frame_bytes)
+                    except (BrokenPipeError, OSError) as e:
+                        console.print(f"[red]✗ Erro ao escrever no pipe FFmpeg: {e}[/red]")
+                        console.print(
+                            f"[yellow]   FFmpeg process poll: {ffmpeg_process.poll()}[/yellow]"
+                        )
+                        error_occurred = True
+                        break
+
+                    frame_count += 1
+                    hud.update_frame(frame_count)
+                    live.update(hud.render())
+
+                    # Check se FFmpeg morreu prematuramente
+                    if ffmpeg_process.poll() is not None:
+                        console.print(
+                            f"[red]✗ FFmpeg terminou prematuramente (returncode={ffmpeg_process.poll()})[/red]"
+                        )
+                        error_occurred = True
+                        break
+
+            except KeyboardInterrupt:
+                console.print("\n[yellow]⚠ Interrompido pelo usuário[/yellow]")
+                error_occurred = True
+                interrupted = True
+
+            except Exception as e:
+                console.print(f"\n[red]✗ Erro durante processamento: {e}[/red]")
+                import traceback
+
+                traceback.print_exc()
+                error_occurred = True
+
+            finally:
+                # Fechar pipe de escrita (sinaliza EOF para FFmpeg)
+                try:
+                    if ffmpeg_process.stdin:
+                        ffmpeg_process.stdin.close()
+                except Exception:
+                    pass
+
+                # Fechar container PyAV
+                container.close()
+
+        # ═══════════════════════════════════════════════════════════════
+        # WAIT FOR FFMPEG COMPLETION
+        # ═══════════════════════════════════════════════════════════════
+
+        if not error_occurred:
             console.print()
-            console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
+            console.print(
+                "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
+            )
 
-            stderr_str = stderr.decode("utf-8", errors="ignore")
-            stderr_lines = stderr_str.strip().splitlines()
-            for line in stderr_lines[-50:]:
-                console.print(f"[red]{line}[/red]")
+            try:
+                stdout, stderr = ffmpeg_process.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
+                ffmpeg_process.kill()
+                stdout, stderr = ffmpeg_process.communicate()
 
-            raise subprocess.CalledProcessError(
-                returncode, ffmpeg_cmd, output=stdout, stderr=stderr
+            returncode = ffmpeg_process.returncode
+
+            if returncode != 0:
+                console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
+                console.print()
+                console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
+
+                stderr_str = stderr.decode("utf-8", errors="ignore")
+                stderr_lines = stderr_str.strip().splitlines()
+                for line in stderr_lines[-50:]:
+                    console.print(f"[red]{line}[/red]")
+
+                raise subprocess.CalledProcessError(
+                    returncode, ffmpeg_cmd, output=stdout, stderr=stderr
+                )
+            else:
+                console.print(
+                    f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
+                )
+
+                # ═══════════════════════════════════════════════════════════
+                # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
+                # ═══════════════════════════════════════════════════════════
+                # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
+                # Solução: Remux com stream copy + metadados de cor explícitos
+
+                console.print()
+                console.print(
+                    "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
+                )
+
+                # Arquivo temporário para output original
+                output_temp = output_file.replace(".mp4", "_temp.mp4")
+
+                # Renomear output original para temp
+                try:
+                    shutil.move(output_file, output_temp)
+                except Exception as e:
+                    console.print(
+                        f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
+                    )
+                    console.print("[yellow]   Continuando sem remux...[/yellow]")
+                else:
+                    # Comando de remux (stream copy, sem re-encode)
+                    remux_cmd = [
+                        FFMPEG,
+                        "-y",
+                        "-i",
+                        output_temp,
+                        "-c",
+                        "copy",  # Stream copy (sem re-encode)
+                        "-color_primaries",
+                        "bt709",
+                        "-color_trc",
+                        "bt709",
+                        "-colorspace",
+                        "bt709",
+                        "-color_range",
+                        "tv",
+                        "-movflags",
+                        "+faststart+write_colr",
+                        output_file,
+                    ]
+
+                    try:
+                        console.print("[dim]   Executando remux (stream copy)...[/dim]")
+                        subprocess.run(
+                            remux_cmd,
+                            check=True,
+                            capture_output=True,
+                            cwd=script_dir,
+                        )
+                        console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
+                        console.print(
+                            "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
+                        )
+
+                        # Remover arquivo temporário
+                        try:
+                            os.remove(output_temp)
+                        except Exception:
+                            pass
+
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"[red]✗ Erro no remux: {e}[/red]")
+                        console.print("[yellow]   Restaurando arquivo original...[/yellow]")
+
+                        # Restaurar arquivo original
+                        try:
+                            shutil.move(output_temp, output_file)
+                        except Exception:
+                            pass
+        else:
+            # Houve erro, terminar FFmpeg
+            console.print("[yellow]⚠ Encerrando FFmpeg devido a erro...[/yellow]")
+
+            try:
+                ffmpeg_process.terminate()
+                ffmpeg_process.wait(timeout=10)
+            except Exception:
+                ffmpeg_process.kill()
+
+            if interrupted:
+                raise KeyboardInterrupt
+            raise RuntimeError("Encoding interrompido por erro no processamento")
+
+        # ═══════════════════════════════════════════════════════════════
+        # VALIDATION
+        # ═══════════════════════════════════════════════════════════════
+
+        console.print()
+        console.print("[green]✅ Render Cineon finalizado![/green]")
+
+        if audio_filter:
+            console.print(
+                f"[dim]📋 Metadados: BT.709 TV | Pipeline Cineon | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]"
             )
         else:
             console.print(
-                f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
+                f"[dim]📋 Metadados: BT.709 TV | Pipeline Cineon | VBV {vbv_description}[/dim]"
             )
 
-            # ═══════════════════════════════════════════════════════════
-            # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
-            # ═══════════════════════════════════════════════════════════
-            # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
-            # Solução: Remux com stream copy + metadados de cor explícitos
-
-            console.print()
-            console.print(
-                "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
-            )
-
-            # Arquivo temporário para output original
-            output_temp = output_file.replace(".mp4", "_temp.mp4")
-
-            # Renomear output original para temp
-            try:
-                shutil.move(output_file, output_temp)
-            except Exception as e:
-                console.print(
-                    f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
-                )
-                console.print("[yellow]   Continuando sem remux...[/yellow]")
-            else:
-                # Comando de remux (stream copy, sem re-encode)
-                remux_cmd = [
-                    FFMPEG,
-                    "-y",
-                    "-i",
-                    output_temp,
-                    "-c",
-                    "copy",  # Stream copy (sem re-encode)
-                    "-color_primaries",
-                    "bt709",
-                    "-color_trc",
-                    "bt709",
-                    "-colorspace",
-                    "bt709",
-                    "-color_range",
-                    "tv",
-                    "-movflags",
-                    "+faststart+write_colr",
-                    output_file,
-                ]
-
-                try:
-                    console.print("[dim]   Executando remux (stream copy)...[/dim]")
-                    subprocess.run(
-                        remux_cmd,
-                        check=True,
-                        capture_output=True,
-                        cwd=script_dir,
-                    )
-                    console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
-                    console.print(
-                        "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
-                    )
-
-                    # Remover arquivo temporário
-                    try:
-                        os.remove(output_temp)
-                    except Exception:
-                        pass
-
-                except subprocess.CalledProcessError as e:
-                    console.print(f"[red]✗ Erro no remux: {e}[/red]")
-                    console.print("[yellow]   Restaurando arquivo original...[/yellow]")
-
-                    # Restaurar arquivo original
-                    try:
-                        shutil.move(output_temp, output_file)
-                    except Exception:
-                        pass
-    else:
-        # Houve erro, terminar FFmpeg
-        console.print("[yellow]⚠ Encerrando FFmpeg devido a erro...[/yellow]")
-
-        try:
-            ffmpeg_process.terminate()
-            ffmpeg_process.wait(timeout=10)
-        except Exception:
-            ffmpeg_process.kill()
-
-        if interrupted:
-            raise KeyboardInterrupt
-        raise RuntimeError("Encoding interrompido por erro no processamento")
-
-    # ═══════════════════════════════════════════════════════════════
-    # VALIDATION
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print()
-    console.print("[green]✅ Render Cineon finalizado![/green]")
-
-    if audio_filter:
-        console.print(
-            f"[dim]📋 Metadados: BT.709 TV | Pipeline Cineon | VBV {vbv_description} | Loudnorm: -14 LUFS[/dim]"
-        )
-    else:
-        console.print(
-            f"[dim]📋 Metadados: BT.709 TV | Pipeline Cineon | VBV {vbv_description}[/dim]"
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # VALIDAÇÃO ADICIONAL: ffprobe direto
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print()
-    console.print("[cyan]🔬 Validação técnica com ffprobe...[/cyan]")
-
-    try:
-        probe_cmd = [
-            FFPROBE,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=color_primaries,color_transfer,color_space,color_range",
-            "-of",
-            "default=noprint_wrappers=1",
-            output_file,
-        ]
-
-        probe_result = subprocess.run(
-            probe_cmd, capture_output=True, text=True, check=True
-        )
-        probe_output = probe_result.stdout.strip()
-
-        console.print("[dim]   ffprobe output:[/dim]")
-        for line in probe_output.splitlines():
-            if "color_primaries" in line:
-                if "bt709" in line:
-                    console.print(f"[green]   ✓ {line}[/green]")
-                else:
-                    console.print(f"[red]   ✗ {line} (esperado: bt709)[/red]")
-            elif "color_transfer" in line:
-                if "bt709" in line:
-                    console.print(f"[green]   ✓ {line}[/green]")
-                else:
-                    console.print(f"[red]   ✗ {line} (esperado: bt709)[/red]")
-            elif "color_space" in line:
-                if "bt709" in line:
-                    console.print(f"[green]   ✓ {line}[/green]")
-                else:
-                    console.print(f"[yellow]   • {line}[/yellow]")
-            elif "color_range" in line:
-                if "tv" in line.lower():
-                    console.print(f"[green]   ✓ {line}[/green]")
-                else:
-                    console.print(f"[yellow]   • {line}[/yellow]")
+        # ═══════════════════════════════════════════════════════════════
+        # VALIDAÇÃO ADICIONAL: ffprobe direto
+        # ═══════════════════════════════════════════════════════════════
 
         console.print()
+        console.print("[cyan]🔬 Validação técnica com ffprobe...[/cyan]")
 
-    except subprocess.CalledProcessError:
-        console.print("[yellow]   ⚠ ffprobe falhou (não crítico)[/yellow]")
+        try:
+            probe_cmd = [
+                FFPROBE,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=color_primaries,color_transfer,color_space,color_range",
+                "-of",
+                "default=noprint_wrappers=1",
+                output_file,
+            ]
 
-    # Limpeza dos logs temporários do 2-pass
-    if logfile_2pass:
-        for _ext in ("-0.log", "-0.log.mbtree"):
-            _lp = f"{logfile_2pass}{_ext}"
-            if os.path.exists(_lp):
-                try:
-                    os.remove(_lp)
-                except OSError:
-                    pass
-        console.print("[dim]   Logs temporários 2-pass removidos[/dim]")
+            probe_result = subprocess.run(
+                probe_cmd, capture_output=True, text=True, check=True
+            )
+            probe_output = probe_result.stdout.strip()
 
-    console.print()
-    console.print(
-        f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
-    )
+            console.print("[dim]   ffprobe output:[/dim]")
+            for line in probe_output.splitlines():
+                if "color_primaries" in line:
+                    if "bt709" in line:
+                        console.print(f"[green]   ✓ {line}[/green]")
+                    else:
+                        console.print(f"[red]   ✗ {line} (esperado: bt709)[/red]")
+                elif "color_transfer" in line:
+                    if "bt709" in line:
+                        console.print(f"[green]   ✓ {line}[/green]")
+                    else:
+                        console.print(f"[red]   ✗ {line} (esperado: bt709)[/red]")
+                elif "color_space" in line:
+                    if "bt709" in line:
+                        console.print(f"[green]   ✓ {line}[/green]")
+                    else:
+                        console.print(f"[yellow]   • {line}[/yellow]")
+                elif "color_range" in line:
+                    if "tv" in line.lower():
+                        console.print(f"[green]   ✓ {line}[/green]")
+                    else:
+                        console.print(f"[yellow]   • {line}[/yellow]")
+
+            console.print()
+
+        except subprocess.CalledProcessError:
+            console.print("[yellow]   ⚠ ffprobe falhou (não crítico)[/yellow]")
+
+        # Limpeza dos logs temporários do 2-pass
+        if logfile_2pass:
+            for _ext in ("-0.log", "-0.log.mbtree"):
+                _lp = f"{logfile_2pass}{_ext}"
+                if os.path.exists(_lp):
+                    try:
+                        os.remove(_lp)
+                    except OSError:
+                        pass
+            console.print("[dim]   Logs temporários 2-pass removidos[/dim]")
+
+        console.print()
+        console.print(
+            f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
+        )
+    finally:
+        _register_ffmpeg(None)
 
 
 # =============================================================================
