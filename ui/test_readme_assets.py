@@ -60,8 +60,11 @@ def test_certificate_payload_is_deterministic():
 def test_anchor_strings_present(tmp_path):
     gen = _load_generator()
     gen.main(outdir=str(tmp_path))
-    banner = (tmp_path / "banner.svg").read_text()
-    seal = (tmp_path / "seal.svg").read_text()
+    # Os SVGs saem do ``Console.save_svg`` do rich, que grava sempre em UTF-8;
+    # ler sem ``encoding`` cai no default da plataforma (cp1252 no Windows) e
+    # estoura UnicodeDecodeError nos glifos de box-drawing.
+    banner = (tmp_path / "banner.svg").read_text(encoding="utf-8")
+    seal = (tmp_path / "seal.svg").read_text(encoding="utf-8")
     # O banner tem o título com letter-spacing (cada char num span próprio), então
     # a âncora confiável é o subtítulo real; o selo mantém o título "MASTER QC".
     assert "interativa" in banner or "ENCODER" in banner
