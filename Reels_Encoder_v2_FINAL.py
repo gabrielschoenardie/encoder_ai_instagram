@@ -4489,13 +4489,17 @@ COMPARAÇÃO:
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠ Encode interrompido pelo usuário[/yellow]")
         terminate_active_ffmpeg()
-        if not output_preexisted and os.path.exists(output_file):
-            try:
-                os.remove(output_file)
+        if not output_preexisted:
+            # Mesma retentativa do caminho batch: no Windows o handle do ffmpeg
+            # pode demorar a soltar mesmo depois do terminate().
+            job = render_queue.QueueJob(
+                input_path=input_file, output_path=output_file
+            )
+            if render_queue.discard_partial_output(job):
                 console.print(
                     f"[dim]  ● output parcial removido: {os.path.basename(output_file)}[/dim]"
                 )
-            except OSError:
+            elif os.path.exists(output_file):
                 # YF1: falha silenciosa aqui deixava um arquivo de aparencia
                 # integra que a execucao seguinte marcava como pronto.
                 console.print(
