@@ -46,7 +46,17 @@ def format_eta(eta_seconds: float | None) -> str:
     return format_duration(eta_seconds)
 
 
-def estimate_eta(jobs: list[QueueJob], remaining: int) -> float | None:
+def estimate_eta(
+    jobs: list[QueueJob],
+    remaining: int,
+    in_flight_elapsed: float | None = None,
+) -> float | None:
+    """Estima o tempo restante da fila, em segundos.
+
+    `remaining` conta os jobs que ainda nao comecaram. `in_flight_elapsed`, quando
+    informado, e o tempo ja decorrido do job em execucao: o que falta dele entra na
+    estimativa, descontado do que ja passou. Sem amostras concluidas, retorna None.
+    """
     durations = [
         job.finished_at - job.started_at
         for job in jobs
@@ -56,7 +66,11 @@ def estimate_eta(jobs: list[QueueJob], remaining: int) -> float | None:
     ]
     if not durations:
         return None
-    return statistics.mean(durations) * remaining
+    mean = statistics.mean(durations)
+    eta = mean * remaining
+    if in_flight_elapsed is not None:
+        eta += max(0.0, mean - in_flight_elapsed)
+    return eta
 
 
 def build_table(
@@ -121,10 +135,10 @@ def run_job(
         worker.join(timeout=tick_interval)
 
     job.finished_at = time.time()
+    job.log = log_text
     if failure is not None:
         job.status = "falha"
         job.error = str(failure)
-        job.log = log_text
     else:
         job.status = "ok"
 

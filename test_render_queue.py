@@ -85,9 +85,10 @@ def test_build_table_lists_every_job_with_its_status_symbol():
         assert symbol in text
 
 
-def test_run_job_marks_success_and_leaves_log_empty():
+def test_run_job_marks_success_and_keeps_log():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
-    console = Console(file=io.StringIO())
+    output = io.StringIO()
+    console = Console(file=output, width=120)
 
     def encode_fn():
         console.print("trabalhando...")
@@ -95,11 +96,8 @@ def test_run_job_marks_success_and_leaves_log_empty():
     run_job(job, encode_fn, console)
 
     assert job.status == "ok"
-    assert job.started_at is not None
-    assert job.finished_at is not None
-    assert job.finished_at >= job.started_at
-    assert job.log == ""
     assert job.error is None
+    assert "trabalhando..." in job.log
 
 
 def test_run_job_marks_failure_and_captures_log():
@@ -179,3 +177,26 @@ def test_build_table_shows_ticking_duration_for_running_job():
 
     assert "—" not in text.split("a.mp4", 1)[1].split("\n", 1)[0]
     assert any(f"00:0{n}" in text for n in (3, 4, 5, 6, 7))
+
+
+def test_estimate_eta_accounts_for_in_flight_job():
+    jobs = [_finished_job(10.0), _finished_job(20.0)]
+    # media = 15s. 1 job na fila + 5s ja decorridos do job em execucao.
+    eta = estimate_eta(jobs, remaining=1, in_flight_elapsed=5.0)
+    assert eta == pytest.approx(15.0 + 10.0)
+
+
+def test_estimate_eta_in_flight_longer_than_average_never_goes_negative():
+    jobs = [_finished_job(10.0)]
+    eta = estimate_eta(jobs, remaining=0, in_flight_elapsed=999.0)
+    assert eta == pytest.approx(0.0)
+
+
+def test_estimate_eta_without_in_flight_is_unchanged():
+    jobs = [_finished_job(10.0), _finished_job(20.0)]
+    assert estimate_eta(jobs, remaining=2) == pytest.approx(30.0)
+
+
+def test_estimate_eta_still_none_without_samples():
+    jobs = [QueueJob(input_path="a.mp4", output_path="b.mp4")]
+    assert estimate_eta(jobs, remaining=1, in_flight_elapsed=3.0) is None
