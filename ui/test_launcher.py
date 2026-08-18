@@ -97,8 +97,8 @@ def _seq(values):
 
 
 def test_tools_flow_runs_tool_then_returns_to_menu(monkeypatch):
-    # main menu -> Tools(4); tools menu -> tool #1; tools menu -> Voltar(6); main menu -> quick(1)
-    monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 6, 1]))
+    # main menu -> Tools(4); tools menu -> tool #1; tools menu -> Voltar(5); main menu -> quick(1)
+    monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 5, 1]))
     ran = {"cmd": None}
 
     def fake_run(cmd, cwd=None):
@@ -117,7 +117,7 @@ def test_tools_flow_runs_tool_then_returns_to_menu(monkeypatch):
 
 
 def test_tools_flow_subprocess_exception_does_not_crash(monkeypatch):
-    monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 6, 1]))
+    monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 5, 1]))
 
     def boom_run(cmd, cwd=None):
         raise FileNotFoundError("script missing")

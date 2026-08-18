@@ -57,7 +57,6 @@ TOOLS = [
     ("Comparar frames (interativo)", [sys.executable, "tools/compare_frames_interactive.py"]),
     ("Timestamp → frame (interativo)", [sys.executable, "tools/time_to_frame_interactive.py"]),
     ("Limpar cache", [sys.executable, "tools/clean_cache.py"]),
-    ("Instalar FFmpeg completo", ["powershell", "-ExecutionPolicy", "Bypass", "-File", "tools/fetch_ffmpeg.ps1"]),
 ]
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
