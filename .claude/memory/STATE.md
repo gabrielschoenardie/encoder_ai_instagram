@@ -2643,3 +2643,32 @@ A mutação de controle foi revertida com `git checkout --` e a árvore reconfer
 (`git status --short` só com o `docs/windows-ci-e-interrupcao-robusta.md` que já
 existia antes desta task). Artefatos do smoke ficaram fora do repo, em
 `%TEMP%\smoke_fix1\` (`run_smoke.py`, `fixed.log`, `control.log`).
+
+## Correção de registro — Ciclo AD, causa raiz do batch (2026-08-18)
+
+**Conclusão original (Task 8, `.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-8-report.md`
+§ "Preocupações", item 2):** "`terminate_active_ffmpeg()` no handler do batch tende a
+retornar `False` no caso comum. Como `_run_encoding` já limpa o registro no seu `finally`
+(que também mata o processo) antes de a exceção subir até `main()`, quando o handler do
+batch roda o registro normalmente já está `None` [...] Isso é defesa em profundidade, não
+o caminho quente."
+
+**Por que estava errada:** a revisão final de branch (posterior à Task 8) confirmou, com
+evidência direta do próprio código, que essa premissa não se sustenta. `render_queue.py:172-177`
+documenta explicitamente: "O KeyboardInterrupt chega na main thread (aqui), nunca no worker: o
+`except Exception` de `_target` não vê `BaseException`." Em `--batch`, o encode roda dentro de
+uma worker thread (`run_job`, `render_queue.py`) via `_target()`; o `finally` de `_run_encoding`
+vive nessa worker thread. Quando `Ctrl+C` chega, o `KeyboardInterrupt` é entregue à **main**
+thread (dentro de `worker.join(timeout=tick_interval)`, `render_queue.py:171`) — a worker
+thread continua rodando, o `finally` de `_run_encoding` **não roda antes** do handler da main
+thread reagir. Ou seja: em `--batch`, `terminate_active_ffmpeg()` não é defesa em profundidade
+redundante — é o **único** mecanismo real de terminação do ffmpeg do encode.
+
+**Consequência real que essa correção revelou:** ao reexaminar a causa raiz do batch, a
+revisão identificou que o caminho Cineon (`run_ffmpeg_with_cineon`, `Popen` da linha ~3486)
+nunca registrava seu processo em `_register_ffmpeg` — o mesmo gap do `YF1`, só que dentro do
+pipeline Cineon. Fechado na fix wave da revisão final de branch já documentada acima em
+"Fix wave da revisão final de branch — Ciclo AD (2026-08-18)": item I2, commit `ed338f2`
+(`try/finally` com `_register_ffmpeg`/`_register_ffmpeg(None)` em torno do `Popen` Cineon),
+com smoke test real confirmando o fechamento do gap (commits `ed338f2`..`a2578ae`, ver seção
+acima para a saída literal do smoke com/sem o fix).
