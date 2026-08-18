@@ -2563,8 +2563,22 @@ $ python -m pytest test_render_queue.py enhance/ ui/ -q
 
 ### Cleanup
 
-**Não feito de propósito nesta passagem.** A pasta `.smoke/` foi mantida **intacta** — logs brutos,
-sondas, scripts do runner, o parcial truncado da 3ª execução (`artefato_step3_parcial.mp4`) e os
-artefatos de cor — a pedido do Orquestrador, para conferência independente dos arquivos brutos
-antes de qualquer remoção. O cleanup (e o `git status --short` limpo que ele produz) fica pendente
-da confirmação dele.
+A pasta `.smoke/` foi mantida **intacta** ao fim da recaptura — logs brutos, sondas, scripts do
+runner, o parcial truncado da 3ª execução (`artefato_step3_parcial.mp4`) e os artefatos de cor — a
+pedido do Orquestrador, para conferência independente antes de qualquer remoção. Ele conferiu
+direto nos arquivos brutos (`grep -E` nos 3 logs batendo byte a byte com o que está colado acima,
+`wc -l` em 49/51/51, e as sondagens confirmando a quantização em degraus de 256 KiB com tempos de
+primeiro aparecimento genuinamente distintos entre execuções: 115 s / 122 s / 125 s) e liberou o
+cleanup. `.smoke/` removida em seguida, mesmo padrão do Ciclo Y:
+
+```
+$ rm -rf .smoke
+$ tasklist | grep -i ffmpeg
+nenhum ffmpeg em execucao agora
+$ ls -d .smoke
+.smoke removida
+$ git status --short
+?? docs/windows-ci-e-interrupcao-robusta.md
+```
+
+O único não-rastreado restante já existia antes desta task.
