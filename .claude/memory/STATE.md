@@ -2153,3 +2153,18 @@ rede de segurança removida"). Registrado explicitamente aqui: a confirmação f
 Windows bloqueante e verde" fica para o Orquestrador, após o push deste commit — ele
 mesmo registra o run novo (ou chama o executor de volta com o número do run). Nenhum run
 posterior a `cc0e99c` foi inventado ou presumido nesta entrada.
+
+**Confirmado:** run `32167268000` (push do commit `6b040a0`) — perna Windows já
+bloqueante (sem `continue-on-error`) e os 7 jobs em `success`:
+
+```
+Lint (ruff): success
+Tests (ubuntu-latest, Python 3.11): success
+Tests (ubuntu-latest, Python 3.12): success
+Tests (windows-latest, Python 3.11): success
+Tests (windows-latest, Python 3.12): success
+Pester (launcher.ps1) (ubuntu-latest): success
+Pester (launcher.ps1) (windows-latest): success
+```
+
+Lacuna fechada.
