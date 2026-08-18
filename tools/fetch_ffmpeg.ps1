@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Baixa o FFmpeg 6.1 (via winget) e copia ffmpeg/ffprobe/ffplay para ./bin.
+    Instala o FFmpeg 6.1 via WinGet e copia ffmpeg.exe,
+    ffprobe.exe e ffplay.exe para ./bin.
 
 .DESCRIPTION
     Portabilidade no Windows: instala o FFmpeg 6.1 (BtbN.FFmpeg.GPL.6.1) com o
@@ -19,40 +20,86 @@ if (-not (Test-Path $BinDir)) {
 }
 
 Write-Host "Instalando FFmpeg 6.1 via winget..." -ForegroundColor Cyan
-winget install -e --id BtbN.FFmpeg.GPL.6.1 `
-    --accept-source-agreements --accept-package-agreements
 
-$exes = @("ffmpeg.exe", "ffprobe.exe", "ffplay.exe")
+& winget install `
+    -e `
+    --id BtbN.FFmpeg.GPL.6.1 `
+    --source winget `
+    --accept-source-agreements `
+    --accept-package-agreements
 
-# Locais provaveis onde o winget/FFmpeg deposita os binarios.
+if ($LASTEXITCODE -ne 0) {
+    throw "Falha ao instalar FFmpeg via winget. Codigo de saida: $LASTEXITCODE"
+}
+
+$exes = @(
+    "ffmpeg.exe",
+    "ffprobe.exe",
+    "ffplay.exe"
+)
+
 $searchRoots = @(
     (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"),
     (Join-Path $env:ProgramFiles "FFmpeg")
-) | Where-Object { $_ -and (Test-Path $_) }
+) | Where-Object {
+    $_ -and (Test-Path $_)
+}
+
+$foundCount = 0
 
 foreach ($exe in $exes) {
+
     $found = $null
 
-    # 1) Procura recursivamente nos diretorios conhecidos.
+    # 1. Procurar nos diretorios conhecidos
     foreach ($root in $searchRoots) {
-        $hit = Get-ChildItem -Path $root -Filter $exe -Recurse -ErrorAction SilentlyContinue |
+
+        $hit = Get-ChildItem `
+            -Path $root `
+            -Filter $exe `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
             Select-Object -First 1
-        if ($hit) { $found = $hit.FullName; break }
+
+        if ($hit) {
+            $found = $hit.FullName
+            break
+        }
     }
 
-    # 2) Fallback: o executavel ja pode estar no PATH desta sessao.
+    # 2. Procurar no PATH
     if (-not $found) {
+
         $cmd = Get-Command $exe -ErrorAction SilentlyContinue
-        if ($cmd) { $found = $cmd.Source }
+
+        if ($cmd) {
+            $found = $cmd.Source
+        }
     }
 
     if ($found) {
-        Copy-Item -Path $found -Destination (Join-Path $BinDir $exe) -Force
+
+        Copy-Item `
+            -Path $found `
+            -Destination (Join-Path $BinDir $exe) `
+            -Force
+
         Write-Host "OK    $exe -> ./bin" -ForegroundColor Green
+
+        $foundCount++
     }
     else {
-        Write-Host "AVISO $exe nao encontrado (copie manualmente para ./bin)" -ForegroundColor Yellow
+
+        Write-Host "ERRO  $exe nao encontrado." -ForegroundColor Red
     }
 }
 
-Write-Host "Concluido. Binarios em: $BinDir" -ForegroundColor Cyan
+if ($foundCount -ne $exes.Count) {
+    throw "FFmpeg foi instalado, mas nem todos os binarios foram encontrados."
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host " FFmpeg instalado com sucesso!" -ForegroundColor Green
+Write-Host " Binarios: $BinDir" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green

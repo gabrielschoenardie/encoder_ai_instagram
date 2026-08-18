@@ -46,10 +46,10 @@ try:
     import colour
 
     COLOUR_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     COLOUR_AVAILABLE = False
     warnings.warn(
-        "colour-science não instalada. Instale com: pip install colour-science\n"
+        f"Falha ao importar colour-science: {e}\n"
         "Funcionalidade reduzida: usando aproximações matemáticas."
     )
 

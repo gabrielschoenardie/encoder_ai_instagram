@@ -26,6 +26,7 @@ dependencies = [
     "colour-science>=0.4.7",
     "pymediainfo>=1.0.0",
     "scipy>=1.10",
+    "matplotlib>=3.9,<4",
 ]
 
 [project.optional-dependencies]
