@@ -184,6 +184,38 @@ try:
 except Exception:
     APP_VERSION = "2.1.0"
 
+_ACTIVE_FFMPEG = None
+_ACTIVE_FFMPEG_LOCK = threading.Lock()
+
+
+def _register_ffmpeg(proc):
+    global _ACTIVE_FFMPEG
+    with _ACTIVE_FFMPEG_LOCK:
+        _ACTIVE_FFMPEG = proc
+
+
+def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
+    """Encerra o ffmpeg em curso, se houver. True se havia um para encerrar.
+
+    Chamado do handler de KeyboardInterrupt: sem isto o subprocesso sobrevive a
+    saida do Python e termina de escrever o .mp4 sozinho, produzindo um arquivo
+    de tamanho normal que nunca passou pelo pos-encode (YF1).
+    """
+    with _ACTIVE_FFMPEG_LOCK:
+        proc = _ACTIVE_FFMPEG
+    if proc is None or proc.poll() is not None:
+        return False
+    try:
+        proc.terminate()
+        proc.wait(timeout=timeout)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    return True
+
+
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
 # =============================================================================
@@ -1953,6 +1985,7 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
         errors="ignore",
         cwd=cwd,
     )
+    _register_ffmpeg(process)
     t = threading.Thread(
         target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
     )
@@ -1969,6 +2002,7 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
+        _register_ffmpeg(None)
 
     # Garante que o reader drenou todo o pipe antes de montar o stderr.
     t.join()
@@ -4397,10 +4431,24 @@ COMPARAÇÃO:
                     console.print("\n[yellow]⚠ Fila interrompida pelo usuário[/yellow]")
                     # Paridade com o caminho single-file: um output truncado seria
                     # tratado como pronto pelo skip da proxima execucao.
+                    terminate_active_ffmpeg()
                     if render_queue.discard_partial_output(job):
                         console.print(
                             f"[dim]  ● output parcial removido: "
                             f"{os.path.basename(job.output_path)}[/dim]"
+                        )
+                    elif os.path.exists(job.output_path):
+                        # YF1: falha silenciosa aqui deixava um arquivo de aparencia
+                        # integra que a execucao seguinte marcava como pronto.
+                        console.print(
+                            f"[bold red]  ✗ NÃO foi possível remover "
+                            f"{os.path.basename(job.output_path)}[/bold red]"
+                        )
+                        console.print(
+                            "[yellow]    Este arquivo está incompleto e NÃO passou "
+                            "pelo controle de qualidade. Apague-o à mão antes de "
+                            "rodar a fila de novo, ou ele será tratado como "
+                            "pronto.[/yellow]"
                         )
                     render_queue.render_final_report(jobs, console)
                     sys.exit(130)
@@ -4436,6 +4484,7 @@ COMPARAÇÃO:
         _encode_single_file(input_file, output_file, args)
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠ Encode interrompido pelo usuário[/yellow]")
+        terminate_active_ffmpeg()
         if not output_preexisted and os.path.exists(output_file):
             try:
                 os.remove(output_file)
@@ -4443,7 +4492,18 @@ COMPARAÇÃO:
                     f"[dim]  ● output parcial removido: {os.path.basename(output_file)}[/dim]"
                 )
             except OSError:
-                pass
+                # YF1: falha silenciosa aqui deixava um arquivo de aparencia
+                # integra que a execucao seguinte marcava como pronto.
+                console.print(
+                    f"[bold red]  ✗ NÃO foi possível remover "
+                    f"{os.path.basename(output_file)}[/bold red]"
+                )
+                console.print(
+                    "[yellow]    Este arquivo está incompleto e NÃO passou "
+                    "pelo controle de qualidade. Apague-o à mão antes de "
+                    "rodar o encode de novo, ou ele será tratado como "
+                    "pronto.[/yellow]"
+                )
         sys.exit(130)
     except Exception as e:
         _print_encode_error(e, getattr(args, "debug", False))
