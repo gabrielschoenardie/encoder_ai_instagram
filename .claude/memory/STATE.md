@@ -2582,3 +2582,64 @@ $ git status --short
 ```
 
 O único não-rastreado restante já existia antes desta task.
+
+## Fix wave da revisão final de branch — Ciclo AD (2026-08-18)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| I2 | done | `Reels_Encoder_v2_FINAL.py` (`ed338f2`) | `run_ffmpeg_with_cineon`: corpo a partir do `Popen` envolvido em `try/finally` com `_register_ffmpeg(ffmpeg_process)` / `_register_ffmpeg(None)`; `git diff -w` = 4 linhas adicionadas, resto puro reindent |
+| I3 | done | `Reels_Encoder_v2_FINAL.py` (`f15c830`) | handler single-file passa a usar `render_queue.discard_partial_output(QueueJob(...))` (3 tentativas × 0,5 s) com o mesmo aviso vermelho do batch |
+| M1 | done | `Reels_Encoder_v2_FINAL.py` (`a2924e2`) | `try:` de `_run_encoding` movido para logo após `_register_ffmpeg(process)`, cobrindo a criação/`start()` da thread do reader |
+| M2 | done | `Reels_Encoder_v2_FINAL.py` (`48a3d70`) | `terminate_active_ffmpeg`: `wait(timeout)` também depois do `kill()`; docstring passa a dizer que o `True` significa "havia processo vivo", não "morte confirmada" |
+| M4 | done | `test_render_queue.py` (`274a483`) | `test_discard_partial_output_gives_up_after_attempts` conta as chamadas e exige `calls["remove"] == 3`; mutação de controle (`range(attempts)` → `range(1)`) faz o teste falhar, e o teste volta a passar com o código restaurado |
+
+Verificação final (Windows real, worktree `windows-ci-interrupcao-robusta`):
+
+```
+$ python -m pytest test_render_queue.py enhance/ ui/ -q
+395 passed in 5.20s
+$ python -m py_compile Reels_Encoder_v2_FINAL.py
+PY_COMPILE_OK (limpo)
+```
+
+Cobertura do `try/finally` do I2 conferida por AST, não por leitura: o `Try` é o
+**último** statement do corpo de `run_ffmpeg_with_cineon` (linhas 3540→3896, fim da
+função em 3896), o primeiro statement do `try` é `_register_ffmpeg(ffmpeg_process)`
+e o `finalbody` é `_register_ffmpeg(None)`. Os 3 `raise` que ficam fora do `try`
+(3217 LUT ausente, 3517 falha do `av.open`, 3538 falha ao iniciar o `Popen`) são todos
+**anteriores** à existência do processo — não há registro a limpar neles.
+
+Smoke real do I2, em Windows, `--batch --cineon-pipeline on` com clipe sintético de
+6 s (`testsrc2` 1080×1920 + `anullsrc`), mesmo mecanismo da Task 9 (`runpy` +
+`_thread.interrupt_main()`); o watchdog detecta o ffmpeg do encode pela linha de
+comando (`Win32_Process` contendo `_Cineon_Film`) — detecção independente do fix — e
+interrompe 6 s depois, com o pipe de frames aberto:
+
+```
+com o fix (HEAD 274a483):
+[smoke] encode Cineon vivo: ['19072']
+[smoke] disparando KeyboardInterrupt
+[smoke] exit=130 apos 99s
+[smoke] ORFAOS apos 3s: nenhum
+[smoke] conteudo de .../clips:
+[smoke]   clipA.mp4  4961983 bytes
+[smoke]   enhance_ai_log.json  1035 bytes
+
+controle (mesma árvore, com `_register_ffmpeg(ffmpeg_process)` trocado por `pass`):
+[smoke] encode Cineon vivo: ['19388']
+[smoke] disparando KeyboardInterrupt
+[smoke] exit=130 apos 99s
+[smoke] ORFAOS apos 3s: ['19388']
+[smoke] conteudo de .../clips:
+[smoke]   clipA.mp4  4961983 bytes
+[smoke]   clipA_Cineon_Film.mp4  48 bytes
+[smoke]   enhance_ai_log.json  2067 bytes
+```
+
+O controle reproduz o `YF1` na íntegra dentro do caminho Cineon (ffmpeg órfão vivo
+após `exit=130` + parcial `clipA_Cineon_Film.mp4` sobrevivendo, que a execução
+seguinte da fila promoveria a `○ pulado`); com o fix, nenhum órfão e nenhum parcial.
+A mutação de controle foi revertida com `git checkout --` e a árvore reconferida
+(`git status --short` só com o `docs/windows-ci-e-interrupcao-robusta.md` que já
+existia antes desta task). Artefatos do smoke ficaram fora do repo, em
+`%TEMP%\smoke_fix1\` (`run_smoke.py`, `fixed.log`, `control.log`).
