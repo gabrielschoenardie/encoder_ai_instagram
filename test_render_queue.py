@@ -7,6 +7,7 @@ from rich.console import Console
 from render_queue import (
     QueueJob,
     build_table,
+    discard_partial_output,
     estimate_eta,
     format_duration,
     format_eta,
@@ -200,3 +201,68 @@ def test_estimate_eta_without_in_flight_is_unchanged():
 def test_estimate_eta_still_none_without_samples():
     jobs = [QueueJob(input_path="a.mp4", output_path="b.mp4")]
     assert estimate_eta(jobs, remaining=1, in_flight_elapsed=3.0) is None
+
+
+def test_discard_partial_output_removes_existing_file(tmp_path):
+    partial = tmp_path / "clip_Hollywood_CRF18.mp4"
+    partial.write_bytes(b"\x00" * 128)
+    job = QueueJob(input_path="clip.mp4", output_path=str(partial))
+
+    assert discard_partial_output(job) is True
+    assert not partial.exists()
+
+
+def test_discard_partial_output_returns_false_when_absent(tmp_path):
+    job = QueueJob(
+        input_path="clip.mp4",
+        output_path=str(tmp_path / "nao_existe.mp4"),
+    )
+    assert discard_partial_output(job) is False
+
+
+def test_run_job_marks_interrupted_and_reraises():
+    # O KeyboardInterrupt precisa vir do on_tick: ele roda na main thread dentro
+    # do laco do run_job. Levantado de dentro do encode_fn morreria no worker.
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    console = Console(file=io.StringIO(), width=120)
+
+    def encode_fn():
+        time.sleep(1.0)
+
+    def on_tick():
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_job(job, encode_fn, console, on_tick=on_tick, tick_interval=0.01)
+
+    assert job.status == "interrompido"
+    assert job.finished_at is not None
+
+
+def test_build_table_renders_interrupted_symbol():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    job.status = "interrompido"
+    job.started_at = 100.0
+    job.finished_at = 105.0
+
+    output = io.StringIO()
+    console = Console(file=output, width=120)
+    console.print(build_table([job]))
+    text = output.getvalue()
+
+    assert "⚡" in text
+
+
+def test_render_final_report_counts_interrupted():
+    done = _finished_job(10.0)
+    stopped = QueueJob(input_path="b.mp4", output_path="b_out.mp4")
+    stopped.status = "interrompido"
+    stopped.started_at = 100.0
+    stopped.finished_at = 104.0
+
+    output = io.StringIO()
+    console = Console(file=output, width=120)
+    render_final_report([done, stopped], console)
+    text = output.getvalue()
+
+    assert "Interrompidos: 1/2" in text

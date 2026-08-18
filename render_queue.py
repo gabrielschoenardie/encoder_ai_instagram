@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import statistics
 import threading
 import time
@@ -18,6 +19,7 @@ STATUS_SYMBOLS = {
     "ok": "✓",
     "falha": "✗",
     "pulado": "○",
+    "interrompido": "⚡",
 }
 
 MAX_LOG_CHARS = 4000
@@ -44,6 +46,22 @@ def format_eta(eta_seconds: float | None) -> str:
     if eta_seconds is None:
         return "--:--"
     return format_duration(eta_seconds)
+
+
+def discard_partial_output(job: QueueJob) -> bool:
+    """Remove o output parcial de um job interrompido.
+
+    Retorna True se removeu de fato. Nunca levanta: um arquivo travado pelo
+    processo do ffmpeg ainda encerrando (comum no Windows) devolve False.
+    """
+    path = job.output_path
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return False
 
 
 def estimate_eta(
@@ -129,10 +147,19 @@ def run_job(
 
     worker = threading.Thread(target=_target, daemon=True)
     worker.start()
-    while worker.is_alive():
-        if on_tick is not None:
-            on_tick()
-        worker.join(timeout=tick_interval)
+    try:
+        while worker.is_alive():
+            if on_tick is not None:
+                on_tick()
+            worker.join(timeout=tick_interval)
+    except KeyboardInterrupt:
+        # O KeyboardInterrupt chega na main thread (aqui), nunca no worker: o
+        # `except Exception` de _target nao ve BaseException. Sem isto o job
+        # ficaria preso em "processando" com finished_at=None.
+        job.finished_at = time.time()
+        job.log = log_text
+        job.status = "interrompido"
+        raise
 
     job.finished_at = time.time()
     job.log = log_text
@@ -148,6 +175,7 @@ def render_final_report(jobs: list[QueueJob], console: Console) -> None:
     ok = sum(1 for job in jobs if job.status == "ok")
     failed = [job for job in jobs if job.status == "falha"]
     skipped = [job for job in jobs if job.status == "pulado"]
+    interrupted = [job for job in jobs if job.status == "interrompido"]
     total_seconds = sum(
         (job.finished_at - job.started_at)
         for job in jobs
@@ -162,6 +190,8 @@ def render_final_report(jobs: list[QueueJob], console: Console) -> None:
     console.print(f"[green]✓ Sucesso:  {ok}/{total}[/green]")
     if skipped:
         console.print(f"[yellow]○ Pulados:  {len(skipped)}/{total}[/yellow]")
+    if interrupted:
+        console.print(f"[yellow]⚡ Interrompidos: {len(interrupted)}/{total}[/yellow]")
     if failed:
         console.print(f"[red]✗ Falhas:   {len(failed)}/{total}[/red]")
         for job in failed:
