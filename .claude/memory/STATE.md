@@ -2013,11 +2013,23 @@ FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - AssertionErr
 ======================== 4 failed, 388 passed in 5.05s ========================
 ```
 
-**Windows, Python 3.12** (job 95783891099): mesmas 4 linhas `FAILED`, na mesma ordem
-(`test_measure_cmd_basic_shape`, `test_ffplay_args_basic`, `test_anchor_strings_present`,
-`test_idle_glyphs_wired_unicode_and_ascii`), `4 failed, 388 passed in 5.03s`.
+**Windows, Python 3.12** (job 95783891099):
 
-Confirmações:
+```
+enhance/test_ebu_meter.py::test_measure_cmd_basic_shape FAILED           [ 19%]
+enhance/test_ebu_meter.py::test_ffplay_args_basic FAILED                 [ 21%]
+ui/test_readme_assets.py::test_anchor_strings_present FAILED             [ 92%]
+ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii FAILED        [ 98%]
+
+FAILED enhance/test_ebu_meter.py::test_measure_cmd_basic_shape - AssertionError: assert 'ffmpeg.exe' == 'ffmpeg'
+FAILED enhance/test_ebu_meter.py::test_ffplay_args_basic - AssertionError: assert 'ffplay.exe' == 'ffplay'
+FAILED ui/test_readme_assets.py::test_anchor_strings_present - UnicodeDecodeError: 'charmap' codec can't decode byte 0x90 in position 5207: character maps to <undefined>
+FAILED ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii - AssertionError: assert '|' == '▎'\n  \n  - ▎\n  + '|'
+======================== 4 failed, 388 passed in 5.03s ========================
+```
+
+Confirmações (o bloco acima confirma a equivalência com a 3.11: mesmos 4 testes, mesma
+ordem, mesmas exceções, só o tempo final difere):
 
 - 3.11 e 3.12 falham nos **mesmos 4 testes**, mesma ordem, mesmas exceções — nenhuma
   divergência entre versões de Python.
