@@ -301,7 +301,7 @@ Evidência: leitura direta de `Reels_Encoder_v2_FINAL.py:4367-4383` e `render_qu
 - **XF2:** `run_job` captura stdout do job na worker thread (`render_queue.py:109-114`) mas só transfere para `job.log` dentro do ramo de falha (`:127`). Antes do Ciclo V essa saída rolava visível no terminal; agora some. Não há `--verbose` nem log em arquivo para recuperar.
 - **XF3:** O bug é inteiramente do chamador. `estimate_eta` multiplica a média pelo `remaining` que recebe, e o engine passa apenas a contagem de `aguardando` — o job `processando` fica de fora. No último job, `remaining == 0` e o título exibe `ETA: 00:00` durante o encode inteiro.
 
-## Achado — 2026-08-17 (ciclo Y, smoke test real da Task 5) — não corrigido
+## Achado — 2026-08-17 (ciclo Y, smoke test real da Task 5) — CORRIGIDO no ciclo AD
 
 Evidência: execução real do `--batch` interrompida dentro da janela de escrita do ffmpeg; saída completa colada em `.claude/memory/STATE.md` § "Ciclo Y — interrupção segura, log e ETA — 2026-08-17" § "Achado novo — YF1".
 
@@ -312,6 +312,15 @@ Evidência: execução real do `--batch` interrompida dentro da janela de escrit
 - **YF1:** o fix do `XF1` cobre o caso comum (interrupção antes de o ffmpeg criar a saída) — provado no smoke test da Task 5: `exit=130`, `⚡ Interrompidos: 1/3`, job interrompido refeito na execução seguinte. Resta uma janela: quando a interrupção cai **enquanto o ffmpeg escreve** o `.mp4` (medido: t≈113 s a t≈135 s de um job de ~140 s), o `os.remove` de `discard_partial_output` falha com `OSError` porque o subprocesso ffmpeg — que o handler não encerra — ainda mantém o arquivo aberto. O `except OSError: return False` engole o erro, nada é impresso, e a linha `● output parcial removido:` nunca aparece. Pior: o ffmpeg órfão sobrevive à saída do Python e termina de escrever sozinho, deixando um `.mp4` de tamanho "normal" que nunca passou pelo pós-encode (remux do átomo `colr`, `.qc.json`/`.qc.html`) — e que a execução seguinte marca `○ pulado`, exatamente o sintoma que o `XF1` queria eliminar.
 - Correção provável (fora do escopo do Ciclo Y): guardar o `Popen` do ffmpeg do job e chamar `terminate()`/`kill()` no handler de `KeyboardInterrupt` antes de tentar remover, e/ou tornar a falha de remoção visível em vez de silenciosa (avisar que o arquivo pode estar truncado). O `except OSError: return False` foi decisão deliberada do Ciclo Y ("nunca levanta") e continua correta — falta o `terminate()` e o aviso.
 - O caminho single-file (`Reels_Encoder_v2_FINAL.py:4435-4447`) tem a mesma estrutura (`os.remove` guardado por `except OSError: pass`) e provavelmente a mesma janela; não medido nesta task.
+
+### Status (2026-08-18, fechamento do Ciclo AD, Task 9)
+
+| ID | status | onde |
+|----|--------|------|
+| YF1 | **corrigido** | AD2 (`f98a6b5`, retentativa em `discard_partial_output` + 3 testes) + AD3 (`4656a41`, `terminate_active_ffmpeg()` nos dois handlers de `KeyboardInterrupt` e aviso vermelho quando o parcial sobrevive) + AD4 (smoke test real em Windows, na janela medida). Evidência: `.claude/memory/STATE.md` § "Ciclo AD — interrupção robusta (YF1) — 2026-08-18" — os três sintomas verificados na plataforma onde o bug existe, mais o ramo do aviso reproduzido com o handle do parcial preso por um processo separado. |
+| ABF3 | **aberto — adiado** | reconfirmado nesta task, entrada acima intocada; segue candidato natural ao próximo ciclo |
+
+- **Cobertura da prova:** o caminho `--batch` foi exercitado de ponta a ponta em Windows real (interrupção em t=125 s com o `.mp4` parcial no disco): sem órfão, parcial removido, `exit=130`, job refeito na execução seguinte; e, forçando a remoção a falhar, o aviso impresso com `exit=130` e ainda sem órfão. O caminho single-file recebeu a **mesma** correção na AD3 (`terminate_active_ffmpeg()` + aviso no `except OSError`) mas **não** foi exercitado por este smoke test — ali a prova é de código e de unitária, não de execução. Registrado para não ser lido como mais do que é.
 
 ## Achado — 2026-08-18 (ciclo AB, auditoria de cobertura de CI) — corrigindo no ciclo AC
 

@@ -2175,3 +2175,270 @@ Lacuna fechada.
 |----|--------|----------------|-----------|
 | AD1 | done | .claude/memory/PLAN.md | reescrito para Ciclo AD (YF1), tabela AD1..AD4 espelhando Tasks 6-9, commit 86a5d93 |
 | AD3 | done | Reels_Encoder_v2_FINAL.py | `_register_ffmpeg`/`_ACTIVE_FFMPEG_LOCK` + `terminate_active_ffmpeg(timeout=5.0)` no topo; registro no `Popen` real (`_run_encoding:1947`, helper que `run_ffmpeg` chama — `run_ffmpeg` não tem `Popen` próprio) e limpeza no `finally` existente; `terminate_active_ffmpeg()` + aviso vermelho quando o parcial sobrevive nos 2 handlers de `KeyboardInterrupt` (batch e single-file); `py_compile` limpo e `pytest test_render_queue.py enhance/ ui/ -q` → **395 passed in 4.95s** (com `FORCE_COLOR` desativado, ACF2); commit 4656a41; ressalva: o 2º `Popen` (Cineon/PyAV, linha ~3486) não foi registrado — fora do escopo do brief, já coberto pelo `terminate()` próprio daquele caminho (detalhe em `.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-8-report.md`) |
+
+## Ciclo AD — interrupção robusta (YF1) — 2026-08-18
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AD4 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Smoke test real em Windows, na janela medida do `YF1` (interrupção em t=125 s, com o `.mp4` parcial já no disco): **nenhum ffmpeg órfão** após a saída do Python, **parcial removido** (`● output parcial removido: clip1_Hollywood_CRF18.mp4`), `exit=130`, e execução seguinte na **mesma pasta** refazendo o job (`✓ Sucesso: 3/3`, zero `○ Pulados`). Step 3 (ramo do aviso) **reproduzido de verdade**: com o handle do parcial preso por um processo separado, a remoção falha mesmo com a retentativa e o aviso aparece — `✗ NÃO foi possível remover clip1_Hollywood_CRF18.mp4` — com `exit=130` e, ainda assim, **sem órfão**: o parcial congela em 786480 bytes e o `ffprobe` acusa `moov atom not found` (no `YF1` original o órfão terminava o arquivo sozinho, 3710103 bytes, aparência íntegra). Saída literal abaixo. |
+
+### Ambiente
+
+Windows 10 Pro 10.0.19045, git-bash (MSYS), Python 3.12.10, ffmpeg 7.1.1-full_build-www.gyan.dev.
+Mesmo arranjo do Ciclo Y: pastas `.smoke/batch_in` e `.smoke/batch_out` dentro do worktree, 3 clipes
+sintéticos gerados com o comando do plano (`testsrc=size=1080x1920:rate=30:duration=8` +
+`sine=frequency=440:duration=8`, `-c:v libx264 -c:a aac -shortest`), interrupção entregue por
+`_thread.interrupt_main()` de uma thread-timer sobre `runpy.run_path(..., run_name="__main__")` —
+o mesmo caminho de entrega do Ctrl+C do console. Nenhum código de produção foi tocado nem
+monkey-patchado. Duas diferenças de ambiente em relação ao Ciclo Y, ambas só de captura:
+`PYTHONIOENCODING=utf-8` (para o log redirecionado aceitar os glifos) e `FORCE_COLOR` fora do
+ambiente (`ACF2`). Comando literal do smoke: `python .smoke/run_interrupt.py 125 <probe.log> [t_hold] [dur_hold]`,
+com `sys.argv = ["Reels_Encoder_v2_FINAL.py", "--batch", <in>, "--output-dir", <out>]`.
+
+Clipes de entrada:
+
+```
+gen_exit=0
+total 552
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:14 .
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:14 ..
+-rw-r--r-- 1 Usuario 197121 187935 Aug 18 15:14 clip1.mp4
+-rw-r--r-- 1 Usuario 197121 187935 Aug 18 15:14 clip2.mp4
+-rw-r--r-- 1 Usuario 197121 187935 Aug 18 15:14 clip3.mp4
+```
+
+### Step 1 — interrupção dentro da janela medida (t=125 s)
+
+Sonda do próprio smoke (a cada 5 s, `os.path.getsize` no `batch_out`) — confirma que o `.mp4`
+parcial **existia no disco** no instante da interrupção, que é a condição do `YF1`:
+
+```
+t=105s mp4=nao
+t=110s mp4=nao
+t=115s mp4=nao
+t=120s mp4=SIM clip1_Hollywood_CRF18.mp4=48
+t=125s mp4=SIM clip1_Hollywood_CRF18.mp4=786480
+```
+
+```
+=== ls batch_out ANTES ===
+total 4
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:14 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:15 ..
+=== run (interrupt em 125s) ===
+exit=130
+=== tasklist LOGO APOS a saida do python ===
+nenhum ffmpeg em execucao agora
+=== ls batch_out DEPOIS ===
+total 4
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:17 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:15 ..
+```
+
+```
+$ grep -a -n "output parcial|Fila interrompida|Interrompidos|Sucesso|NÃO foi possível|exit_do_processo" .smoke/step1.log
+33:⚠ Fila interrompida pelo usuário
+34:  ● output parcial removido: clip1_Hollywood_CRF18.mp4
+45:✓ Sucesso:  0/3
+46:⚡ Interrompidos: 1/3
+49:exit_do_processo=130
+```
+
+Relatório final real (colado do log):
+
+```
+⚠ Fila interrompida pelo usuário
+  ● output parcial removido: clip1_Hollywood_CRF18.mp4
+
+────────────────────────── 📊 Fila — Relatório Final ──────────────────────────
+                                Resumo da fila
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⚡           —
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+
+✓ Sucesso:  0/3
+⚡ Interrompidos: 1/3
+Tempo total da fila: 00:00
+
+exit_do_processo=130
+```
+
+Comparação direta com o `YF1` do Ciclo Y, mesma janela e mesmo preset: lá o parcial de
+1310768 bytes **sobreviveu** e a linha `● output parcial removido:` nunca apareceu.
+
+### Step 2 — os três sintomas do YF1
+
+| # | critério | medido | veredito |
+|---|----------|--------|----------|
+| 1 | ffmpeg após a saída do Python | `tasklist \| grep -i ffmpeg` → `nenhum ffmpeg em execucao agora`, colhido no mesmo comando, logo após o `exit=130` | **sem órfão** |
+| 2 | arquivo parcial | `batch_out` vazio no `ls` posterior + linha `● output parcial removido: clip1_Hollywood_CRF18.mp4` | **removido** |
+| 3 | execução seguinte (mesma pasta) | `✓ Sucesso: 3/3`, nenhuma linha `○ Pulados`, `.qc.json`/`.qc.html` gerados para os 3 | **refeito, não pulado** |
+
+Sintoma 3, saída literal (fila completa rodada de novo na **mesma** `batch_in`/`batch_out`):
+
+```
+=== ls batch_out ANTES ===
+total 4
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:17 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:15 ..
+=== run completo (mesma pasta) ===
+exit=0
+=== ls batch_out DEPOIS ===
+total 10940
+drwxr-xr-x 1 Usuario 197121       0 Aug 18 15:24 .
+drwxr-xr-x 1 Usuario 197121       0 Aug 18 15:17 ..
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 18 15:20 clip1_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 18 15:20 clip1_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2773 Aug 18 15:20 clip1_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 18 15:22 clip2_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 18 15:22 clip2_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2773 Aug 18 15:22 clip2_Hollywood_CRF18.qc.json
+-rw-r--r-- 1 Usuario 197121 3710103 Aug 18 15:24 clip3_Hollywood_CRF18.mp4
+-rw-r--r-- 1 Usuario 197121   12987 Aug 18 15:24 clip3_Hollywood_CRF18.qc.html
+-rw-r--r-- 1 Usuario 197121    2773 Aug 18 15:24 clip3_Hollywood_CRF18.qc.json
+=== relatorio ===
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:14
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:11
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:12
+
+────────────────────────── 📊 Fila — Relatório Final ──────────────────────────
+                                Resumo da fila
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:14
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:11
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ✓        02:12
+
+✓ Sucesso:  3/3
+Tempo total da fila: 06:37
+```
+
+O job 1 — o interrompido — foi **refeito do zero em 02:14** e passou pelo pós-encode
+(`.qc.json`/`.qc.html` presentes). No `YF1` original ele aparecia como `○` e o `.mp4` órfão
+era promovido a pronto sem QC.
+
+### Step 3 — o ramo do aviso, provado de verdade
+
+Método: um processo Python **separado** (`.smoke/hold_handle.py`, lançado por `subprocess.Popen`
+a partir do runner, sem tocar em código de produção) espera o `.mp4` de saída aparecer, abre-o
+com `open(path, "rb")` e segura o handle por 40 s — muito além da janela de retentativa do
+`discard_partial_output` (3 tentativas × 0.5 s). No Windows o `open()` do CPython não concede
+`FILE_SHARE_DELETE`, então o `DeleteFileW` por trás do `os.remove` falha com `OSError` mesmo
+depois de o ffmpeg ter sido encerrado. Interrupção no mesmo t=125 s.
+
+```
+=== ls batch_out ANTES ===
+total 8
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:24 .
+drwxr-xr-x 1 Usuario 197121 0 Aug 18 15:17 ..
+=== run (interrupt em 125s, handle preso a partir de t=110s por 40s) ===
+exit=130
+=== tasklist LOGO APOS a saida do python ===
+nenhum ffmpeg em execucao agora
+=== hold.log ===
+HOLD: handle aberto em C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram\.claude\worktrees\windows-ci-interrupcao-robusta\.smoke\batch_out\clip1_Hollywood_CRF18.mp4 (t=4.6s do holder)
+=== ls batch_out DEPOIS ===
+total 784
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:26 .
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:26 ..
+-rw-r--r-- 1 Usuario 197121 786480 Aug 18 15:27 clip1_Hollywood_CRF18.mp4
+=== probe ===
+t=110s mp4=nao
+t=115s mp4=SIM clip1_Hollywood_CRF18.mp4=0
+t=120s mp4=SIM clip1_Hollywood_CRF18.mp4=48
+t=125s mp4=SIM clip1_Hollywood_CRF18.mp4=786480
+```
+
+```
+$ grep -a -n "output parcial|Fila interrompida|Interrompidos|Sucesso|NÃO foi possível|incompleto|exit_do_processo" .smoke/step3.log
+33:⚠ Fila interrompida pelo usuário
+34:  ✗ NÃO foi possível remover clip1_Hollywood_CRF18.mp4
+35:    Este arquivo está incompleto e NÃO passou pelo controle de qualidade.
+47:✓ Sucesso:  0/3
+48:⚡ Interrompidos: 1/3
+51:exit_do_processo=130
+```
+
+```
+⚠ Fila interrompida pelo usuário
+  ✗ NÃO foi possível remover clip1_Hollywood_CRF18.mp4
+    Este arquivo está incompleto e NÃO passou pelo controle de qualidade.
+Apague-o à mão antes de rodar a fila de novo, ou ele será tratado como pronto.
+
+────────────────────────── 📊 Fila — Relatório Final ──────────────────────────
+                                Resumo da fila
+
+  #   Arquivo                                                Status   Duração
+ ─────────────────────────────────────────────────────────────────────────────
+  1   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ⚡           —
+  2   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+  3   C:\Users\Usuario\Documents\GitHub\encoder_ai_instag…     ·            —
+
+✓ Sucesso:  0/3
+⚡ Interrompidos: 1/3
+Tempo total da fila: 00:00
+
+exit_do_processo=130
+```
+
+Os três pontos do brief para este step: a mensagem aparece, o `exit` continua **130**, e —
+mesmo no caminho de falha — **não sobra órfão**. O que sobra é um arquivo comprovadamente
+truncado, congelado no tamanho que tinha no instante da interrupção (786480 bytes em t=125 s,
+786480 bytes no `ls` posterior), e não um arquivo de aparência íntegra:
+
+```
+=== estado do parcial ~1min depois ===
+total 784
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:26 .
+drwxr-xr-x 1 Usuario 197121      0 Aug 18 15:26 ..
+-rw-r--r-- 1 Usuario 197121 786480 Aug 18 15:27 clip1_Hollywood_CRF18.mp4
+nenhum ffmpeg em execucao agora
+=== ffprobe do parcial ===
+[mov,mp4,m4a,3gp,3g2,mj2 @ 000001fd4aabb140] moov atom not found
+.smoke/batch_out/clip1_Hollywood_CRF18.mp4: Invalid data found when processing input
+ffprobe_exit=1
+```
+
+Contraste literal com o `YF1` do Ciclo Y, mesma janela: lá o `ffprobe` do arquivo que sobrou
+devolvia `duration=8.000000` / `size=3710103` / `ffprobe_exit=0` — o órfão tinha terminado de
+escrever sozinho.
+
+#### Limitação de captura: o vermelho não aparece no log redirecionado (não é divergência de produto)
+
+A execução do Step 3 foi repetida com `FORCE_COLOR=1` para capturar o ANSI do aviso. O log de
+421759 bytes saiu com **zero** bytes `0x1b`: neste console o `rich` reporta `legacy_windows=True`
+(mesmo fato já medido na Task 4 do Ciclo AC, item #4 da classificação), e nesse modo a cor sai
+por API Win32, não por escape — redirecionar para arquivo perde a cor de qualquer markup, não só
+deste aviso. O que é verificável aqui: (a) a linha do aviso é impressa, literal acima; (b) o
+markup no fonte é `[bold red]` (`Reels_Encoder_v2_FINAL.py`, handler de `KeyboardInterrupt` do
+batch e do single-file); (c) o mesmo markup renderiza vermelho num console capaz de cor —
+`Console(file=StringIO(), force_terminal=True, legacy_windows=False)` imprimindo a mesma linha:
+
+```
+'\x1b[1;31m  ✗ NAO foi possivel remover clip1_Hollywood_CRF18.mp4\x1b[0m\n'
+legacy_windows= True encoding= utf-8 is_terminal= True
+```
+
+Registrado como limitação do método de captura nesta máquina, **não** como achado novo: nenhum
+comportamento observado divergiu do esperado pelo brief.
+
+### Suíte
+
+```
+$ python -m pytest test_render_queue.py enhance/ ui/ -q
+........................................................................ [ 91%]
+...................................                                      [100%]
+395 passed in 4.96s
+```
+
+(`FORCE_COLOR` fora do ambiente, conforme `ACF2`.)
+
+### Cleanup
+
+`.smoke/` (clipes, outputs, logs, sondas e scripts do smoke test) removida ao final;
+`git status --short` pós-cleanup colado no relatório da task
+(`.superpowers/sdd/windows-ci-e-interrupcao-robusta/task-9-report.md`).
