@@ -9,7 +9,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/gabrielschoenardie/encoder_ai_instagram?style=for-the-badge&color=4ECDC4)](https://github.com/gabrielschoenardie/encoder_ai_instagram/commits)
 [![GitHub stars](https://img.shields.io/github/stars/gabrielschoenardie/encoder_ai_instagram?style=for-the-badge&color=FFD700)](https://github.com/gabrielschoenardie/encoder_ai_instagram/stargazers)
 
-**Sistema profissional de codificação de vídeo para Instagram Reels**  
+**Sistema profissional de codificação de vídeo para Instagram Reels**
 *Qualidade cinematográfica com IA adaptativa — do seu arquivo ao Reels sem perda de qualidade*
 
 </div>
@@ -23,7 +23,7 @@
 - [⚡ Início Rápido](#-início-rápido)
 - [📋 Requisitos](#-requisitos)
 - [📦 Portabilidade — FFmpeg embarcado](#-portabilidade--ffmpeg-embarcado)
-- [🚀 Instalação Completa](#-instalação-completa)
+- [🚀 Instalação Alternativa (Python puro / outros SOs)](#-instalação-alternativa-python-puro--outros-sos)
 - [🎛️ Uso & Opções CLI](#️-uso--opções-cli)
 - [🏗️ Arquitetura](#️-arquitetura)
 - [🤖 Módulo de IA — FASE 27](#-módulo-de-ia--fase-27)
@@ -76,28 +76,40 @@
 
 ## ⚡ Início Rápido
 
-### 3 passos para o primeiro encode
+### 2 passos para o primeiro encode (Windows)
 
-```bash
-# 1. Clone e instale
+```powershell
+# 1. Clone o repositório
 git clone https://github.com/gabrielschoenardie/encoder_ai_instagram.git
 cd encoder_ai_instagram
-pip install -r requirements.txt
 
-# 2. Encode básico (pipeline rápido)
-python Reels_Encoder_v2_FINAL.py meu_video.mp4
-
-# 3. Encode cinematográfico (film emulation)
-python Reels_Encoder_v2_FINAL.py meu_video.mp4 --cineon-pipeline on
+# 2. Rode o launcher
+.\launcher.ps1
 ```
+
+`launcher.ps1` cria um venv local, valida o FFmpeg embarcado e abre o wizard
+interativo — zero configuração manual.
+
+```powershell
+.\launcher.ps1                                                # wizard interativo
+.\launcher.ps1 -InputFile "video.mp4" -Profile "cinematic"    # preset direto, sem wizard
+```
+
+Perfis disponíveis: `fast`, `balanced` (padrão), `quality`, `cinematic`, `batch`.
+Detalhes completos (venv, resolução de FFmpeg, Windows Terminal) na seção
+[📦 Portabilidade — FFmpeg embarcado](#-portabilidade--ffmpeg-embarcado).
+
+> Não está no Windows, ou prefere Python puro? Veja
+> [🚀 Instalação Alternativa](#-instalação-alternativa-python-puro--outros-sos).
 
 ### 🎛️ UI interativa (estilo Premiere Pro)
 
-Rode **sem argumentos** (ou com `--ui`) para abrir o launcher interativo: menu de
+`launcher.ps1` já abre esse launcher interativo por baixo dos panos: menu de
 presets, configuração por abas (Source · Color/LUT · Audio · Enhance · Export),
 **preview das configurações** antes do encode e um dashboard ao vivo com progresso,
 fps/speed/ETA, monitor de performance (CPU/RAM) e log. A CLI tradicional continua
-100% idêntica — a UI é uma camada aditiva.
+100% idêntica — a UI é uma camada aditiva. Rodando via Python puro, o mesmo
+launcher abre com:
 
 ```bash
 python Reels_Encoder_v2_FINAL.py            # abre o launcher
@@ -107,7 +119,11 @@ python Reels_Encoder_v2_FINAL.py --ui       # força o launcher
 > Conceito visual e plano completo: [`docs/terminal-ui-masterplan.md`](docs/terminal-ui-masterplan.md).
 > Para a melhor renderização (cores truecolor + glyphs), use o **Windows Terminal**.
 
-### Exemplos mais usados
+### Exemplos mais usados (referência de flags CLI)
+
+> Estes exemplos assumem a rota Python puro/`reels-encoder` — veja
+> [🚀 Instalação Alternativa](#-instalação-alternativa-python-puro--outros-sos)
+> para instalar esse caminho.
 
 ```bash
 # Máxima qualidade com IA + film look
@@ -148,7 +164,7 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 | opencv-python | 4.8.0+ | ⚪ opcional (banding detection) |
 | CuPy | qualquer | ⚪ opcional (GPU acceleration) |
 
-> ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico. `pip install -r requirements.txt` (Quick Start e Instalação Completa) instala o opencv-python por padrão via `-e .[opencv]`; para instalar sem opencv use `pip install .` (seção "Instalação via pip").
+> ⚪ Dependências opcionais ativam funcionalidades extras mas não são obrigatórias para o funcionamento básico. `pip install -r requirements.txt` (Início Rápido e Instalação Alternativa) instala o opencv-python por padrão via `-e .[opencv]`; para instalar sem opencv use `pip install .` (seção "Instalação via pip").
 
 ### FFmpeg — duas rotas
 
@@ -188,26 +204,16 @@ O encoder localiza cada binário do FFmpeg por um **resolvedor de 3 níveis** (`
 
 > Se faltar `ffmpeg`/`ffprobe`, a UI mostra um card de dependência ausente com as duas rotas de correção.
 
-### Launcher portátil (`launcher.ps1`)
-
-Pra rodar em qualquer máquina Windows sem configurar Python manualmente:
-
-```powershell
-.\launcher.ps1                                    # cria venv + abre o wizard interativo
-.\launcher.ps1 -InputFile "video.mp4" -Profile "cinematic"   # preset direto, sem wizard
-```
-
-Cria um venv local em `./venv` (instala via `requirements.txt`, mesma fonte
-de sempre), valida `bin/ffmpeg.exe`/`bin/ffprobe.exe` e abre 2 abas
-(Setup + Encode) no Windows Terminal — se `.\tools\fetch_wt_portable.ps1`
-não tiver sido rodado ainda, cai automaticamente em duas janelas
-PowerShell separadas. Perfis disponíveis: `fast`, `balanced` (padrão),
-`quality`, `cinematic`, `batch`. Nenhum perfil fixa CRF — a análise
-adaptativa do encoder continua decidindo isso.
+> Caminho de entrada recomendado no Windows (`launcher.ps1`, venv + wizard
+> zero-config): veja [⚡ Início Rápido](#-início-rápido).
 
 ---
 
-## 🚀 Instalação Completa
+## 🚀 Instalação Alternativa (Python puro / outros SOs)
+
+Rota secundária para quem não está no Windows (onde `launcher.ps1` é o
+caminho recomendado — veja [⚡ Início Rápido](#-início-rápido)) ou prefere
+gerenciar o ambiente Python manualmente.
 
 ```bash
 # 1. Clone o repositório
@@ -453,7 +459,7 @@ encoder_ai_instagram/
 │   ├── probe.py                   # Dimensões efetivas da fonte (ffprobe)
 │   ├── binaries.py                # Resolvedor ./bin → PATH → nome nu
 │   ├── preflight.py               # Checagem de dependências FFmpeg
-│   └── test_*.py                  # Suíte de testes da UI (111 testes)
+│   └── test_*.py                  # Suíte de testes da UI (130 testes)
 │
 ├── bin/                           # FFmpeg embarcado (git-ignored)
 │   ├── README.md                  # Como preencher ./bin
@@ -647,7 +653,7 @@ python -m pytest enhance/ ui/ -v
 # Só o módulo de IA
 python -m pytest enhance/ -v
 
-# Só a UI interativa (111 testes)
+# Só a UI interativa (130 testes)
 python -m pytest ui/ -v
 
 # Um arquivo específico
@@ -660,7 +666,7 @@ A suíte cobre:
 - Predições do MockCNN para casos extremos (vídeo limpo, vídeo ruidoso, banding severo)
 - Chain denoise → deband → sharpen (ordem e força dos filtros)
 - Integridade do vetor de features (normalização, limites)
-- UI (`ui/`, 111 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
+- UI (`ui/`, 130 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
   componentes, wiring do launcher e matemática/render do dashboard
 
 ---
