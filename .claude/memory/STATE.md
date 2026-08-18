@@ -1975,3 +1975,10 @@ se materializou.
 | AA4 | done | README.md | contagem real confirmada via pytest --collect-only (130 tests collected); "111 testes"→"130 testes" nas 3 ocorrências |
 | AA5 | done | README.md | headings AA1/AA3 batem com âncoras da TOC (slug GitHub verificado manualmente); commit d9ca99d |
 | AA2-fix | done | README.md | detalhe técnico (venv/abas WT/fallback/nota CRF) recolocado no Início Rápido após review do orquestrador flagrar referência circular vazia; pytest ui/ reconfirma 130 testes; commit 22eb7e3 |
+| AB1 | done | README.md | 4 ocorrências "FASE 27" removidas (TOC, tabela CLI, diagrama, heading); âncora TOC bate com novo heading `#-módulo-de-ia` |
+| AB2 | done | enhance/ffmpeg_filters.py, enhance/processor.py | prefixo "FASE 27D — " removido dos 2 docstrings de módulo, descrição intacta |
+| AB3 | done | enhance/ai/interface.py, enhance/ai/mock_cnn.py, enhance/ai/__init__.py, enhance/profile.py, enhance/test_mock_cnn.py | referência "(Fase 27F)"/"Fase 27F —"/"Fase 27F:" removida em 6 pontos (incl. profile.py:233 e :451), frase gramatical preservada |
+| AB4 | done | enhance/sampler.py, enhance/profile.py | comentário sampler.py:2 limpo; separador profile.py:267 recomposto com largura idêntica (79 chars) preenchendo `─` |
+| AB5 | done | enhance/__init__.py, enhance/test_processors.py | docstrings de módulo limpos, resto da frase preservado |
+| AB6 | done | enhance/test_mock_cnn.py, enhance/test_processors.py | 3 prints de banner de teste limpos, bordas `=`/`─` não realinhadas (não fazia parte do critério) |
+| AB7 | done | (verificação) | grep `-ri "fase 27\|fase27"` repo-wide: zero match fora de `.claude/memory/PLAN.md` (não editável); `pytest enhance/ ui/ -q` → 4 failed/365 passed, mas 2 falhas extras (`test_ebu_meter.py::test_measure_cmd_basic_shape`, `::test_ffplay_args_basic`) confirmadas pré-existentes via `git stash` antes das edições — baseline preservado; commit 7422051 |
