@@ -3,7 +3,7 @@ enhance/ai/interface.py
 =======================
 Abstract base class for enhancement decision models.
 
-Fase 27F — Mock CNN Architecture.
+Mock CNN Architecture.
 
 Contract:
     - predict() receives 13-dim float32 feature vector

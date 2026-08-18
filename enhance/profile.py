@@ -230,7 +230,7 @@ def _build_feature_vector(
     detail: DetailAgg,
 ) -> np.ndarray:
     """
-    Build 13-dimensional feature vector for Mock CNN (Fase 27F).
+    Build 13-dimensional feature vector for Mock CNN.
 
     Dimensions:
       0: noise.sigma
@@ -264,7 +264,7 @@ def _build_feature_vector(
     ], dtype=np.float32)
 
 
-# ── AI weights → EnhanceProfile conversion (Fase 27F) ────────────────────────
+# ── AI weights → EnhanceProfile conversion ───────────────────────────────────
 
 # Activation threshold: weight below this → filter disabled
 _AI_ACTIVATION_THR = 0.1
@@ -448,7 +448,7 @@ def build_enhance_profile(
     Args:
         input_file:     Path to input video file.
         n_sample_frames: Number of frames to sample (default 5).
-        use_ai:         When True, use Mock CNN (Fase 27F) for decisions.
+        use_ai:         When True, use Mock CNN for decisions.
                         When False, use heuristic decision matrix (Fase 1).
 
     Returns:

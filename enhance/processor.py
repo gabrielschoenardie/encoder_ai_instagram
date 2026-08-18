@@ -2,7 +2,7 @@
 """
 enhance/processor.py
 ====================
-FASE 27D — Per-frame enhancement processor for Cineon pipeline (Mode 2).
+Per-frame enhancement processor for Cineon pipeline (Mode 2).
 
 Public API:
     fn = get_enhance_fn(profile)   # None if nothing to do → zero overhead

@@ -1,7 +1,7 @@
 """
 enhance/ffmpeg_filters.py
 =========================
-FASE 27D — FFmpeg filter string generator for Mode 1 (FFmpeg pipeline).
+FFmpeg filter string generator for Mode 1 (FFmpeg pipeline).
 
 Public API:
     vf = build_enhance_filtergraph(profile)   # None if nothing to do

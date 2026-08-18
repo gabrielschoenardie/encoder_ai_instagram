@@ -1,7 +1,7 @@
 """
 test_processors.py
 ==================
-FASE 27D — Testes de validação para processor.py e ffmpeg_filters.py.
+Testes de validação para processor.py e ffmpeg_filters.py.
 
 Todos os testes usam frames sintéticos (NumPy); nenhum vídeo real necessário.
 
@@ -953,7 +953,7 @@ def _run_class(cls):
 def main() -> int:
     print()
     print("=" * 65)
-    print("  FASE 27D — Processor & FFmpeg Filters — Test Suite")
+    print("  Processor & FFmpeg Filters — Test Suite")
     print("=" * 65)
 
     total_passed = total_failed = 0
@@ -989,7 +989,7 @@ def main() -> int:
     print()
     print("=" * 65)
     if total_failed == 0:
-        print(f"  ✅ {total_passed}/{total_passed} PASSED — FASE 27D VÁLIDA")
+        print(f"  ✅ {total_passed}/{total_passed} PASSED")
     else:
         print(f"  ❌ {total_passed} passed, {total_failed} FAILED")
     print("=" * 65)

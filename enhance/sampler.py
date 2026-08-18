@@ -1,5 +1,5 @@
 # ── enhance/sampler.py — Intelligent Frame Sampling ───────────────────
-# FASE 27A: SampledFrame dataclass + sample_frames implementation
+# SampledFrame dataclass + sample_frames implementation
 #
 # Diferença do deband/frame_sampler.py:
 #   - deband/ usa FFmpeg subprocess → PNG → disco

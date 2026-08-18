@@ -26,7 +26,7 @@
 - [🚀 Instalação Alternativa (Python puro / outros SOs)](#-instalação-alternativa-python-puro--outros-sos)
 - [🎛️ Uso & Opções CLI](#️-uso--opções-cli)
 - [🏗️ Arquitetura](#️-arquitetura)
-- [🤖 Módulo de IA — FASE 27](#-módulo-de-ia--fase-27)
+- [🤖 Módulo de IA](#-módulo-de-ia)
 - [🎨 Color Science](#-color-science)
 - [🔧 Ferramentas Auxiliares](#-ferramentas-auxiliares)
 - [🧪 Testes](#-testes)
@@ -294,7 +294,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 
 | Argumento | Valores | Padrão | Descrição |
 | --- | --- | --- | --- |
-| `--enhance` | `on/off` | `on` | Ativa Enhancement Engine (FASE 27) |
+| `--enhance` | `on/off` | `on` | Ativa Enhancement Engine |
 | `--enhance-ai` | `on/off` | `on` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
 | `--dither` | `on/off/auto` | `auto` | Blue-noise dithering anti-banding |
 | `--mctf` | `on/off` | `on` | Máscara MCTF com optical flow anti-flicker |
@@ -440,7 +440,7 @@ encoder_ai_instagram/
 │   ├── FilmLook_Portra400_SkinPriority_D65.cube
 │   └── HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube
 │
-├── enhance/                       # Módulo de IA (FASE 27)
+├── enhance/                       # Módulo de IA
 │   ├── analyzers/
 │   │   ├── banding.py             # Análise de banding (histograma, gradientes)
 │   │   ├── noise.py               # Estimativa de ruído (Gaussian σ, FFT)
@@ -487,7 +487,7 @@ encoder_ai_instagram/
 
 ---
 
-## 🤖 Módulo de IA — FASE 27
+## 🤖 Módulo de IA
 
 O módulo `enhance/` implementa uma **engine de aprimoramento adaptativa** que analisa cada vídeo individualmente antes de aplicar qualquer filtro.
 

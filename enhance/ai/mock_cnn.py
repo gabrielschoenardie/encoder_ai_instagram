@@ -1,7 +1,7 @@
 """
 enhance/ai/mock_cnn.py
 ======================
-Mock CNN model for enhancement decisions (Fase 27F).
+Mock CNN model for enhancement decisions.
 
 Architecture:
     Input (13) → Linear(13→8) → Sigmoid → Linear(8→3) → Sigmoid → Output (3)

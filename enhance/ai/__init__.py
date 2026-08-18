@@ -1,7 +1,7 @@
 """
 enhance/ai — AI-based enhancement decision models.
 
-Fase 27F: Mock CNN Architecture.
+Mock CNN Architecture.
 
 Exports:
     EnhanceModel  — Abstract base class (interface.py)

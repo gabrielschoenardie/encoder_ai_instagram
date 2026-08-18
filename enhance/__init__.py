@@ -1,7 +1,7 @@
 """
 enhance/
 ========
-Instagram Reels Encoder — Enhancement Engine (FASE 27)
+Instagram Reels Encoder — Enhancement Engine
 
 Public API:
     from enhance.profile import build_enhance_profile, print_enhance_report

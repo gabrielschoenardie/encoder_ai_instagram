@@ -1,7 +1,7 @@
 """
 enhance/test_mock_cnn.py
 ========================
-Unit tests for MockCNN (Fase 27F).
+Unit tests for MockCNN.
 
 Cenários:
     1. Clean content → all weights low (< 0.15)
@@ -228,7 +228,7 @@ ALL_TESTS = [
 
 def run_all():
     print("=" * 60)
-    print("  MockCNN Unit Tests — FASE 27F-C")
+    print("  MockCNN Unit Tests")
     print("=" * 60)
     passed = 0
     failed = 0
