@@ -42,8 +42,9 @@ completo do mecanismo: spec § Architecture.
 
 ## Notas de execução
 
-- Baseline de regressão a preservar (inalterado desde os ciclos V/W/X): 4
-  falhas nominais pré-existentes — `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
+- Baseline de regressão a preservar (inalterado desde os ciclos V/W/X):
+  `python -m pytest test_render_queue.py enhance/ ui/ -q` → `379 passed, 4
+  failed`. As 4 falhas nominais pré-existentes — `enhance/test_ebu_meter.py::test_measure_cmd_basic_shape`,
   `enhance/test_ebu_meter.py::test_ffplay_args_basic`,
   `ui/test_readme_assets.py::test_anchor_strings_present`,
   `ui/test_theme.py::test_idle_glyphs_wired_unicode_and_ascii`.
