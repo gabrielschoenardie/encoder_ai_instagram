@@ -60,7 +60,14 @@ def test_theme_has_dim_variants():
 def test_idle_glyphs_wired_unicode_and_ascii():
     """The now-wired glyphs must resolve to Unicode on a utf console and
     downgrade to their ASCII forms on a non-utf (cp1252) console."""
-    u = glyphs(Console())
+    # Both consoles are stated explicitly: a bare ``Console()`` inherits the
+    # runner's terminal, which on Windows is legacy/cp1252 and would take the
+    # ASCII branch — the test would then assert the wrong half of its own claim.
+    class _UtfConsole:
+        legacy_windows = False
+        encoding = "utf-8"
+
+    u = glyphs(_UtfConsole())  # type: ignore[arg-type]
     assert u["tab_l"] == "▎"
     assert u["audio"] == "🎧"
     assert u["spark"] == "✨"

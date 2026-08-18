@@ -119,3 +119,6 @@ Thumbs.db
 
 # Scripts de auditoria descartáveis (ver .claude/memory/PLAN.md)
 audit_tmp/
+
+# Scratch workspace for superpowers subagent-driven-development
+.superpowers/
