@@ -1969,3 +1969,9 @@ se materializou.
 
 `.smoke/` (clipes de entrada, outputs, logs e scripts do smoke test) removida ao final;
 `git status --short` pós-cleanup colado no relatório da task.
+| AA1 | done | README.md | Início Rápido reescrito: launcher.ps1 único passo 1/2, TOC renomeado p/ "Instalação Alternativa" |
+| AA2 | done | README.md | sub-seção "Launcher portátil" removida de Portabilidade, substituída por cross-link p/ Início Rápido |
+| AA3 | done | README.md | "Instalação Completa" renomeada p/ "Instalação Alternativa (Python puro / outros SOs)", conteúdo técnico preservado |
+| AA4 | done | README.md | contagem real confirmada via pytest --collect-only (130 tests collected); "111 testes"→"130 testes" nas 3 ocorrências |
+| AA5 | done | README.md | headings AA1/AA3 batem com âncoras da TOC (slug GitHub verificado manualmente); commit d9ca99d |
+| AA2-fix | done | README.md | detalhe técnico (venv/abas WT/fallback/nota CRF) recolocado no Início Rápido após review do orquestrador flagrar referência circular vazia; pytest ui/ reconfirma 130 testes; commit 22eb7e3 |
