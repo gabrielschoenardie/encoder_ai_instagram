@@ -200,6 +200,13 @@ def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
     Chamado do handler de KeyboardInterrupt: sem isto o subprocesso sobrevive a
     saida do Python e termina de escrever o .mp4 sozinho, produzindo um arquivo
     de tamanho normal que nunca passou pelo pos-encode (YF1).
+
+    O retorno responde "havia um processo registrado e vivo?", nao "ele morreu?".
+    Se o terminate() e o kill() falharem, o retorno segue True — quem chama nao
+    deve ler isso como morte confirmada; a confirmacao real vem do
+    discard_partial_output, que falha e dispara o aviso vermelho quando o handle
+    do arquivo continua preso. Depois de um kill() bem-sucedido esperamos o
+    processo sair de fato, para nao correr com a remocao do parcial no Windows.
     """
     with _ACTIVE_FFMPEG_LOCK:
         proc = _ACTIVE_FFMPEG
@@ -211,6 +218,7 @@ def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
     except Exception:
         try:
             proc.kill()
+            proc.wait(timeout=timeout)
         except Exception:
             pass
     return True
