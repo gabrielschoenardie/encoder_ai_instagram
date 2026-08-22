@@ -2780,3 +2780,33 @@ Grep por `v6\.7B_1\.5IRE` (filename antigo) em `.claude/skills/`: **0 ocorrênci
 Anti-escopo respeitado: `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `README.md`,
 `tools/verificador_instalacao.py` não tocados (AE4, outro agente). Modo Cineon e
 Portra400 não tocados.
+
+| AE4 | done | `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `tools/verificador_instalacao.py`, `README.md` | filename trocado para W80 nos 4 arquivos; mensagem de erro aponta para `tools/generate_hollywood_lut_cooler.py`; `pyproject.toml` mantém a LUT v6.7B original na lista de `data-files` |
+
+### AE4 — Verificação literal
+
+```
+$ python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pytest test_render_queue.py enhance/ ui/ -q
+........................................................................ [ 18%]
+........................................................................ [ 36%]
+........................................................................ [ 54%]
+........................................................................ [ 72%]
+........................................................................ [ 91%]
+...................................                                      [100%]
+395 passed in 5.12s
+```
+
+Baseline `395 passed` preservada, `ui/test_packaging.py::test_data_files_include_luts`
+incluso no run (casamento por sufixo `.cube` genérico, não quebrou).
+
+Anti-escopo respeitado: `.claude/skills/` não tocado (é a AE5, outro agente); modo Cineon,
+`FilmLook_Portra400_SkinPriority_D65.cube` e `ui/launcher.py` não tocados; LUT v6.7B
+original não apagada.
+
+**Nota operacional:** por concorrência com o agente da AE5 rodando em paralelo no mesmo
+worktree, `git add` + `git commit` da AE4 (commit `e0f23ac`) capturou também os arquivos
+da AE5 (`.claude/memory/STATE.md`, os 4 arquivos de `.claude/skills/instagram-reels-encoder/`)
+que foram staged pelo outro processo entre o `git add` e o `git commit` desta tarefa. O
+plano pedia "Commite a AE4 sozinha"; isso não foi possível dado o race condition — o
+commit ficou com escopo AE4+AE5 combinado, mas o conteúdo de cada arquivo está correto e
+isolado (nenhum arquivo tem edições cruzadas entre as duas tarefas).
