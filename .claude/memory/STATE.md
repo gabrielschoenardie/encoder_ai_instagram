@@ -2672,3 +2672,96 @@ pipeline Cineon. Fechado na fix wave da revisão final de branch já documentada
 (`try/finally` com `_register_ffmpeg`/`_register_ffmpeg(None)` em torno do `Popen` Cineon),
 com smoke test real confirmando o fechamento do gap (commits `ed338f2`..`a2578ae`, ver seção
 acima para a saída literal do smoke com/sem o fix).
+
+---
+
+## Ciclo AE — LUT W80 — 2026-08-22
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| AE2 | done | `tools/generate_hollywood_lut_cooler.py`, `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube` | gerador determinístico + cube assado (33³ = 35.937 nós, 823 no clamp) |
+| AE3 | done | `tools/test_generate_hollywood_lut_cooler.py` | 6 asserts de propriedade, `6 passed` |
+
+### Ordem TDD executada
+
+Teste escrito **antes** do bake. RED verificado: `6 failed in 0.84s`, cada um pela razão
+esperada — `FileNotFoundError` no cube ausente (5 testes) e
+`can't open file '...tools\generate_hollywood_lut_cooler.py'` / `returncode 2` no teste de
+determinismo. Só depois o gerador foi escrito e o cube assado.
+
+### Transformação aplicada (§ "Transformação" do PLAN, literal)
+
+`delta = o - i` ; `out' = o - 0.20 * (delta · ŵ) * ŵ` com `ŵ = (1,0,-1)/√2` ;
+`out' = clip(out', LO, HI)`. `FATOR = 0.20` é constante nomeada no topo, exposta como
+`--fator`. `LO`/`HI` derivados por leitura do cube fonte, com `assert` de que valem
+`0.031373` / `0.921569` — clamp para o envelope da fonte, **nunca** para `[0,1]`.
+
+Ordem red-fastest (`k = ri + gi*N + bi*N²`) **verificada no fonte**, não presumida:
+`k=32` (entrada `1,0,0`) → `0.638644 0.100937 0.101338` (vermelho);
+`k=32*N` (entrada `0,1,0`) → `0.385600 0.816980 0.385931` (verde);
+`k=32*N²` (entrada `0,0,1`) → `0.126615 0.126549 0.534452` (azul).
+Confirmação cruzada: os ganhos medidos nessa ordem reproduzem exatamente os números do
+diagnóstico do PLAN (warm `0.767991`, green-magenta `0.714632`).
+
+Arquivo: CRLF (mesma convenção do fonte), ASCII, `%.6f`, 2 linhas de header + 35.937 de
+dados, 1.006.351 bytes. Header `TITLE "... - Neutral Shadows - Warm 80%"` + `LUT_3D_SIZE 33`.
+
+### Números medidos (ajuste linear pela origem, nós com saturação de entrada > 0.05)
+
+| métrica | v6.7B fonte | v6.7B-W80 | alvo do PLAN |
+| --- | --- | --- | --- |
+| ganho warm-cool `(R−B)` | `0.767991` | **`0.813692`** | `0.8144 ± 0.002` ✓ |
+| ganho green-magenta `(2G−R−B)` | `0.714632` | **`0.714818`** | `0.7146 ± 0.001` ✓ |
+| ganho de luma (`0.2126R+0.7152G+0.0722B`) | `0.989460` | **`0.989629`** | inalterado (Δ `1.7e-4`) ✓ |
+| ganho de saturação (`max−min`) | `0.741595` | `0.765175` | — (consequência) |
+| envelope min / max | `0.031373` / `0.921569` | `0.031373` / `0.921569` | preservado ✓ |
+
+**Nós no clamp: 823** de 35.937 (2,29%) — `780` no teto `HI`, `43` no piso `LO`.
+Overshoot máximo antes do clamp: `+0.045872` acima de `HI`, `-0.004845` abaixo de `LO`.
+Confirma a previsão do PLAN: sem esse clamp, nós claros e saturados estourariam o teto de
+1.5 IRE e quebrariam a conformidade `Instagram8bit_TVRange`.
+
+Eixo neutro: os 33 nós `i=j=k` saem **byte a byte idênticos** ao fonte (`delta = 0` no eixo
+acromático → `out' = o`), comparados como strings `%.6f`. É o requisito de não mexer na
+temperatura do material sem LUT.
+
+Efeito por amostra (Δ warm contra a entrada): azul puro `(0,0,1)` de `+0.5922` para
+`+0.4737`; laranja-pele `(0.85,0.65,0.5)` de `+0.0119` para `+0.0095` — queda de ~20% do
+push na pele, sutil por desenho, como o PLAN antecipou para a AE6.
+
+### Verificação literal
+
+```
+$ python -m pytest tools/test_generate_hollywood_lut_cooler.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.2, pluggy-1.6.0
+rootdir: C:\Users\Usuario\Documents\GitHub\encoder_ai_instagram
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hydra-core-1.3.4, typeguard-4.5.2
+collecting ... collected 6 items
+
+tools/test_generate_hollywood_lut_cooler.py::test_neutral_axis_identical_to_source PASSED [ 16%]
+tools/test_generate_hollywood_lut_cooler.py::test_envelope_preserved PASSED [ 33%]
+tools/test_generate_hollywood_lut_cooler.py::test_warm_cool_gain_attenuated PASSED [ 50%]
+tools/test_generate_hollywood_lut_cooler.py::test_green_magenta_and_luma_unchanged PASSED [ 66%]
+tools/test_generate_hollywood_lut_cooler.py::test_structure PASSED       [ 83%]
+tools/test_generate_hollywood_lut_cooler.py::test_generator_is_deterministic PASSED [100%]
+
+============================== 6 passed in 1.57s ==============================
+```
+
+`tools/` **é** coletado pelo pytest sem `conftest.py` nem entrada em `testpaths` (não há
+seção `[tool.pytest.ini_options]` no `pyproject.toml`); os testes leem os `.cube` por
+caminho absoluto derivado de `__file__`, sem import do módulo gerador.
+
+Baseline da casa preservada: `python -m pytest test_render_queue.py enhance/ ui/ -q` →
+`395 passed in 5.72s`. `python -m ruff check` nos dois arquivos novos → `All checks passed!`.
+
+Determinismo: o teste roda o gerador duas vezes via `subprocess` e compara os bytes do
+arquivo — idênticos.
+
+### Estado ao fim de AE2+AE3, por desenho
+
+O pipeline **continua apontando para a LUT v6.7B antiga**: `_HOLLYWOOD_LUT_FILENAME` em
+`Reels_Encoder_v2_FINAL.py` não foi tocado (é a AE4). O cube fonte permanece no repo para
+A/B e rollback. AE4, AE5 e AE6 não foram executadas.
