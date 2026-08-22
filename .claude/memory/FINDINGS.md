@@ -356,7 +356,7 @@ Evidência: executor-pesado, Task 4 (`.superpowers/sdd/windows-ci-e-interrupcao-
 - **ACF1 (S3):** mesma família da 3ª falha do `ABF1` (`ui/test_readme_assets.py` lia SVG UTF-8 sem `encoding=`), mas do lado do **produto**, não do teste — por isso ficou fora do escopo da Task 4, restrita às 4 falhas listadas pela Task 3. Não é reprodutível com a LUT do próprio repo: `tools/generate_portra400_baseline_lut.py:73` grava com `encoding="ascii"`, e o parser só consome `LUT_3D_SIZE` e números. O risco é o `.cube` de terceiro — Resolve/FCPX gravam UTF-8, e um `TITLE "Portra 400 — Skin"` já basta para estourar em Windows. Fix de uma linha: `open(path, "r", encoding="utf-8")`. Nenhum teste cobre `_load_cube_file` com título não-ASCII.
 - **ACF2 (S4):** não afeta o CI (o runner não exporta `FORCE_COLOR`) nem o baseline do Orquestrador. Aparece em qualquer shell que force cor — o caso concreto foi a sessão do agente da Task 4, com `FORCE_COLOR=3`/`COLORTERM=truecolor` herdados, onde a suíte dá `8 failed, 384 passed` em vez de `4 failed, 388 passed`. Dois dos quatro (`test_run_job_*`) somem com `NO_COLOR=1`; os outros dois (`test_render_final_report_*`) constroem `Console(file=StringIO(), width=120)` e ainda assim recebem ANSI, porque `FORCE_COLOR` vence a detecção de terminal do `rich`. Fix possível em ciclo próprio: passar `no_color=True` nos `Console` de teste, ou comparar contra o texto sem ANSI. Enquanto não corrigido, medir a suíte com `FORCE_COLOR` fora do ambiente — é a diferença entre o baseline do Orquestrador e o do agente.
 
-## Achado — 2026-08-18 (ciclo AD, smoke test do fix I2) — não corrigido neste ciclo
+## Achado — 2026-08-18 (ciclo AD, smoke test do fix I2) — **CORRIGIDO no ciclo AI** (`d66887f`)
 
 Evidência: observado durante o smoke test manual do fix I2 (registro do `Popen` Cineon em
 `_register_ffmpeg`), mesma sessão descrita em `.claude/memory/STATE.md` § "Fix wave da
@@ -376,6 +376,31 @@ candidato a ciclo futuro.
   despercebido e é promovido a `○ pulado`). Eles auto-terminam sozinhos em poucos segundos
   após o `exit=130`, sem deixar artefato de entrega corrompido. Não corrigido neste ciclo —
   candidato a ciclo futuro, mesma família do `YF1`/`ABF1`.
+
+**Status: corrigido (ciclo AI, commit `d66887f`).** `_swap_active_ffmpeg(proc) -> prev`
+(troca atômica sob `_ACTIVE_FFMPEG_LOCK`, `_register_ffmpeg` delega a ela) mais
+`_run_ffmpeg_tracked`, que registra o processo, roda `communicate()` e **restaura o
+registro anterior num `finally`**. Os 3 call sites migrados. 19 testes novos em
+`enhance/test_ffmpeg_tracked.py`; suíte `435 passed` (416 baseline + 19).
+
+**Correção ao registro original — eram 3 processos, não 2.** O achado citava
+"loudnorm e de-rotação". Classificação real dos 6 `subprocess.run` do módulo:
+`:1271` (remux de de-rotação), `:1363` (loudnorm pass 1, `-f null -`, varre o áudio
+inteiro) e `:3783` (**remux do átomo `colr`**, ausente do registro do achado) são
+ffmpeg e foram migrados; `:383` (`wmic`), `:605` e `:3860` (`ffprobe`) ficaram como
+estavam — retornam em milissegundos, registrar seria ruído. O `Popen` principal do
+encode (`:2004`, `:3554`) segue fora do helper: tem progresso em streaming.
+
+**Risco que o achado não mencionava e que definiu o desenho: clobber do registro.**
+`_ACTIVE_FFMPEG` é um único global e o padrão em uso é `_register_ffmpeg(proc)` …
+`_register_ffmpeg(None)`. Um helper que zerasse o registro ao sair apagaria o de quem
+estava antes — e não é hipotético: o remux do `colr` (`:3783`) roda enquanto
+`_ACTIVE_FFMPEG` ainda aponta para o processo principal do encode, desregistrado só
+em `:3909`. Zerar ali tornaria o processo principal não-matável nesse intervalo,
+trocando um S4 por um S3. Por isso o helper salva e restaura, nunca zera. O guard
+tem teste dedicado (`test_restores_previous_process_not_none` e os 3 irmãos de
+`-k restores`): degradando o `finally` para `_register_ffmpeg(None)` eles falham
+(`4 failed`), o que prova que cobrem o clobber e não só a ausência do helper.
 
 ## Achado — 2026-08-22 (ciclo AE, AE6) — **CORRIGIDO no ciclo AG** (`c51516e`)
 

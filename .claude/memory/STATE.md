@@ -3105,3 +3105,34 @@ Critério de aceite 4 do PLAN.md está correto, sem mudança de escopo.
 Verificação: `python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `416 passed in 7.36s` (410 baseline + 6 novos), zero falhas.
 
 Commit `50bed9f` (AH2+AH3 juntos). `FINDINGS.md` § AFF1 fechado, contagem de call sites corrigida de 4 para 2.
+
+## Ciclo AI — ADF1 — 2026-08-22
+
+Escopo confirmado antes de tocar código: 6 `subprocess.run` no módulo, 3 são
+ffmpeg de fase de análise (`:1271` de-rotação, `:1363` loudnorm pass 1, `:3783`
+remux do átomo `colr`), 3 não (`:383` wmic, `:605` e `:3860` ffprobe). O achado
+registrava 2; são 3.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AI2 | done | Reels_Encoder_v2_FINAL.py | `_swap_active_ffmpeg(proc) -> prev` (troca atômica sob `_ACTIVE_FFMPEG_LOCK`); `_register_ffmpeg` delega a ela e segue devolvendo `None`; `_run_ffmpeg_tracked(cmd, *, capture_output, text, encoding, errors, check, stdout, stderr, cwd, popen=subprocess.Popen)` registra o proc, `communicate()`, **restaura o anterior no `finally`** e monta `CompletedProcess`; `check` usa `check_returncode()` (CalledProcessError com stdout/stderr) |
+| AI3 | done | Reels_Encoder_v2_FINAL.py | 3 call sites migrados com kwargs idênticos: `_strip_residual_rotation` (`check=True, stdout=DEVNULL, stderr=PIPE`), `analyze_audio_loudness` (`capture_output=True, text=True, encoding="utf-8", errors="ignore"`), remux `colr` em `run_ffmpeg_with_cineon` (`check=True, capture_output=True, cwd=script_dir`); `:383`/`:605`/`:3860` intocados; `Popen` principal (`:2004`, `:3554`) intocado |
+| AI4 | done | enhance/test_ffmpeg_tracked.py (novo) | 19 testes cobrindo os 7 critérios de aceite; fakes via `types.SimpleNamespace` (sem classes, sem `monkeypatch`, sem fixtures) |
+
+TDD: testes escritos antes da implementação, RED confirmado —
+`python -m pytest enhance/test_ffmpeg_tracked.py -q` → `17 failed, 2 passed`
+(os 2 que passavam eram os que asseram comportamento pré-existente:
+`_register_ffmpeg` e os probes que continuam em `subprocess.run`).
+
+Red-green do critério 2 (assert central do ciclo), feito explicitamente: com o
+`finally` degradado para `_register_ffmpeg(None)` — a implementação ingênua que
+zera em vez de restaurar — `pytest -k restores` dá `4 failed, 1 passed`, com
+`assert None is namespace(...)` em `test_restores_previous_process_not_none`.
+Restaurado o `_swap_active_ffmpeg(prev)`, `19 passed`. Ou seja: o teste falha de
+verdade contra o clobber que o desenho existe para evitar, não só contra a
+ausência do helper.
+
+Verificação: `python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `435 passed in 7.28s` (416 baseline + 19 novos), zero falhas. `python -m ruff check enhance/` → `All checks passed!`.
+
+Commit `d66887f` (AI2+AI3+AI4 juntos). `FINDINGS.md` § ADF1 fechado, escopo
+corrigido de 2 para 3 processos e risco de clobber registrado.
