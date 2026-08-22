@@ -416,13 +416,18 @@ de `_HOLLYWOOD_LUT_FILENAME` por regex de versão (`_v(\d+\.\d+[\w-]*)_`), com
 fallback para o stem do filename se não casar. 2 testes novos cobrem o ramo
 Hollywood (derivação dinâmica, sem hardcodar `v6.8`) e o ramo Cineon (intocado).
 
-**Achado novo, não corrigido (reportar apenas):** o `comment` continua
-declarando `HollywoodLUT_*` mesmo quando o encode roda com `--lut off`.
-`lut_enabled` não está acessível no escopo de `_build_metadata_args`
-(`:1925-1940`) — não é parâmetro da função, só `duration`, `video_bitrate`,
-`mode`, `cineon_mode` e os overrides de VBV. Corrigir exigiria adicionar um
-parâmetro novo e ajustar os 4 call sites (`:2660`, `:2783`, `:3248`, `:3463`);
-fora do escopo do Ciclo AG. Candidato a ciclo próprio.
+**Achado, corrigido no ciclo AH (commit `50bed9f`):** o `comment` continuava
+declarando `HollywoodLUT_*` mesmo quando o encode rodava com `--lut off`.
+`lut_enabled` não estava acessível no escopo de `_build_metadata_args`
+(`:1925-1940`) — não era parâmetro da função, só `duration`, `video_bitrate`,
+`mode`, `cineon_mode` e os overrides de VBV. **Correção ao registro original:**
+eram **2** call sites a tocar (`run_ffmpeg`, dois pontos), não 4 — os outros
+dois (`run_ffmpeg_with_cineon`) passam `cineon_mode=True`, que já curto-circuita
+para `"Cineon+Portra400"` independente de `lut_enabled`. `lut_enabled: bool =
+True` adicionado à assinatura; ramo não-Cineon usa `pipeline_tag = "NoLUT"`
+quando `lut_enabled` é falso, preservando intocada a derivação por regex do
+Ciclo AG quando verdadeiro. 6 testes novos em
+`enhance/test_output_dir_and_pipeline_tag.py`.
 
 - **AFF1 (S4):** a string é fixa e não deriva de `_HOLLYWOOD_LUT_FILENAME`, então ficou
   para trás nos Ciclos AE e AF. O dano é diagnóstico, não de imagem: o `comment` do MP4 é

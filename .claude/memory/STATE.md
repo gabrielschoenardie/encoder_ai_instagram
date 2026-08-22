@@ -3090,3 +3090,18 @@ Achado reportado, não corrigido: `comment` continua com `HollywoodLUT_*` mesmo
 com `--lut off`. `lut_enabled` não é parâmetro de `_build_metadata_args` — não
 acessível no escopo de `:1925-1940`. Ver `.claude/memory/FINDINGS.md` § AFF1
 para detalhe e call sites a tocar se virar ciclo próprio.
+
+## Ciclo AH — tag NoLUT — 2026-08-22
+
+Passo zero confirmado: `grep lut_enabled cineon_pipeline.py` → 0 ocorrências.
+Cineon/Portra400 não conhece `lut_enabled`; `--lut off` não afeta o Cineon.
+Critério de aceite 4 do PLAN.md está correto, sem mudança de escopo.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AH2 | done | Reels_Encoder_v2_FINAL.py | `lut_enabled: bool = True` adicionado a `_build_metadata_args`; ramo não-Cineon usa `pipeline_tag = "NoLUT"` se `lut_enabled` falso, regex do Ciclo AG intocada se verdadeiro; repassado `lut_enabled=lut_enabled` nos 2 call sites de `run_ffmpeg` (crf e 2pass); os 2 call sites de `run_ffmpeg_with_cineon` não tocados (passam `cineon_mode=True`, curto-circuita) |
+| AH3 | done | enhance/test_output_dir_and_pipeline_tag.py | 6 testes novos cobrindo os 5 critérios de aceite (NoLUT quando desabilitado, tag derivada quando habilitado, default preservado, Cineon ignora lut_enabled=False, formato do comment em crf e 2pass) |
+
+Verificação: `python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `416 passed in 7.36s` (410 baseline + 6 novos), zero falhas.
+
+Commit `50bed9f` (AH2+AH3 juntos). `FINDINGS.md` § AFF1 fechado, contagem de call sites corrigida de 4 para 2.
