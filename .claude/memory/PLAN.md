@@ -1,60 +1,89 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AH: fechar o caso residual do AFF1 (`--lut off`)
+# PLAN — Ciclo AI: registrar os ffmpeg de fase de análise (ADF1)
 
-Data: 2026-08-22 | Ciclo: AH | Origem: `.claude/memory/FINDINGS.md` § `AFF1`, bloco "Achado novo, não corrigido". Ciclo AG fechado e pushado (`4335218`).
+Data: 2026-08-22 | Ciclo: AI | Origem: `.claude/memory/FINDINGS.md` § `ADF1` (aberto no Ciclo AD). Ciclo AH fechado e pushado (`097e299`).
 
 ## Diagnóstico
 
-Com `--lut off`, o metadado `comment` do MP4 continua declarando
-`HollywoodLUT_v6.8`, embora nenhuma LUT tenha sido aplicada. O Ciclo AG
-corrigiu a *versão* da tag mas não o caso de ausência — a tag ainda pode mentir,
-só que agora de outro jeito.
+`terminate_active_ffmpeg()` (Ciclo AD) só encerra o processo em `_ACTIVE_FFMPEG`.
+Os `ffmpeg` de fase de análise sobem por `subprocess.run()` e nunca são
+registrados, logo sobrevivem ao `exit=130` até terminarem sozinhos.
 
-**Correção ao que ficou registrado no `FINDINGS.md`:** o achado diz "4 call sites
-a tocar". São **2**. Verificado:
+**Correção ao escopo registrado.** O `ADF1` cita "loudnorm e de-rotação". São
+**três**, não dois — o remux do átomo `colr` também está fora do registro.
+Classificação dos 6 `subprocess.run` do módulo:
 
-| call site | função | precisa mudar? |
-| --- | --- | --- |
-| `:2665` | `run_ffmpeg` (`:2412`) | **sim** — `lut_enabled` já está na assinatura (`:2416`), em escopo |
-| `:2788` | `run_ffmpeg` | **sim** — idem |
-| `:3253` | `run_ffmpeg_with_cineon` (`:3003`) | não — passa `cineon_mode=True`, curto-circuita |
-| `:3468` | `run_ffmpeg_with_cineon` | não — idem |
+| site | comando | duração | registrar? |
+| --- | --- | --- | --- |
+| `:383` | `wmic cpu get name` | ms, já tem `timeout=5` | não — não é ffmpeg |
+| `:605` | `ffprobe` (HDR side data) | ms | não |
+| `:1271` | **`ffmpeg`** remux de-rotação | segundos | **sim** |
+| `:1363` | **`ffmpeg`** loudnorm pass 1 (`-f null -`, varre o áudio inteiro) | segundos a minutos | **sim** |
+| `:3783` | **`ffmpeg`** remux do átomo `colr` | segundos | **sim** — ausente do registro do achado |
+| `:3860` | `ffprobe` (verificação de cor) | ms | não |
 
-O `lut_enabled` nasce em `:4048` (`args.lut == "on"`) e desce por `:2592 → :2366
-→ :2266`. Não precisa de parâmetro novo em lugar nenhum além do próprio
-`_build_metadata_args`.
+Registrar `ffprobe` seria ruído: retorna antes de o sinal alcançá-lo.
+
+**Risco que o achado não menciona e que define o desenho.** `_register_ffmpeg`
+(`:192`) guarda **um único global**, e o padrão em uso é `_register_ffmpeg(proc)`
+… `_register_ffmpeg(None)`. Um helper que zere o registro ao sair apagaria o de
+quem estava antes. Não é hipotético: o remux do `colr` (`:3783`) roda enquanto
+`_ACTIVE_FFMPEG` ainda aponta para o processo principal do encode, desregistrado
+só em `:3909`. Zerar ali tornaria o processo principal não-matável nesse
+intervalo — trocaria um S4 por um S3.
+
+**Portanto: salvar e restaurar, nunca zerar.**
+
+## Desenho
+
+1. `_swap_active_ffmpeg(proc) -> prev`: troca atômica sob `_ACTIVE_FFMPEG_LOCK`,
+   devolve o valor anterior. `_register_ffmpeg` passa a delegar a ela (contrato
+   externo inalterado — os chamadores atuais ignoram o retorno).
+2. `_run_ffmpeg_tracked(cmd, ...) -> subprocess.CompletedProcess`: equivalente a
+   `subprocess.run` para o subconjunto de kwargs realmente usado nos 3 sites —
+   `capture_output`, `text`, `encoding`, `errors`, `check`, `stdout`, `stderr`,
+   `cwd`. Internamente: `popen` → `prev = _swap_active_ffmpeg(proc)` →
+   `communicate()` → **`finally: _swap_active_ffmpeg(prev)`** → monta o
+   `CompletedProcess`; se `check` e `returncode != 0`, levanta
+   `CalledProcessError` com stdout/stderr, como o `subprocess.run` faz.
+   Parâmetro `popen=subprocess.Popen` injetável — idioma da casa
+   (`resolve_binary(name, which=shutil.which, ...)`), torna testável sem `monkeypatch`.
+3. Trocar `subprocess.run` por `_run_ffmpeg_tracked` em `:1271`, `:1363`, `:3783`.
+   **Não** tocar em `:383`, `:605`, `:3860`.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AH1 | Escrever este `PLAN.md`. | Orquestrador | `.claude/memory/PLAN.md` | **done** |
-| AH2 | Adicionar `lut_enabled: bool = True` a `_build_metadata_args` (`:1925`). No ramo não-Cineon, se `lut_enabled` for falso, `pipeline_tag = "NoLUT"`; caso contrário, a derivação por regex do Ciclo AG, intocada. Repassar `lut_enabled=lut_enabled` nos dois call sites de `run_ffmpeg` (`:2665`, `:2788`). **Não** tocar nos dois de `run_ffmpeg_with_cineon`. | `executor` | `Reels_Encoder_v2_FINAL.py` | pendente |
-| AH3 | Testes. Estilo da casa: sem fixtures salvo `tmp_path`, sem `monkeypatch`, sem classes. Acrescentar ao arquivo já criado no Ciclo AG. | `executor` | `enhance/test_output_dir_and_pipeline_tag.py` | pendente |
+| AI1 | Escrever este `PLAN.md`. | Orquestrador | `.claude/memory/PLAN.md` | **done** |
+| AI2 | Implementar `_swap_active_ffmpeg` e `_run_ffmpeg_tracked` conforme § Desenho. | `executor-pesado` | `Reels_Encoder_v2_FINAL.py` | pendente |
+| AI3 | Trocar os 3 call sites. Preservar exatamente os kwargs de cada um. | `executor-pesado` | `Reels_Encoder_v2_FINAL.py` | pendente |
+| AI4 | Testes, ver § "Critérios de aceite". Estilo da casa: sem fixtures salvo `tmp_path`, sem `monkeypatch`, sem classes. | `executor-pesado` | `enhance/test_ffmpeg_tracked.py` (novo) | pendente |
 
-## Critérios de aceite (AH3)
+## Critérios de aceite (AI4)
 
-1. `lut_enabled=False`, não-Cineon → tag é exatamente `NoLUT`.
-2. `lut_enabled=True`, não-Cineon → tag segue derivada do filename (regressão do
-   Ciclo AG). Continuar **sem hardcodar `v6.8`** como literal solto — extrair da
-   constante, como já feito.
-3. Default preservado: chamar sem `lut_enabled` mantém o comportamento atual
-   (tag derivada). Garante que os 2 call sites de Cineon não mudam de saída.
-4. `cineon_mode=True` → `Cineon+Portra400`, **mesmo com `lut_enabled=False`**.
-   O `--lut off` não desliga a Portra400 (`cineon_pipeline.py` não conhece
-   `lut_enabled`); a tag do Cineon está correta como está e deve continuar.
-5. O `comment` completo mantém o formato nos dois modos: `crf:18` para CRF e
-   `target:Nk` para 2pass, com o tag novo no lugar do antigo.
+1. Durante a execução, o processo passado ao helper está em `_ACTIVE_FFMPEG`
+   (verificar de dentro do `communicate()` do fake `popen`).
+2. **Ao sair, o registro anterior é restaurado** — inclusive quando o anterior
+   era um processo, não `None`. Este é o assert central do ciclo.
+3. O registro é restaurado **também quando o comando falha** e quando
+   `check=True` levanta. Usar `finally`, não caminho feliz.
+4. `CompletedProcess` devolvido tem `returncode`, `stdout` e `stderr` coerentes.
+5. `check=True` levanta `CalledProcessError` em retorno não-zero; não levanta em zero.
+6. `terminate_active_ffmpeg()` devolve `True` para um processo registrado pelo
+   helper (fake com `poll()`/`terminate()`/`wait()`).
+7. Os 3 call sites não usam mais `subprocess.run`, e `:383`, `:605`, `:3860`
+   continuam usando.
 
 ## Notas de execução
 
-- **Confirmar antes de codar**, e reportar: `--lut off` realmente não afeta o
-  Cineon? A busca por `lut_enabled` em `cineon_pipeline.py` não retorna nada, o
-  que sustenta o critério 4 — mas confirme, porque se `--lut off` desligasse a
-  Portra400 o critério 4 estaria errado e o plano precisa mudar.
-- Tag `"NoLUT"` é literal, sem versão — não há LUT para versionar.
-- Anti-escopo: não tocar em áudio (`TP=-1.4` é decisão fechada, ver `FINDINGS.md`),
-  LUT, VBV, GOP nem container. Não mexer na derivação por regex do Ciclo AG.
+- **`_run_ffmpeg_tracked` não substitui o `Popen` principal do encode** (`:2004`,
+  `:3554`) — aquele tem progresso em streaming e fica como está.
+- Severidade honesta: `ADF1` é **S4**. Esses processos nunca escrevem o
+  entregável, então não produzem o sintoma enganoso do `YF1`. O ganho real é o
+  loudnorm pass 1 em arquivo longo, onde o Ctrl-C hoje deixa ffmpeg girando.
+- Anti-escopo: não tocar em áudio (`TP=-1.4` é decisão fechada), LUT, VBV, GOP,
+  container, nem no handler de `KeyboardInterrupt` em si (`:4466`, `:4519`).
 - Baseline: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` →
-  **410 passed**. Ao final: 410 + os novos.
-- Ao fim, fechar o bloco "Achado novo, não corrigido" do `AFF1` no
-  `FINDINGS.md` com o SHA, e **corrigir ali a contagem de call sites de 4 para 2**.
+  **416 passed**. Ao final: 416 + os novos.
+- Ao fim, fechar `ADF1` no `FINDINGS.md` com o SHA e **corrigir ali o escopo de
+  2 para 3 processos**, registrando o risco de clobber como parte da correção.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
