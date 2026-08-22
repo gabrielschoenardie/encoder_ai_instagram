@@ -38,7 +38,7 @@ except ImportError:
 console = Console() if HAS_RICH else None
 
 # ─── LUTs padrão por modo ─────────────────────────────────────────────────────
-LUT_FFMPEG = "HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube"
+LUT_FFMPEG = "HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube"
 LUT_CINEON = "FilmLook_Portra400_SkinPriority_D65.cube"
 
 

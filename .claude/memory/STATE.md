@@ -2765,3 +2765,18 @@ arquivo — idênticos.
 O pipeline **continua apontando para a LUT v6.7B antiga**: `_HOLLYWOOD_LUT_FILENAME` em
 `Reels_Encoder_v2_FINAL.py` não foi tocado (é a AE4). O cube fonte permanece no repo para
 A/B e rollback. AE4, AE5 e AE6 não foram executadas.
+
+| AE5 | done | `.claude/skills/instagram-reels-encoder/references/color-pipeline.md`, `references/encoder-modes.md`, `references/adaptive-analysis.md`, `scripts/analyze_source.py` | filename trocado nos 4 arquivos + bullet W80 acrescentado em `color-pipeline.md` com os números medidos do PLAN |
+
+### AE5 — Verificação literal
+
+```
+$ python -m py_compile .claude/skills/instagram-reels-encoder/scripts/analyze_source.py && echo COMPILE_OK
+COMPILE_OK
+```
+
+Grep por `v6\.7B_1\.5IRE` (filename antigo) em `.claude/skills/`: **0 ocorrências**.
+
+Anti-escopo respeitado: `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `README.md`,
+`tools/verificador_instalacao.py` não tocados (AE4, outro agente). Modo Cineon e
+Portra400 não tocados.

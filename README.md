@@ -438,7 +438,7 @@ encoder_ai_instagram/
 ├── MANUAL_INSTALACAO.txt          # Guia completo em português
 ├── *.cube                         # LUTs de cor:
 │   ├── FilmLook_Portra400_SkinPriority_D65.cube
-│   └── HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube
+│   └── HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube
 │
 ├── enhance/                       # Módulo de IA
 │   ├── analyzers/
@@ -568,7 +568,7 @@ Gera imagens diagnósticas mostrando onde cada filtro atua:
 | Arquivo | Estilo | Uso recomendado |
 | --- | --- | --- |
 | `FilmLook_Portra400_SkinPriority_D65.cube` | Kodak Portra 400 (film) | Retratos, pele, cotidiano |
-| `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` | Cinema Hollywood | Conteúdo dramático, cinematic |
+| `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube` | Cinema Hollywood | Conteúdo dramático, cinematic |
 
 ### Pipeline Cineon — color science certificada
 

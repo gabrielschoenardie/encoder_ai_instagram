@@ -13,7 +13,7 @@ exatamente este documento — código e documentação estão em sincronia.
 | Velocidade | ~15–40 fps | ~5–10 fps |
 | Processamento | Native FFmpeg filter chain | PyAV + NumPy float32 per-frame |
 | Precisão de cor | 8-bit YUV ao longo do pipeline | float32 → 8-bit apenas na saída |
-| LUT padrão | `HollywoodCinema_Ultimate_v6.7B` | `FilmLook_Portra400_SkinPriority_D65` |
+| LUT padrão | `HollywoodCinema_Ultimate_v6.7B-W80` | `FilmLook_Portra400_SkinPriority_D65` |
 | Consistência temporal | Filtros FFmpeg stateless | Também stateless — sem MCTF, cada frame é processado isolado |
 | Dithering | RPDF via `_build_dither()` (`enhance/ffmpeg_filters.py`), ativo por padrão via `--dither` | RPDF via `quantize_uint8_dithered()` (`cineon_pipeline.py`), ativo por padrão via `--dither` |
 | Melhor para | BT.709 controlado, batch, alto movimento | Log footage, skin crítico, highlights complexos |
@@ -28,7 +28,7 @@ Cada filtro opera em 8-bit YUV, o que é suficiente para fontes já em BT.709 co
 exposição controlada. O custo de não ter float32 é tolerável quando o source já
 entregou highlights dentro do range.
 
-### LUT: HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube
+### LUT: HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube
 - **1.5 IRE**: sombras neutras — não há crushing de negros, o que preserva detalhe
   em zonas escuras que o Instagram tenderia a bloquear
 - **Instagram8bit**: calibrada especificamente para o pipeline de ingestão do Instagram;
@@ -189,7 +189,7 @@ result_custom = analyze("input.mp4", lut_override="/path/to/custom.cube")
 **FFmpeg Mode:**
 - Verificar sempre se source está tagueado como BT.709 antes de usar
 - Não usar para source com highlight_load > 0.20 — haverá clipping
-- Confirmar que a LUT `HollywoodCinema_Ultimate_v6.7B` está no path correto
+- Confirmar que a LUT `HollywoodCinema_Ultimate_v6.7B-W80` está no path correto
 
 **Cineon Mode:**
 - Nunca desativar o dithering RPDF (`--dither off`) sem motivo — banding é garantido

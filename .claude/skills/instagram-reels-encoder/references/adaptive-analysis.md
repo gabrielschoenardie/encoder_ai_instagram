@@ -567,7 +567,7 @@ Parâmetros finais derivados:
 ## Integração com Reels_Encoder_v2_FINAL.py
 
 ### FFmpeg Mode
-- LUT padrão: `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube`
+- LUT padrão: `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube`
 - A análise adaptativa alimenta o `enhance/` package
 - O Mock CNN (13D → 3D) usa exatamente as dimensões descritas na Etapa 1
 - Output do CNN: [denoise_intensity, color_adjustment, sharpness_factor]

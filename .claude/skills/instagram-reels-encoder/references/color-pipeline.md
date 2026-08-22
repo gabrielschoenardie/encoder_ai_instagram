@@ -11,7 +11,7 @@ automaticamente** qual modo, qual LUT e se rolloff é necessário.
 | | FFmpeg Mode | Cineon Mode |
 |---|---|---|
 | Processamento | 8-bit YUV, filtros FFmpeg | float32 RGB, PyAV + NumPy |
-| LUT padrão | `HollywoodCinema_Ultimate_v6.7B_`<br>`1.5IRE_Instagram8bit_NeutralShadows.cube` | `FilmLook_Portra400_`<br>`SkinPriority_D65.cube` |
+| LUT padrão | `HollywoodCinema_Ultimate_v6.7B-W80_`<br>`1.5IRE_Instagram8bit_NeutralShadows.cube` | `FilmLook_Portra400_`<br>`SkinPriority_D65.cube` |
 | Pipeline | `denoise → rolloff? → lut3d → scale → fps` | 5 nós: DWG → primary → tone/gamut map + Cineon log → bridge → LUT |
 | Rolloff | `curves` filter adaptativo (derivado de `highlight_load`) | Nó 3 — soft-knee exponencial (`apply_tone_mapping_davinci`, não Hable) |
 | Referência técnica | Este arquivo | `references/cineon-pipeline.md` |
@@ -72,16 +72,27 @@ Source em Log (S-Log, C-Log, V-Log)
 
 ## LUT 3D — FFmpeg Mode
 
-### HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube
+### HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube
 
 - **1.5 IRE**: ponto de negro neutro — sem crushing de sombras, detalhe preservado
 - **Instagram8bit**: calibrada para o pipeline de ingestão do Instagram; a curva
   tonal sobrevive à recompressão sem perda de saturação percetível
 - **NeutralShadows**: sem lift artificial de sombras — o que se exporta é o que aparece
+- **W80**: o eixo neutro da LUT é identidade em croma — `R=G=B` na entrada sai
+  `R=G=B`, nos 33 degraus, sem desvio de white balance. O calor percebido vinha
+  de assimetria por matiz: a v6.7B esmagava azul saturado (Δ croma `−0.1591`) e
+  empurrava laranja/pele (`+0.0098`). A W80 atenua em 20% a componente
+  warm-cool do delta da LUT, numa base ortonormal onde os eixos acromático e
+  green-magenta ficam intactos. Ganho warm-cool medido: `0.767991` →
+  `0.813692`; green-magenta `0.714632` → `0.714818`. Por construção o delta é
+  zero nos neutros, então cinza/branco/preto saem idênticos à v6.7B — e
+  portanto idênticos ao vídeo original sem LUT. Gerada por
+  `tools/generate_hollywood_lut_cooler.py`; a v6.7B permanece no repo para
+  A/B e rollback.
 
 ```bash
 # Aplicação padrão no FFmpeg Mode (build_sdr_float_pipeline, Reels_Encoder_v2_FINAL.py:2217)
--vf "...,lut3d=file=HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube:interp=trilinear,..."
+-vf "...,lut3d=file=HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube:interp=trilinear,..."
 ```
 
 ### Interpolação de LUT
