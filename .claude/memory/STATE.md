@@ -3005,3 +3005,16 @@ disco é o artefato do Ciclo AE, preservado byte a byte). `--teto 0.921569` repr
 linha a linha — **verificado**: com `hi_new == hi_old` sai `k = 1`, o termo quadrático zera e
 o lift é `0` em todo nó. O `OUT_PATH` é único, então a W80 não é mais reassada
 automaticamente.
+
+| ID | status | arquivo | resultado |
+| --- | --- | --- | --- |
+| AF4 | done | `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `README.md`, `tools/verificador_instalacao.py`, `.claude/skills/instagram-reels-encoder/references/{color-pipeline,encoder-modes,adaptive-analysis}.md`, `.claude/skills/instagram-reels-encoder/scripts/analyze_source.py` | filename W80 trocado para v6.8 nos 9 arquivos; pyproject.toml e o bullet de rollback em color-pipeline.md retêm a W80 intencionalmente (A/B/rollback); color-pipeline.md ganhou o bullet técnico do lift 96 IRE com os números medidos do Orquestrador |
+
+### AF4 — verificação literal
+
+- `python -m py_compile Reels_Encoder_v2_FINAL.py .claude/skills/instagram-reels-encoder/scripts/analyze_source.py` → sem output (sucesso)
+- `python -m pytest test_render_queue.py enhance/ ui/ -q` → `395 passed in 4.95s` (baseline intocada)
+- grep de `v6.7B-W80` fora de `.claude/memory/`: só 2 ocorrências, ambas intencionais —
+  `pyproject.toml` (lista de rollback) e `color-pipeline.md` linha 90 ("a v6.7B e a v6.7B-W80
+  permanecem")
+- commit: `24ad1ac` — "docs(lut): apontar produto e skill para HollywoodCinema v6.8 96 IRE (AF4)"
