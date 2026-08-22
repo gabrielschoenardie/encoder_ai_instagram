@@ -2916,3 +2916,92 @@ Resultado: `videos/calebbrunkow_AFTER_Hollywood_CRF18.mp4` (+ `.qc.json`/`.qc.ht
 arquivo versionado afetado; a fonte `videos/calebbrunkow_AFTER.mp4` está intacta. O par
 `Captions_C32BA2` na raiz **não foi tocado** (o agente copiou a fonte para scratchpad antes
 de encodar).
+
+
+## Ciclo AF — teto 96 IRE — 2026-08-22
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| AF2 | done | `tools/generate_hollywood_lut_cooler.py`, `HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube` | etapa 1 (lift aditivo) + etapa 2 (warm 80%) nessa ordem; cube assado, 35.937 nós, **0 no clamp** |
+| AF3 | done | `tools/test_generate_hollywood_lut_cooler.py` | 10 asserts de propriedade (8 adaptados + INV 9 + INV 10; INV 11 é o `test_no_node_warmer_than_source` adaptado), `10 passed` |
+
+### Ordem TDD executada
+
+Teste reescrito **antes** de tocar o gerador. RED verificado rodando a suíte nova contra o
+cube **W80 atual** copiado para o filename da v6.8: `8 failed, 2 passed`. Passaram só
+`test_generator_is_deterministic` (meta-teste) e `test_no_node_warmer_than_source` (INV 11 é
+invariante que a W80 também satisfaz — é guarda, não medida da mudança). Falhas pelas razões
+esperadas: `0.921569 != 0.960000` (teto e eixo neutro), ganho warm-cool `0.790588` vs
+`0.790686`, green-magenta `0.7146455` vs `0.714632` (a W80 tem 370 nós clampados que sujam o
+eixo green-magenta), `TITLE` v6.7C, lift zero acima do pivô (INV 9, INV 10 e o teste de nós
+que já esfriavam).
+
+Após o GREEN, duas asserções foram **corrigidas por defeito de teste, não recalibradas**:
+`delta > 0` para todo nó acima do pivô é falso por quantização — imediatamente acima de
+`L = 0.75` o lift é menor que meio-ulp de `%.6f` e não aparece no arquivo (23 dos 5.721 nós).
+Trocado por `delta >= 0` em todos e `max(delta) == 0.038431` (`= 0.96 − 0.921569`, o teto
+inteiro no nó branco), que continua falhando contra a W80 — RED re-verificado: `8 failed,
+1 passed` (determinismo deselecionado).
+
+### Transformação aplicada (§ "Transformação" do PLAN, literal)
+
+Etapa 1, `expand_highlights()`: `L = 0.2126R + 0.7152G + 0.0722B` sobre o cube **v6.7B**;
+`k = (0.921569 − 0.75)/(0.96 − 0.75)`; `t = clip((L − P)/(HIo − P), 0, None)`;
+`L' = P + (HIn − P)(kt + (1−k)t²)` se `L > P`; `E = v + (L' − L)` **somado igualmente aos
+três canais**. Para `L <= P`, `L' − L` é `0.0` exato → `E` é bitwise igual ao fonte.
+
+Etapa 2, `cool_warm_axis()` (inalterada): `dw = (E − i)·ŵ`, `F = clip(E − 0.20·max(dw,0)·ŵ,
+0.031373, 0.96)` com `ŵ = (1,0,−1)/√2`.
+
+O lift tem projeção **zero** no eixo warm-cool (`ŵ_r + ŵ_b = 0`), então `dw` da etapa 2 é
+idêntico ao que a v6.7B crua daria — é isso que faz o teto subir sem reaquecer nada.
+
+Constantes no topo, parametrizáveis: `FATOR = 0.20` (`--fator`), `PIVO = 0.75` (`--pivo`),
+`TETO_NOVO = 0.96` (`--teto`). `ENVELOPE_LO = 0.031373` e `ENVELOPE_HI = 0.921569` seguem
+sendo lidos do fonte com `assert`. O piso **não mudou**.
+
+### Números medidos (ajuste linear pela origem, nós com saturação de entrada > 0.05)
+
+| métrica | alvo do PLAN | medido na v6.8 | W80 |
+| --- | --- | --- | --- |
+| teto | `0.960000` (96.00 IRE) | `0.960000` ✅ | `0.921569` |
+| piso | `0.031373`, idêntico à v6.7B | `0.031373` ✅ (igualdade exata com o fonte) | `0.031373` |
+| nós no clamp | `0` | `0` ✅ | `370` |
+| nós mais quentes que a v6.7B | `0` | `0` ✅ (também com tolerância `1e-9`) | `0` |
+| ganho warm-cool | `0.790686` | `0.790686` ✅ | `0.790588` |
+| ganho green-magenta | `0.714632` = v6.7B | `0.714632` ✅ | `0.714645` |
+| eixo neutro | `R=G=B` nos 33; topo `96.00` IRE | ✅, e estritamente monotônico | topo `92.16` IRE |
+
+Os `+9.8e-5` de ganho warm-cool contra a W80 **não** são reaquecimento: são os 370 nós que a
+W80 truncava em `B = 0.921569` (clamp para baixo no azul = mais quente). Com teto em `0.96`
+ninguém é truncado, e o `R − B` de todo nó é exatamente o da W80 sem clamp. Idem o
+green-magenta: a v6.8 volta ao valor da v6.7B porque não há mais truncamento.
+
+**Divergência a reportar, uma:** "saturação média acima do pivô `0.43519` (W80 `0.43511`)".
+O PLAN não define a fórmula e nenhuma das 12 definições testadas reproduz `0.435`
+(`(max−min)/max`, `(max−min)`, `/média`, `/luma`, norma de croma, sob máscaras de luma do
+fonte / da saída / da grade). Com `(max−min)/max` sobre nós com `luma(v6.7B) > 0.75`:
+v6.8 `0.40821`, W80 `0.41097`, v6.7B `0.40831`. Em toda definição testada a v6.8 fica a
+menos de `0.003` da W80, e as definições absolutas (`max−min`, sem normalizar por luma)
+reproduzem o **sinal** do PLAN (v6.8 acima da W80). A queda relativa vem do denominador —
+a luma subiu e o croma foi preservado exato, que é justamente o invariante pedido. Nenhuma
+constante e nenhum teste foram ajustados por causa disso; a métrica não é critério de done e
+não tem teste. **Se o Orquestrador quiser fechar o número, precisa dar a fórmula.**
+
+### Verificação literal
+
+- `python -m pytest tools/test_generate_hollywood_lut_cooler.py -v` → `10 passed in 2.50s`
+- `python -m pytest test_render_queue.py enhance/ ui/ -q` → `395 passed in 5.15s` (baseline intocada)
+- `python tools/generate_hollywood_lut_cooler.py` → `envelope: LO=0.031373 HI=0.960000 | nos no clamp: 0`
+- arquivo: 35.937 linhas de dados + 2 de header, CRLF, ASCII, `%.6f`, `LUT_3D_SIZE 33`,
+  ordem red-fastest, `TITLE "Hollywood Cinema Ultimate v6.8 3.1-96IRE_Instagram8bit_TVRange - Neutral Shadows - Warm 80%"`
+
+### Estado ao fim de AF2+AF3, por desenho
+
+O pipeline **continua apontando para a W80** — `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`,
+`README.md`, `tools/verificador_instalacao.py` e `.claude/skills/**` não foram tocados; isso é
+AF4. A v6.7B e a W80 permanecem no repo. O gerador agora escreve **só** a v6.8 (a W80 no
+disco é o artefato do Ciclo AE, preservado byte a byte). `--teto 0.921569` reproduz a W80
+linha a linha — **verificado**: com `hi_new == hi_old` sai `k = 1`, o termo quadrático zera e
+o lift é `0` em todo nó. O `OUT_PATH` é único, então a W80 não é mais reassada
+automaticamente.
