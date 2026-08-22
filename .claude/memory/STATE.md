@@ -3031,3 +3031,45 @@ piso `0.031373` com igualdade exata à v6.7B, eixo neutro `R=G=B` em 33/33, e `0
 quentes que a v6.7B. A saturação praticamente não se move (`0.43511 → 0.43519`, oitava
 casa) — é a evidência de que o lift aditivo levantou brilho sem expandir croma. A variante
 por canal, descartada, levaria a mesma métrica a `0.45107`.
+
+### AF5 — A/B de três vias e medição de range (2026-08-22)
+
+**Veredito: aprovado. A aposta do teto se sustentou — não recuar para 0.945.**
+
+`validate_encode.sh`: **19 ✅ / 1 ⚠ / 0 ❌**, o mesmo ⚠ pré-existente de True Peak
+(`−1.4 dBTP`), confirmado por audit `ebur128` independente. Caminho de áudio não tocado.
+
+Range Y (plano puro, 13 frames, sem conversão):
+
+| métrica | FONTE | v6.7B | W80 | **v6.8** |
+| --- | --- | --- | --- | --- |
+| `Y > 235` | `0.13708%` | `0.00377%` | `0.00324%` | `0.01383%` |
+| `Y < 16` | `0.04285%` | `0.00670%` | `0.00644%` | `0.00634%` |
+| p99 / p99.9 | 225 / 236 | 215 / 220 | 215 / 220 | **222 / 227** |
+| pico por-frame `Y>235` | `0.24460%` | `0.02812%` | `0.02117%` | `0.08275%` |
+
+- **Piso intocado**, como projetado: `0.00634%` vs `0.00644%` da W80 — 3ª casa, sem tendência.
+- **Teto subiu como projetado**: p99 `215→222`, p99.9 `220→227`. Colchão até 235 caiu para
+  **8 níveis** (previsão era ~9).
+- **Clipping não se materializou.** O pico por-frame de `Y>235` é `0.08275%`, contra o
+  gatilho de `>10% dos frames` do `artifact-diagnosis.md`. Três ordens de grandeza de
+  margem. Subiu 4,3× em termos relativos, mas o absoluto é irrelevante.
+
+**CORREÇÃO DO ORQUESTRADOR À LEITURA DE VMAF — importante para ciclos futuros.**
+
+Medido: v6.7B `90.20` | W80 `90.25` | v6.8 **`94.90`** (+4,65 pts).
+
+O validador leu isso como ganho de qualidade. **Não é.** O VMAF aqui é medido contra a
+fonte **sem grade**, e a LUT muda a imagem de propósito. Logo o VMAF nesta configuração
+mede *quanto o grade se afasta da fonte*, não quanto o codec degradou. Subir o teto de
+92.16 para 96 IRE torna a LUT tonalmente **menos agressiva**, aproximando o output da
+fonte — e o VMAF premia isso. Levar o teto a 100 IRE subiria o VMAF ainda mais, e seria
+simplesmente *não gradar*.
+
+Consequência prática: **VMAF-contra-a-fonte não serve como alvo de otimização para decisão
+de LUT.** Serve para o que foi usado no Ciclo AE — detectar que uma mudança de croma *não*
+degradou nada (`90.20 → 90.23`, ruído). Para julgar teto e piso, o critério válido é o de
+range (`YHIGH>235`, `YLOW<16`) e o olho. Mesma família da armadilha já registrada em
+`project_vmaf_neg_stylized`: o número sobe ou desce por motivo que não é qualidade.
+
+Os três encodes passam o alvo Safe Premium (≥90) de qualquer forma.

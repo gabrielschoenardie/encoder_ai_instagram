@@ -400,3 +400,17 @@ Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md
   Fix de baixo custo, duas opções: (a) `parser.error()` se `--output-dir` vier sem
   `--batch`; (b) honrar o flag também em single-file. (a) é conservadora e não muda
   semântica existente. Nenhum teste cobre a combinação `--output-dir` sem `--batch`.
+
+## Achado — 2026-08-22 (ciclo AF, AF5) — não corrigido neste ciclo
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| AFF1 | metadado de proveniência desatualizado | `Reels_Encoder_v2_FINAL.py:1941` | `pipeline_tag` hardcoded como `"HollywoodLUT_v6.7"`; todo arquivo entregue declara a LUT errada no `comment` | S4 | esperado: tag acompanha a LUT em uso; medido: `HollywoodLUT_v6.7` gravado em encodes feitos com W80 e com v6.8 |
+
+- **AFF1 (S4):** a string é fixa e não deriva de `_HOLLYWOOD_LUT_FILENAME`, então ficou
+  para trás nos Ciclos AE e AF. O dano é diagnóstico, não de imagem: o `comment` do MP4 é
+  a proveniência gravada dentro do entregável — nesta própria sessão ele foi usado para
+  recuperar os parâmetros do encode de 21/ago e provar que o A/B era honesto. Com a tag
+  errada, essa recuperação passa a mentir sobre qual LUT gerou o arquivo. Fix de uma
+  linha: derivar do filename da LUT em uso, em vez de literal. Nenhum teste cobre o
+  conteúdo do `comment`.
