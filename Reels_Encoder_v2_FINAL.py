@@ -1924,6 +1924,7 @@ def _adaptive_2pass_x264_params(
 
 def _build_metadata_args(
     duration: float, video_bitrate: int, mode: str, cineon_mode: bool = False,
+    lut_enabled: bool = True,
     vbv_maxrate_override: Optional[int] = None,
     vbv_bufsize_override: Optional[int] = None,
 ) -> list:
@@ -1938,6 +1939,8 @@ def _build_metadata_args(
 
     if cineon_mode:
         pipeline_tag = "Cineon+Portra400"
+    elif not lut_enabled:
+        pipeline_tag = "NoLUT"
     else:
         _lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
         if _lut_version_match:
@@ -2662,7 +2665,7 @@ def run_ffmpeg(
 
     # CRF MODE
     if mode == "crf":
-        metadata_args = _build_metadata_args(duration, video_bitrate, "crf")
+        metadata_args = _build_metadata_args(duration, video_bitrate, "crf", lut_enabled=lut_enabled)
 
         ffmpeg_cmd = [
             FFMPEG, "-y",
@@ -2787,6 +2790,7 @@ def run_ffmpeg(
 
     metadata_args = _build_metadata_args(
         duration, video_bitrate, "2pass",
+        lut_enabled=lut_enabled,
         vbv_maxrate_override=_p2_maxrate,
         vbv_bufsize_override=_p2_bufsize,
     )
