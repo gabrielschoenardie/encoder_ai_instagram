@@ -189,10 +189,65 @@ _ACTIVE_FFMPEG = None
 _ACTIVE_FFMPEG_LOCK = threading.Lock()
 
 
-def _register_ffmpeg(proc):
+def _swap_active_ffmpeg(proc):
+    """Instala `proc` como ffmpeg ativo e devolve o que estava registrado antes."""
     global _ACTIVE_FFMPEG
     with _ACTIVE_FFMPEG_LOCK:
+        prev = _ACTIVE_FFMPEG
         _ACTIVE_FFMPEG = proc
+    return prev
+
+
+def _register_ffmpeg(proc):
+    _swap_active_ffmpeg(proc)
+
+
+def _run_ffmpeg_tracked(
+    cmd,
+    *,
+    capture_output: bool = False,
+    text: bool = False,
+    encoding=None,
+    errors=None,
+    check: bool = False,
+    stdout=None,
+    stderr=None,
+    cwd=None,
+    popen=subprocess.Popen,
+) -> "subprocess.CompletedProcess":
+    """`subprocess.run` para os ffmpeg de fase de análise, com registro (ADF1).
+
+    Equivale a `subprocess.run` no subconjunto de kwargs usado nos call sites de
+    análise. A diferença é o registro: o processo entra em `_ACTIVE_FFMPEG`
+    enquanto roda, para que `terminate_active_ffmpeg()` o alcance no Ctrl-C.
+
+    O registro anterior é **salvo e restaurado** no `finally`, nunca zerado — o
+    remux do átomo `colr` roda enquanto o Popen principal do encode ainda está
+    registrado, e zerar ali deixaria o processo principal não-matável.
+    """
+    if capture_output:
+        stdout = subprocess.PIPE
+        stderr = subprocess.PIPE
+
+    proc = popen(
+        cmd,
+        stdout=stdout,
+        stderr=stderr,
+        cwd=cwd,
+        text=text,
+        encoding=encoding,
+        errors=errors,
+    )
+    prev = _swap_active_ffmpeg(proc)
+    try:
+        out, err = proc.communicate()
+    finally:
+        _swap_active_ffmpeg(prev)
+
+    completed = subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+    if check:
+        completed.check_returncode()
+    return completed
 
 
 def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
@@ -1268,7 +1323,9 @@ def _strip_residual_rotation(output_file: str) -> None:
     tmp = output_file + ".derot.tmp.mp4"
     cmd = _build_derotate_cmd(output_file, tmp)
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        _run_ffmpeg_tracked(
+            cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        )
         os.replace(tmp, output_file)
         console.print(
             "[green]✓ Rotação:[/green] display matrix residual removido "
@@ -1360,7 +1417,7 @@ def analyze_audio_loudness(
     ]
 
     try:
-        result = subprocess.run(
+        result = _run_ffmpeg_tracked(
             cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore"
         )
 
@@ -3780,7 +3837,7 @@ def run_ffmpeg_with_cineon(
 
                     try:
                         console.print("[dim]   Executando remux (stream copy)...[/dim]")
-                        subprocess.run(
+                        _run_ffmpeg_tracked(
                             remux_cmd,
                             check=True,
                             capture_output=True,
