@@ -75,6 +75,7 @@ import collections
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -1938,7 +1939,11 @@ def _build_metadata_args(
     if cineon_mode:
         pipeline_tag = "Cineon+Portra400"
     else:
-        pipeline_tag = "HollywoodLUT_v6.7"
+        _lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
+        if _lut_version_match:
+            pipeline_tag = f"HollywoodLUT_v{_lut_version_match.group(1)}"
+        else:
+            pipeline_tag = f"HollywoodLUT_{os.path.splitext(_HOLLYWOOD_LUT_FILENAME)[0]}"
 
     if mode == "crf":
         comment = f"{pipeline_tag} VBV:{vbv_preset_name} crf:18 max:{vbv_maxrate}k buf:{vbv_bufsize}k"
@@ -4310,6 +4315,13 @@ COMPARAÇÃO:
         help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
     )
     args = parser.parse_args()
+
+    if args.output_dir and args.batch is None:
+        parser.error(
+            "--output-dir só se aplica a --batch. Em modo single-file, a saída "
+            "vai sempre para a pasta do input; use --batch <pasta> se quiser "
+            "redirecionar o destino."
+        )
 
     # Hardware info mode
     if args.hardware_info:
