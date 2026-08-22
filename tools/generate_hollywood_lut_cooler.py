@@ -12,14 +12,21 @@ temperatura do material sem LUT.
 A correcao vive dentro do cube. Base ortonormal de oponentes de cor em RGB:
 
     acromatico   (1,1,1)/sqrt(3)   intacto
-    warm-cool    (1,0,-1)/sqrt(2)  x (1 - FATOR)
+    warm-cool    (1,0,-1)/sqrt(2)  x (1 - FATOR) no lado quente
     green-magenta (-1,2,-1)/sqrt(6) intacto
 
 Para cada no, com entrada `i` (a grade) e saida `o` (o cube atual):
 
     delta = o - i
-    out'  = o - FATOR * (delta . w) * w
+    dw    = delta . w
+    out'  = o - FATOR * max(dw, 0) * w
     out'  = clip(out', LO, HI)
+
+A atenuacao e unilateral. Em 17.831 dos 35.937 nos a v6.7B ja esfria (`dw <=
+0`); atenuar tambem esse lado devolveria calor -- branco quente, vermelho e
+azul de ceu sairiam mais quentes que a v6.7B, o oposto do pedido. Com
+`max(dw, 0)` esses nos passam intactos, e a funcao e continua em `dw = 0`,
+sem descontinuidade na LUT.
 
 Os tres eixos sao mutuamente ortogonais: atenuar um nao vaza nos outros. Em
 todo neutro `delta = 0`, logo `out' = o` -- e isso que preserva o requisito.
@@ -85,9 +92,9 @@ def identity_grid(size: int) -> np.ndarray:
 
 
 def cool_warm_axis(out: np.ndarray, grid: np.ndarray, fator: float, lo: float, hi: float):
-    """Atenua a projecao de (out - grid) no eixo warm-cool e clampa no envelope."""
+    """Atenua a projecao quente de (out - grid) no eixo warm-cool e clampa no envelope."""
     delta = out - grid
-    projection = delta @ WARM_COOL
+    projection = np.maximum(delta @ WARM_COOL, 0.0)
     cooled = out - fator * projection[:, None] * WARM_COOL[None, :]
     clamped = np.clip(cooled, lo, hi)
     touched = int(np.any(cooled != clamped, axis=1).sum())

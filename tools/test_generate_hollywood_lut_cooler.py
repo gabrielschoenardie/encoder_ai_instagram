@@ -7,7 +7,9 @@ nao sobre pixels de video. O que precisa ficar provado:
 - o eixo neutro nao se move (delta cromatico zero -> saida identica ao fonte),
   que e o requisito de nao mudar a temperatura do material sem LUT;
 - a atenuacao vive so no eixo warm-cool: green-magenta e luma nao vazam;
-- o envelope 1.5 IRE / TV range do fonte continua intacto apos o clamp.
+- o envelope 1.5 IRE / TV range do fonte continua intacto apos o clamp;
+- a atenuacao e unilateral: nenhum no fica mais quente que a v6.7B, e onde a
+  v6.7B ja esfriava (dw <= 0) a saida e byte a byte a do fonte.
 """
 
 import subprocess
@@ -76,6 +78,12 @@ def _saturated_mask(grid):
     return (grid.max(axis=1) - grid.min(axis=1)) > 0.05
 
 
+def _warm_projection(src, grid):
+    """dw = (src - grid) . w, com w = (1,0,-1)/sqrt(2)."""
+    delta = src - grid
+    return (delta[:, 0] - delta[:, 2]) / np.sqrt(2.0)
+
+
 def test_neutral_axis_identical_to_source():
     src = _table(SRC_PATH)
     out = _table(OUT_PATH)
@@ -95,7 +103,7 @@ def test_warm_cool_gain_attenuated():
     out = _table(OUT_PATH)
     mask = _saturated_mask(grid)
     gain = _gain(_warm_cool(grid)[mask], _warm_cool(out)[mask])
-    assert abs(gain - 0.8144) <= 0.002
+    assert abs(gain - 0.790588) <= 0.002
 
 
 def test_green_magenta_and_luma_unchanged():
@@ -137,3 +145,19 @@ def test_generator_is_deterministic():
     )
     assert second.returncode == 0, second.stderr.decode(errors="replace")
     assert OUT_PATH.read_bytes() == first_bytes
+
+
+def test_no_node_warmer_than_source():
+    src = _table(SRC_PATH)
+    out = _table(OUT_PATH)
+    violations = int((_warm_cool(out) > _warm_cool(src) + 1e-9).sum())
+    assert violations == 0
+
+
+def test_cooling_nodes_identical_to_source():
+    grid = _grid()
+    src = _table(SRC_PATH)
+    out = _table(OUT_PATH)
+    mask = _warm_projection(src, grid) <= 0.0
+    assert mask.sum() > 0
+    assert np.abs(out[mask] - src[mask]).max() <= 1e-9

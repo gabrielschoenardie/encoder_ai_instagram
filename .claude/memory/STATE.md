@@ -2810,3 +2810,67 @@ que foram staged pelo outro processo entre o `git add` e o `git commit` desta ta
 plano pedia "Commite a AE4 sozinha"; isso não foi possível dado o race condition — o
 commit ficou com escopo AE4+AE5 combinado, mas o conteúdo de cada arquivo está correto e
 isolado (nenhum arquivo tem edições cruzadas entre as duas tarefas).
+| AE7 | done | `tools/generate_hollywood_lut_cooler.py`, `tools/test_generate_hollywood_lut_cooler.py`, `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube` | rebake na variante B (`max(dw, 0)`): ganho warm-cool `0.790588`, 0 violações do invariante 7, mesmo filename, baseline `395 passed` |
+
+### AE7 — Verificação literal
+
+Ordem TDD respeitada. Asserts atualizados **antes** do rebake, rodados contra o cube da
+variante A (commit `9ebc425`) para provar que medem alguma coisa:
+
+```
+$ python -m pytest tools/test_generate_hollywood_lut_cooler.py -v
+FAILED tools/test_generate_hollywood_lut_cooler.py::test_warm_cool_gain_attenuated
+FAILED tools/test_generate_hollywood_lut_cooler.py::test_no_node_warmer_than_source
+FAILED tools/test_generate_hollywood_lut_cooler.py::test_cooling_nodes_identical_to_source
+========================= 3 failed, 5 passed in 2.17s =========================
+```
+
+O assert 7 acusou **17.791 nós mais quentes que a v6.7B** na variante A, e o assert 8
+acusou dif máxima `0.057204` nos nós com `dw ≤ 0` — a confirmação numérica do achado da
+revisão pós-bake. Depois do rebake:
+
+```
+$ python tools/generate_hollywood_lut_cooler.py
+OK: HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube (33^3 = 35937 pontos, fator=0.2)
+    envelope: LO=0.031373 HI=0.921569 | nos no clamp: 370
+
+$ python -m pytest tools/test_generate_hollywood_lut_cooler.py -v
+============================== 8 passed in 1.88s ==============================
+
+$ python -m pytest test_render_queue.py enhance/ ui/ -q
+395 passed in 4.89s
+```
+
+Medição independente sobre o arquivo assado (não sobre a matriz em memória):
+
+| métrica | PLAN.md | medido | veredito |
+| --- | --- | --- | --- |
+| ganho warm-cool | `0.790588` | `0.790588` (fonte `0.767991`) | casa |
+| ganho green-magenta | `0.714645` | `0.714645` (fonte `0.714632`) | casa |
+| nós no clamp | `370`, todos no teto | `370`, todos no teto, 0 no piso | casa |
+| violações do invariante 7 | `0` | `0` | casa |
+| difs do invariante 8 | `0` | `0` em 17.831 nós com `dw ≤ 0` | casa |
+| min / max do cube | `0.031373` / `0.921569` | `0.031373` / `0.921569` | casa |
+| eixo neutro | exato vs v6.7B | exato (33/33 nós, string `%.6f`) | casa |
+
+Nenhuma divergência contra os números do PLAN.md; `FATOR = 0.20` e a tolerância dos
+asserts não foram recalibrados.
+
+Mudanças: no gerador, uma linha de matemática — `projection = np.maximum(delta @
+WARM_COOL, 0.0)` — mais o docstring. No teste, assert 3 de `0.8144` para `0.790588`,
+assert 4 intocado (`0.7146 ± 0.001` já cobre `0.714645`), e os asserts 7
+(`test_no_node_warmer_than_source`) e 8 (`test_cooling_nodes_identical_to_source`) novos.
+Preservados: clamp no envelope da fonte, ordem red-fastest, `%.6f`, CRLF (35.939 CRLF,
+0 LF solto), `TITLE`/`LUT_3D_SIZE` e o filename — AE4/AE5 não foram tocadas.
+
+**Nota de precisão, sem impacto no resultado:** `delta @ WARM_COOL` (matmul, com FMA) e
+`(δR − δB)/√2` discordam de sinal em 18 nós onde `dw ≈ 0` (17.813 vs 17.831 nós com
+`dw ≤ 0`). O PLAN.md cita `17.831`, que é a contagem da segunda forma — a usada no teste.
+A diferença de saída entre as duas é da ordem de `1e-18`, invisível em `%.6f`, e o
+invariante 8 passa nas duas contagens. Não é divergência de resultado, é de contagem
+intermediária.
+
+Anti-escopo respeitado: `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `README.md`,
+`tools/verificador_instalacao.py` e `.claude/skills/` não tocados; LUT v6.7B original
+não apagada; filename não renomeado. `PLAN.md` tem edição pendente do Orquestrador no
+working tree e ficou **fora** deste commit.
