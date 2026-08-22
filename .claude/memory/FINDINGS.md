@@ -377,7 +377,7 @@ candidato a ciclo futuro.
   após o `exit=130`, sem deixar artefato de entrega corrompido. Não corrigido neste ciclo —
   candidato a ciclo futuro, mesma família do `YF1`/`ABF1`.
 
-## Achado — 2026-08-22 (ciclo AE, AE6) — não corrigido neste ciclo
+## Achado — 2026-08-22 (ciclo AE, AE6) — **CORRIGIDO no ciclo AG** (`c51516e`)
 
 Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md`
 § "AE6 — A/B real e QC de entrega". Causou perda de arquivo do usuário (untracked).
@@ -405,7 +405,7 @@ Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md
   `--batch`; (b) honrar o flag também em single-file. (a) é conservadora e não muda
   semântica existente. Nenhum teste cobre a combinação `--output-dir` sem `--batch`.
 
-## Achado — 2026-08-22 (ciclo AF, AF5) — não corrigido neste ciclo
+## Achado — 2026-08-22 (ciclo AF, AF5) — **CORRIGIDO no ciclo AG** (`c51516e`), com um caso residual aberto
 
 | ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|----------------|------------------------|------------|--------------------|
@@ -431,3 +431,29 @@ fora do escopo do Ciclo AG. Candidato a ciclo próprio.
   errada, essa recuperação passa a mentir sobre qual LUT gerou o arquivo. Fix de uma
   linha: derivar do filename da LUT em uso, em vez de literal. Nenhum teste cobre o
   conteúdo do `comment`.
+
+## Decisão — 2026-08-22 (ciclo AG) — True Peak −1.4 dBTP: **aceito, não será corrigido**
+
+Não é achado. Fica registrado aqui para não ser reaberto como se fosse.
+
+| item | valor |
+| --- | --- |
+| alvo já configurado em `LOUDNORM_TARGETS["instagram"]` (`Reels_Encoder_v2_FINAL.py:280`) | `TP = -1.5` |
+| medido na saída, em dois encodes independentes | `-1.4 dBTP` |
+| **máximo documentado do Instagram** (`references/instagram-ingest-rules.md:118`) | **`-1 dBTP`** |
+| limiar do `validate_encode.sh` (margem da casa, mais estrita) | `≤ -1.5 dBTP` |
+
+**Por que não é defeito.** O alvo já é `-1.5`. O `loudnorm` com `linear=true` aplica um
+ganho estático único e **não limita** — o `TP` é meta, não garantia, e estoura 0,1 dB.
+O valor entregue cumpre o limite do Instagram com 0,6 dB de folga. O `-1.5` é margem
+auto-imposta da casa como headroom contra inter-sample clipping do transcode AAC deles
+(justificativa em `:277`), não requisito da plataforma.
+
+**Decisão do usuário: aceitar `-1.4`.** Nada a corrigir em áudio.
+
+**Consequência conhecida, aceita junto:** o `validate_encode.sh` vai continuar emitindo
+`⚠ True Peak` em todo QC. É ruído previsto, não regressão — quem ler um QC com
+`19 ✅ / 1 ⚠ / 0 ❌` e esse aviso específico deve tratá-lo como esperado. A alternativa
+descartada era baixar o alvo para `-1.6` para o overshoot cair em `≤ -1.5`; foi rejeitada
+porque mexeria no áudio de todo render para satisfazer um limiar interno que a plataforma
+não exige.
