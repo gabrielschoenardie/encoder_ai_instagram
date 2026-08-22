@@ -2191,7 +2191,7 @@ def _find_data_file(filename: str) -> str:
 
 
 _HOLLYWOOD_LUT_FILENAME = (
-    "HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube"
+    "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube"
 )
 
 
@@ -2262,7 +2262,7 @@ def build_sdr_float_pipeline(
         _get_hollywood_lut_path()   # valida existência — levanta FileNotFoundError se ausente
         parts.append(f"lut3d=file={_HOLLYWOOD_LUT_FILENAME}:interp=trilinear")
         console.print(
-            f"[green]✓ LUT v6.7B-W80:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
+            f"[green]✓ LUT v6.8:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
         )
     else:
         console.print("[dim]○ LUT desativada (--lut off)[/dim]")

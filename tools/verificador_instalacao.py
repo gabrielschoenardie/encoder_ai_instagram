@@ -192,7 +192,7 @@ class VerificadorInstalacao:
 
         arquivos_opcionais = [
             "FilmLook_Portra400_SkinPriority_D65.cube",
-            "HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube",
+            "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube",
             "MANUAL_INSTALACAO.txt",
             "compare_frames.py",
             "clean_cache.py",
