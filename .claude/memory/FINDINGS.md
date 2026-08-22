@@ -376,3 +376,27 @@ candidato a ciclo futuro.
   despercebido e é promovido a `○ pulado`). Eles auto-terminam sozinhos em poucos segundos
   após o `exit=130`, sem deixar artefato de entrega corrompido. Não corrigido neste ciclo —
   candidato a ciclo futuro, mesma família do `YF1`/`ABF1`.
+
+## Achado — 2026-08-22 (ciclo AE, AE6) — não corrigido neste ciclo
+
+Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md`
+§ "AE6 — A/B real e QC de entrega". Causou perda de arquivo do usuário (untracked).
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| AEF1 | flag aceito e ignorado em silêncio | `Reels_Encoder_v2_FINAL.py:4375-4391` (`args.output_dir` lido só dentro do ramo `--batch`) | `--output-dir` em modo single-file é no-op silencioso; output vai para a pasta do input e sobrescreve o que houver lá | S3 | esperado: erro, aviso, ou honrar o flag; medido: aceito sem qualquer mensagem, output escrito na pasta do input |
+
+- **AEF1 (S3):** o `--help` documenta o flag como `[BATCH]`
+  (`Reels_Encoder_v2_FINAL.py:4299`), então não é comportamento não-documentado — mas o
+  `argparse` aceita `--output-dir` em modo single-file sem erro nem aviso, e
+  `args.output_dir` só é consultado no ramo `--batch` (`:4375`). Quem passa o flag achando
+  que redirecionou a saída sobrescreve silenciosamente o irmão do input.
+  **Dano concreto já ocorrido:** na AE6, `videos/calebbrunkow_AFTER_Hollywood_CRF18.mp4`
+  (+ `.qc.json`, `.qc.html`, `enhance_ai_log.json`) foi sobrescrito por um encode W80,
+  destruindo o encode v6.7B de 18/ago. Untracked, fora do git — irrecuperável a não ser
+  reencodando com a LUT antiga. Fonte intacta, então o dano é recuperável em princípio.
+  Severidade S3 e não S4 porque a falha é **destrutiva e silenciosa**, a pior combinação:
+  o usuário só descobre depois que o arquivo já foi.
+  Fix de baixo custo, duas opções: (a) `parser.error()` se `--output-dir` vier sem
+  `--batch`; (b) honrar o flag também em single-file. (a) é conservadora e não muda
+  semântica existente. Nenhum teste cobre a combinação `--output-dir` sem `--batch`.

@@ -2874,3 +2874,45 @@ Anti-escopo respeitado: `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `README.m
 `tools/verificador_instalacao.py` e `.claude/skills/` não tocados; LUT v6.7B original
 não apagada; filename não renomeado. `PLAN.md` tem edição pendente do Orquestrador no
 working tree e ficou **fora** deste commit.
+
+### AE6 — A/B real e QC de entrega (2026-08-22)
+
+Material (indicado pelo usuário, substituiu o par `calebbrunkow_AFTER` que o Orquestrador
+tinha escolhido): fonte `Captions_C32BA2.mp4` (1080x1920, 30fps) e baseline v6.7B
+`Captions_C32BA2_Hollywood_2Pass.mp4` (2026-08-21 23:40, encoder 2.1.0). Par superior ao
+original porque o baseline é de ontem, mesma geração de código — no par antigo (18/ago)
+parte da diferença poderia vir do encoder e não da LUT, contaminando a conclusão.
+
+Reprodutibilidade: parâmetros extraídos do `.qc.json` e do comment tag do MP4 —
+`--mode 2pass --performance quality`, VBV `target:8075k max:8882k buf:11990k`. O encode
+novo bate no mesmo VBV, byte a byte. Mesma configuração dos dois lados.
+
+**Veredito: aprovado, sem regressão.**
+
+| item | v6.7B (antigo) | W80 (novo) |
+|---|---|---|
+| `validate_encode.sh` | 19 ✅ / 1 ⚠ / 0 ❌ | 19 ✅ / 1 ⚠ / 0 ❌ |
+| checks do `.qc.json` (10) | — | `value` e `passed` idênticos em todos os 10 |
+| VMAF não-NEG médio | 90.20 | 90.23 |
+| VMAF harmonic mean | 90.06 | 90.08 |
+| VMAF mínimo | 82.69 | 82.47 |
+| bitrate vídeo | 8054 kbps | 8042 kbps |
+| LUFS-I / TP / LRA | −14.0 / −1.4 / 2.6 | −14.0 / −1.4 / 2.6 |
+
+VMAF com modelo não-NEG (`vmaf_v0.6.1`) por decisão de metodologia: o NEG sub-pontua grade
+estilizado em ~6 pontos e daria falso negativo. Delta de +0.03 no médio e −0.05 no harmonic
+mean é ruído de subsample=5, não movimento material — o esperado para mudança puramente
+cromática no eixo warm-cool.
+
+**O ⚠ é pré-existente:** `True Peak −1.4 dBTP` contra recomendado `≤ −1.5`. O `.qc.json` de
+21/ago já registrava esse mesmo check como `passed: false`. O Ciclo AE não tocou no caminho
+de áudio. Fix fora de escopo deste ciclo (seria `loudnorm` `TP=-1.5`); não corrigido aqui
+por decisão de anti-escopo, não por descuido.
+
+**Incidente operacional, ver `FINDINGS.md` § `AEF1`:** ao tentar reproduzir o encode do par
+ANTIGO, o agente usou `--output-dir` em modo single-file, onde o flag é no-op silencioso.
+Resultado: `videos/calebbrunkow_AFTER_Hollywood_CRF18.mp4` (+ `.qc.json`/`.qc.html` e
+`enhance_ai_log.json`) foi sobrescrito com um encode W80. Arquivos untracked, nenhum
+arquivo versionado afetado; a fonte `videos/calebbrunkow_AFTER.mp4` está intacta. O par
+`Captions_C32BA2` na raiz **não foi tocado** (o agente copiou a fonte para scratchpad antes
+de encodar).
