@@ -3018,3 +3018,16 @@ automaticamente.
   `pyproject.toml` (lista de rollback) e `color-pipeline.md` linha 90 ("a v6.7B e a v6.7B-W80
   permanecem")
 - commit: `24ad1ac` — "docs(lut): apontar produto e skill para HollywoodCinema v6.8 96 IRE (AF4)"
+
+**Divergência da AF2/AF3 fechada pelo Orquestrador (falha de documentação, não do cube).**
+A métrica "saturação média acima do pivô" usa máscara sobre o **canal máximo** da v6.7B
+(`v6.7B.max(canal) > 0.75` → 16.764 nós), não sobre a luma — o `PLAN.md` omitiu a fórmula,
+por isso o executor não reproduziu. Medido no cube v6.8 já assado, com a máscara correta:
+v6.7B `0.43013` | W80 `0.43511` | **v6.8 `0.43519`**, batendo com o valor do PLAN.
+O executor agiu certo ao parar e reportar em vez de recalibrar o número.
+
+Confirmações independentes do Orquestrador no cube assado: teto `0.960000` (96.00 IRE),
+piso `0.031373` com igualdade exata à v6.7B, eixo neutro `R=G=B` em 33/33, e `0` nós mais
+quentes que a v6.7B. A saturação praticamente não se move (`0.43511 → 0.43519`, oitava
+casa) — é a evidência de que o lift aditivo levantou brilho sem expandir croma. A variante
+por canal, descartada, levaria a mesma métrica a `0.45107`.
