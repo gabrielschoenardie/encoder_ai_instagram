@@ -386,6 +386,10 @@ Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md
 |----|-----------|----------------|------------------------|------------|--------------------|
 | AEF1 | flag aceito e ignorado em silêncio | `Reels_Encoder_v2_FINAL.py:4375-4391` (`args.output_dir` lido só dentro do ramo `--batch`) | `--output-dir` em modo single-file é no-op silencioso; output vai para a pasta do input e sobrescreve o que houver lá | S3 | esperado: erro, aviso, ou honrar o flag; medido: aceito sem qualquer mensagem, output escrito na pasta do input |
 
+**Status: corrigido (ciclo AG, commit `c51516e`).** `parser.error()` logo após
+`parse_args()`, antes de qualquer dispatch, se `args.output_dir` vier sem
+`args.batch`. 5 testes novos em `enhance/test_output_dir_and_pipeline_tag.py`.
+
 - **AEF1 (S3):** o `--help` documenta o flag como `[BATCH]`
   (`Reels_Encoder_v2_FINAL.py:4299`), então não é comportamento não-documentado — mas o
   `argparse` aceita `--output-dir` em modo single-file sem erro nem aviso, e
@@ -406,6 +410,19 @@ Evidência: incidente real durante a AE6, registrado em `.claude/memory/STATE.md
 | ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|----------------|------------------------|------------|--------------------|
 | AFF1 | metadado de proveniência desatualizado | `Reels_Encoder_v2_FINAL.py:1941` | `pipeline_tag` hardcoded como `"HollywoodLUT_v6.7"`; todo arquivo entregue declara a LUT errada no `comment` | S4 | esperado: tag acompanha a LUT em uso; medido: `HollywoodLUT_v6.7` gravado em encodes feitos com W80 e com v6.8 |
+
+**Status: corrigido (ciclo AG, commit `c51516e`).** `pipeline_tag` agora deriva
+de `_HOLLYWOOD_LUT_FILENAME` por regex de versão (`_v(\d+\.\d+[\w-]*)_`), com
+fallback para o stem do filename se não casar. 2 testes novos cobrem o ramo
+Hollywood (derivação dinâmica, sem hardcodar `v6.8`) e o ramo Cineon (intocado).
+
+**Achado novo, não corrigido (reportar apenas):** o `comment` continua
+declarando `HollywoodLUT_*` mesmo quando o encode roda com `--lut off`.
+`lut_enabled` não está acessível no escopo de `_build_metadata_args`
+(`:1925-1940`) — não é parâmetro da função, só `duration`, `video_bitrate`,
+`mode`, `cineon_mode` e os overrides de VBV. Corrigir exigiria adicionar um
+parâmetro novo e ajustar os 4 call sites (`:2660`, `:2783`, `:3248`, `:3463`);
+fora do escopo do Ciclo AG. Candidato a ciclo próprio.
 
 - **AFF1 (S4):** a string é fixa e não deriva de `_HOLLYWOOD_LUT_FILENAME`, então ficou
   para trás nos Ciclos AE e AF. O dano é diagnóstico, não de imagem: o `comment` do MP4 é

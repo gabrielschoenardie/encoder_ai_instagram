@@ -3073,3 +3073,20 @@ range (`YHIGH>235`, `YLOW<16`) e o olho. Mesma família da armadilha já registr
 `project_vmaf_neg_stylized`: o número sobe ou desce por motivo que não é qualidade.
 
 Os três encodes passam o alvo Safe Premium (≥90) de qualquer forma.
+
+## Ciclo AG — AEF1 e AFF1 — 2026-08-22
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AG2 | done | Reels_Encoder_v2_FINAL.py | `parser.error()` logo após `parse_args()` se `args.output_dir` e `args.batch is None`; código 2, mensagem cita `--batch` |
+| AG3 | done | Reels_Encoder_v2_FINAL.py | `pipeline_tag` deriva de `_HOLLYWOOD_LUT_FILENAME` via regex `_v(\d+\.\d+[\w-]*)_` (fallback: stem); `import re` adicionado ao topo; ramo Cineon intocado |
+| AG4 | done | enhance/test_output_dir_and_pipeline_tag.py (novo) | 5 testes; TDD confirmado — 2 falham contra o código pré-fix (`code 1 != 2`, `v6.7 != v6.8`), passam pós-fix; `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → 410 passed (405 baseline + 5) |
+
+Verificação: `python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `410 passed in 7.46s`, zero falhas.
+
+Commit `c51516e` (AG2+AG3+AG4 juntos).
+
+Achado reportado, não corrigido: `comment` continua com `HollywoodLUT_*` mesmo
+com `--lut off`. `lut_enabled` não é parâmetro de `_build_metadata_args` — não
+acessível no escopo de `:1925-1940`. Ver `.claude/memory/FINDINGS.md` § AFF1
+para detalhe e call sites a tocar se virar ciclo próprio.
