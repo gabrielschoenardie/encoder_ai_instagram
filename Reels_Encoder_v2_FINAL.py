@@ -4158,7 +4158,7 @@ def _print_encode_error(exc: BaseException, debug: bool) -> None:
         traceback.print_exc()
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Instagram Reels Encoder com suporte a Film Emulation Cineon",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4375,7 +4375,12 @@ COMPARAÇÃO:
         action="store_true",
         help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def parse_cli(argv=None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.output_dir and args.batch is None:
         parser.error(
@@ -4383,6 +4388,12 @@ COMPARAÇÃO:
             "vai sempre para a pasta do input; use --batch <pasta> se quiser "
             "redirecionar o destino."
         )
+
+    return args
+
+
+def main():
+    args = parse_cli()
 
     # Hardware info mode
     if args.hardware_info:
