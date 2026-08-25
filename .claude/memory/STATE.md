@@ -3171,3 +3171,12 @@ os dois testes que falhavam agora passam, e é exatamente isso que a contagem mo
 
 Ciclo fechado com evidência de CI real, não local — a causa raiz deste ciclo foi
 exatamente confiar em execução local que não reflete o ambiente onde o bug vive.
+
+## Ciclo AK — pinar .cube (CRLF) e ligar tools/ no CI (2026-08-25)
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AK1 | done | .gitattributes, os 4 *.cube, .claude/memory/FINDINGS.md | `*.cube -text` criado, blobs renormalizados p/ CRLF, commit `71bc478` — `git cat-file -s HEAD:<arquivo>` == tamanho do worktree para os 4 arquivos |
+| AK2 | done | .github/workflows/ci.yml | `tools/` acrescentado à linha do `Run tests`, commit `692d7e4` — `pytest tools/ -q` = 10 passed, árvore limpa depois, `pytest test_render_queue.py enhance/ ui/ tools/ -q` = 435 passed |
+
+Push: `git push -u origin claude/ciclo-ak-cube-crlf-ci` — branch nova enviada, sem PR aberto.
