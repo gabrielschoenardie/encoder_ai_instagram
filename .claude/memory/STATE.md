@@ -3171,3 +3171,79 @@ os dois testes que falhavam agora passam, e é exatamente isso que a contagem mo
 
 Ciclo fechado com evidência de CI real, não local — a causa raiz deste ciclo foi
 exatamente confiar em execução local que não reflete o ambiente onde o bug vive.
+
+## Ciclo AK — pinar .cube (CRLF) e ligar tools/ no CI (2026-08-25)
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AK1 | done | .gitattributes, os 4 *.cube, .claude/memory/FINDINGS.md | `*.cube -text` criado, blobs renormalizados p/ CRLF, commit `71bc478` — `git cat-file -s HEAD:<arquivo>` == tamanho do worktree para os 4 arquivos |
+| AK2 | done | .github/workflows/ci.yml | `tools/` acrescentado à linha do `Run tests`, commit `692d7e4` — `pytest tools/ -q` = 10 passed, árvore limpa depois, `pytest test_render_queue.py enhance/ ui/ tools/ -q` = 435 passed |
+
+Push: `git push -u origin claude/ciclo-ak-cube-crlf-ci` — branch nova enviada, sem PR aberto.
+
+## AK3 — fechamento do Ciclo AK com evidência real de CI (2026-08-25)
+
+**Depois (a correção), run `32875583211`, commit `692d7e4` — os 4 jobs `Tests` `success`:**
+
+| job id | job | conclusion |
+|--------|-----|------------|
+| 97892573585 | Tests (ubuntu-latest, Python 3.11) | success |
+| 97892573549 | Tests (ubuntu-latest, Python 3.12) | success |
+| 97892573740 | Tests (windows-latest, Python 3.11) | success |
+| 97892573611 | Tests (windows-latest, Python 3.12) | success |
+
+Linhas literais do log do job `97892573585` (ubuntu-latest, Python 3.11) — o job que teria
+reprovado antes da correção (`.cube` chegaria em LF sem `.gitattributes`, `test_structure`
+mediria 0 CRLF em vez de 35939):
+
+```
+2026-08-25T17:03:40.0765441Z tools/test_generate_hollywood_lut_cooler.py::test_structure PASSED       [ 98%]
+2026-08-25T17:03:41.4255798Z ============================= 435 passed in 6.86s ==============================
+```
+
+435 = os 425 da seleção anterior + os 10 de `tools/`. Nenhum teste novo foi escrito neste ciclo.
+
+**Verificação local complementar (blob == worktree, medida no HEAD atual):** para os 4
+`.cube`, `git cat-file -s HEAD:<arquivo>` é **igual** ao tamanho no worktree (1016677 /
+1006351 / 1006340 / 1006353) — antes do ciclo (commit `92ae2e6`) diferiam exatamente pela
+contagem de `\r` de cada arquivo. O blob de
+`HollywoodCinema_Ultimate_v6.8_...cube` agora contém 35939 CRLF, que é exatamente
+`DATA_LINES + 2`.
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AK3 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Evidência real de CI verde (run `32875583211`, 4 jobs `Tests` success, 435 passed) registrada; AJF1 fechado; AKF1 aberto (CRLF em `cineon_pipeline.py`/`enhance_visualizer.py`) |
+
+## Ciclo AL — extrair build_parser()/parse_cli() de main() (R8) — 2026-08-25
+
+Run `32878346319`, commit `caf4eb3`, os 4 jobs `Tests` `success`:
+
+| job id | job | conclusion |
+|--------|-----|------------|
+| 97901632205 | Tests (ubuntu-latest, Python 3.11) | success |
+| 97901632247 | Tests (ubuntu-latest, Python 3.12) | success |
+| 97901632150 | Tests (windows-latest, Python 3.11) | success |
+| 97901632175 | Tests (windows-latest, Python 3.12) | success |
+
+Linha literal do log do job `97901632205`:
+
+```
+2026-08-25T17:31:44.8401703Z ============================= 435 passed in 5.38s ==============================
+```
+
+Verificações locais (medidas pelo Orquestrador em `caf4eb3`):
+
+- `--help` byte-idêntico ao baseline de `def5ac2`: 139 linhas, md5
+  `7dd773cde1f068982e6d97554bacda99` nos dois, `diff` vazio.
+- `main`, `build_parser`, `parse_cli` todos callable no módulo.
+- `grep -cE "monkeypatch|AIF1" enhance/test_output_dir_and_pipeline_tag.py` → `0`. O
+  andaime do Ciclo AJ foi deletado por inteiro.
+- Com o PATH sem ffmpeg e **sem nenhum monkeypatch**: `11 passed`.
+
+435 passed = mesma contagem do Ciclo AK; nenhum teste novo foi adicionado, os 3 testes de
+`--output-dir` foram reescritos (AL1) para chamar `parse_cli()` direto em vez de `main()`
+inteiro via `monkeypatch`.
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AL3 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Evidência real de CI verde (run `32878346319`, 4 jobs `Tests` success, 435 passed) registrada; AJF2 fechado; ALF1 aberto (bloco de UI de `main()` contorna validação de `parse_cli()`) |

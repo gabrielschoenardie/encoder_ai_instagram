@@ -1,0 +1,2 @@
+# CRLF é a intenção declarada do gerador (tools/generate_hollywood_lut_cooler.py:162); não normalizar EOL destes blobs.
+*.cube -text
