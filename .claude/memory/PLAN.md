@@ -1,58 +1,84 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AJ: isolar os testes de --output-dir da dependência de ffmpeg (AIF1)
+# PLAN — Ciclo AK: pinar os `.cube` e colocar `tools/` no CI (AJF1)
 
-Data: 2026-08-25 | Ciclo: AJ | Origem: `.claude/memory/FINDINGS.md` § `AIF1` (aberto no Ciclo AI) + `docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`.
+Data: 2026-08-25 | Ciclo: AK | Origem: `.claude/memory/FINDINGS.md` § `AJF1` (aberto no Ciclo AJ pela revisão final do branch).
 
 ## Diagnóstico
 
-`main` está com o CI vermelho desde o Ciclo AG. Confirmado no log real do
-job "Tests (ubuntu-latest, Python 3.11)" do run `32590519448`
-(SHA `3f12070`): `2 failed, 423 passed in 3.07s`, ambas `assert 1 == 0`.
+`AJF1` foi registrado como "`tools/` está fora da seleção de testes do CI".
+A investigação do Orquestrador mostrou que a causa é mais funda e que a
+correção óbvia (só acrescentar `tools/` à linha do `ci.yml`) **deixaria os
+dois jobs ubuntu vermelhos na hora**.
 
-Os dois testes de `enhance/test_output_dir_and_pipeline_tag.py`
-(`test_output_dir_with_batch_does_not_trigger_usage_error` e
-`test_batch_without_output_dir_does_not_trigger_usage_error`, Ciclo AG,
-commit `c51516e`) chamam `main()` de ponta a ponta via
-`_run_main_with_argv()` para validar comportamento do parser, mas o
-caminho atravessa a checagem de dependência do ffmpeg em
-`Reels_Encoder_v2_FINAL.py:4399-4414` antes de chegar à lógica de parser
-que o teste quer validar. Nenhum runner do GitHub Actions vem com ffmpeg
-pré-instalado, e o `ci.yml` não o instala.
+Medido nesta sessão, no commit `92ae2e6`:
 
-**Por que consertar o teste e não o produto:** a ordem de checagem em
-`main()` é intencional — falhar rápido numa dependência ausente é melhor
-UX do que só descobrir isso depois de escanear arquivos de batch. O
-defeito é o teste ter escopo maior do que precisa (testa parser, mas
-exercita ffmpeg).
+| arquivo `.cube` (tracked) | blob | worktree | delta |
+|---|---|---|---|
+| `FilmLook_Portra400_SkinPriority_D65.cube` | 980725 | 1016677 | 35952 |
+| `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube` | 970412 | 1006351 | 35939 |
+| `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` | 970401 | 1006340 | 35939 |
+| `HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube` | 970414 | 1006353 | 35939 |
+
+O delta de cada arquivo é exatamente a contagem de `\r` — o blob guarda
+**LF**, o worktree Windows mostra **CRLF**. Não existe `.gitattributes` no
+repo e `core.autocrlf=true` na máquina local, então a conversão é feita
+por git no checkout, por plataforma.
+
+`tools/generate_hollywood_lut_cooler.py:162` escreve o LUT com
+`newline="\r\n"` — **CRLF é a intenção declarada do gerador**, não um
+acidente. E `tools/test_generate_hollywood_lut_cooler.py::test_structure`
+afirma `raw.count(b"\r\n") == DATA_LINES + 2`, ou seja, testa exatamente
+essa intenção.
+
+Consequência: num runner Linux (autocrlf desligado, sem `.gitattributes`)
+o arquivo é entregue em LF, `test_structure` mede 0 e falha. O defeito não
+é o teste — é o artefato versionado ter sido normalizado para LF na hora
+do commit, divergindo do que o gerador produz.
+
+**Por que isso também explica o "artefato de CRLF local" do Ciclo AJ:** era
+a mesma dependência de plataforma, vista do outro lado.
 
 ## Desenho
 
-Correção via `monkeypatch.setattr("ui.preflight.missing_ffmpeg_binaries",
-lambda *a, **kw: [])` nos dois testes falhando — convenção já estabelecida
-no repo (`ui/test_launcher.py`, `enhance/test_cineon_constants_guard.py`,
-`enhance/test_hdr_pipeline.py`). Detalhe completo do desenho:
-`docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`.
+Ordem importa. Pinar os bytes **antes** de ligar `tools/` no CI:
+
+1. `.gitattributes` com `*.cube -text` desliga qualquer conversão de EOL
+   para esses arquivos. Como o worktree local já está em CRLF, re-adicionar
+   os quatro arquivos faz o blob passar a guardar CRLF verbatim — que é o
+   que o gerador emite e o que o teste espera, em qualquer plataforma.
+2. Só então `tools/` entra na seleção do `ci.yml`.
+
+Fazer na ordem inversa deixa o CI vermelho. Pinar sem re-adicionar congela o
+LF de hoje e quebra o teste no **Windows** em vez do Linux.
+
+Efeito colateral desejável: `test_generator_is_deterministic` roda o gerador
+e **sobrescreve o `.cube` versionado**. Com blob e saída do gerador
+byte-idênticos, rodar a suíte deixa de sujar a árvore de trabalho.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AJ1 | Registrar o achado `AIF1`, escrever spec + plano na íntegra, reescrever este `PLAN.md`. | executor | `docs/superpowers/specs/2026-08-25-ci-vermelho-ffmpeg-dependency-design.md`, `docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | done — `fb870bd` |
-| AJ2 | Isolar os dois testes da dependência de ffmpeg via `monkeypatch`. | executor | `enhance/test_output_dir_and_pipeline_tag.py` | done — `658598a` |
-| AJ3 | Confirmar verde no CI real (não local) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — `fb449d2` |
+| AK1 | Criar `.gitattributes` com `*.cube -text` e renormalizar os 4 `.cube` para que o blob guarde CRLF. Atualizar `AJF1` no `FINDINGS.md` com a causa raiz medida. | executor | `.gitattributes`, os 4 `*.cube`, `.claude/memory/FINDINGS.md` | pendente |
+| AK2 | Incluir `tools/` na seleção de testes do `ci.yml`. | executor | `.github/workflows/ci.yml` | pendente |
+| AK3 | Confirmar verde no CI real nos 4 jobs `Tests` (ubuntu **e** windows) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | pendente |
+
+## Critérios de aceite
+
+- Para os 4 arquivos: `git cat-file -s HEAD:<arquivo>` **igual** ao tamanho
+  do arquivo no worktree. Hoje diferem pelo número de `\r`.
+- `python -m pytest tools/ -q` → `10 passed`, e `git status --short` limpo
+  depois de rodar (nenhum `.cube` modificado).
+- Seleção nova do CI local: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `435 passed`.
+- CI real: os 4 jobs `Tests` `success`, com `435 passed` no sumário — os
+  425 de hoje + os 10 de `tools/`.
 
 ## Notas de execução
 
-- Não tocar em `Reels_Encoder_v2_FINAL.py`. Não instalar ffmpeg no CI.
-- Localizar por âncora (nome de função), não por número de linha — os
-  números citados são do commit `3f12070` e vão deslocar.
-- Baseline do achado, medido no CI real (run `32590519448`, SHA `3f12070`,
-  job "Tests (ubuntu-latest, Python 3.11)"): `2 failed, 423 passed` na
-  suíte inteira. Baseline local, medido sob PATH sem ffmpeg em `fb870bd`,
-  arquivo `enhance/test_output_dir_and_pipeline_tag.py` isolado: `2 failed,
-  9 passed`. Meta: `425 passed` na suíte completa (seleção do CI —
-  `test_render_queue.py enhance/ ui/`, sem `tools/`; a suíte local completa,
-  essa seleção + `tools/`, soma 435) — atingida no CI real (run
-  `32870623915`).
-- **Não fechar o ciclo com base em execução local.** O achado inteiro
-  nasceu de uma suíte verde localmente e vermelha no CI real — a prova de
-  fechamento (AJ3) exige log real do CI, não apenas `pytest` local.
+- **Não tocar em `Reels_Encoder_v2_FINAL.py`.** Nada neste ciclo é de produto
+  de encode; é versionamento de artefato e configuração de CI.
+- **Não alterar a lógica de `tools/test_generate_hollywood_lut_cooler.py`.**
+  O teste está certo; quem estava errado era o byte versionado.
+- `-text` (e não `binary`): mantém o diff legível, só desliga conversão de EOL.
+- **Não fechar o ciclo com base em execução local.** Vale a mesma regra do
+  Ciclo AJ: a prova é log real do CI. Aqui com um requisito a mais — o job
+  **ubuntu** é o que reprovaria hoje, então é ele que precisa aparecer verde.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
