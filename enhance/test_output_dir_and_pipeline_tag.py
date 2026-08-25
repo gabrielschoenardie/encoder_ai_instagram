@@ -6,27 +6,15 @@ da LUT em uso, ver .claude/memory/FINDINGS.md § AEF1 e § AFF1).
 import contextlib
 import io
 import re
-import sys
 
 import Reels_Encoder_v2_FINAL as R  # noqa: E402
-
-
-def _run_main_with_argv(args):
-    old_argv = sys.argv
-    sys.argv = ["Reels_Encoder_v2_FINAL.py"] + args
-    try:
-        R.main()
-    finally:
-        sys.argv = old_argv
 
 
 def test_output_dir_without_batch_exits_with_usage_error(tmp_path):
     stderr = io.StringIO()
     with contextlib.redirect_stderr(stderr):
         try:
-            _run_main_with_argv(
-                ["input.mp4", "--output-dir", str(tmp_path)]
-            )
+            R.parse_cli(["input.mp4", "--output-dir", str(tmp_path)])
             raised = False
             code = None
         except SystemExit as exc:
@@ -38,45 +26,22 @@ def test_output_dir_without_batch_exits_with_usage_error(tmp_path):
     assert "--batch" in stderr.getvalue()
 
 
-def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path, monkeypatch):
-    # AIF1: main() checa ffmpeg/ffprobe antes de chegar na logica de parser
-    # que este teste valida. O teste e sobre argparse, nao sobre ffmpeg —
-    # neutraliza a checagem de dependencia em vez de exigir o binario real.
-    # Isso depende de aquele `from ui.preflight import missing_ffmpeg_binaries`
-    # continuar local dentro de main() (re-resolvido a cada chamada); se subir
-    # para o topo do modulo, este patch para de interceptar.
-    # Tambem cobre o branch de fallback (o `except` logo apos o `try` que
-    # importa missing_ffmpeg_binaries): se esse `try` levantar, main() cai
-    # para shutil.which("ffmpeg")/("ffprobe") direto em R.shutil.
-    monkeypatch.setattr(
-        "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
+def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path):
+    out_dir = tmp_path / "out"
+
+    args = R.parse_cli(
+        ["--batch", str(tmp_path), "--output-dir", str(out_dir)]
     )
-    monkeypatch.setattr(R.shutil, "which", lambda name: f"/usr/bin/{name}")
-    try:
-        _run_main_with_argv(
-            ["--batch", str(tmp_path), "--output-dir", str(tmp_path / "out")]
-        )
-        code = None
-    except SystemExit as exc:
-        code = exc.code
 
-    # Pasta de batch vazia: segue até "Nenhum vídeo encontrado" (exit 0),
-    # não até o parser.error() novo (exit 2).
-    assert code == 0
+    assert args.batch == str(tmp_path)
+    assert args.output_dir == str(out_dir)
 
 
-def test_batch_without_output_dir_does_not_trigger_usage_error(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
-    )
-    monkeypatch.setattr(R.shutil, "which", lambda name: f"/usr/bin/{name}")
-    try:
-        _run_main_with_argv(["--batch", str(tmp_path)])
-        code = None
-    except SystemExit as exc:
-        code = exc.code
+def test_batch_without_output_dir_does_not_trigger_usage_error(tmp_path):
+    args = R.parse_cli(["--batch", str(tmp_path)])
 
-    assert code == 0
+    assert args.batch == str(tmp_path)
+    assert args.output_dir is None
 
 
 def test_pipeline_tag_derives_from_hollywood_lut_filename():
