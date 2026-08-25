@@ -59,7 +59,7 @@ byte-idênticos, rodar a suíte deixa de sujar a árvore de trabalho.
 |----|--------|-------------|----------|-------------------|
 | AK1 | Criar `.gitattributes` com `*.cube -text` e renormalizar os 4 `.cube` para que o blob guarde CRLF. Atualizar `AJF1` no `FINDINGS.md` com a causa raiz medida. | executor | `.gitattributes`, os 4 `*.cube`, `.claude/memory/FINDINGS.md` | done — SHA `71bc478` |
 | AK2 | Incluir `tools/` na seleção de testes do `ci.yml`. | executor | `.github/workflows/ci.yml` | done — SHA `692d7e4` |
-| AK3 | Confirmar verde no CI real nos 4 jobs `Tests` (ubuntu **e** windows) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — SHA `PENDING_AK3_SHA` |
+| AK3 | Confirmar verde no CI real nos 4 jobs `Tests` (ubuntu **e** windows) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — SHA `107a09b` |
 
 ## Critérios de aceite
 
