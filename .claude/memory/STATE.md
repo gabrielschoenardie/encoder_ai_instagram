@@ -3136,3 +3136,38 @@ Verificação: `python -m py_compile Reels_Encoder_v2_FINAL.py && python -m pyte
 
 Commit `d66887f` (AI2+AI3+AI4 juntos). `FINDINGS.md` § ADF1 fechado, escopo
 corrigido de 2 para 3 processos e risco de clobber registrado.
+
+## Ciclo AJ — CI vermelho por dependência de ffmpeg (AIF1) — 2026-08-25
+
+**Antes (o achado):** run `32590519448`, SHA `3f12070`, job "Tests (ubuntu-latest, Python 3.11)":
+`2 failed, 423 passed in 3.07s` — ambas `assert 1 == 0`.
+
+**Verificação local sob PATH sem ffmpeg (reproduz a condição do CI):**
+RED, em `fb870bd`: `2 failed, 9 passed in 3.55s`, banner `✗ DEPENDÊNCIA AUSENTE`.
+GREEN, em `658598a`: `11 passed`.
+
+**Suíte completa local (PATH normal), antes e depois:** `435 passed` — sem regressão.
+
+**Depois (a correção), CI real:** run `32870623915`, SHA `658598a`, workflow `CI`. Os 4 jobs `Tests`, todos `success`:
+
+| job id | job | conclusion |
+|--------|-----|------------|
+| 97876458809 | Tests (ubuntu-latest, Python 3.11) | success |
+| 97876458827 | Tests (ubuntu-latest, Python 3.12) | success |
+| 97876458851 | Tests (windows-latest, Python 3.11) | success |
+| 97876458742 | Tests (windows-latest, Python 3.12) | success |
+
+Linha de sumário literal do job 97876458809 (ubuntu-latest, Python 3.11):
+
+```
+2026-08-25T16:13:49.6577224Z ============================= 425 passed in 4.45s ==============================
+```
+
+Demais jobs do mesmo run, também `success`: `Lint (ruff)`, `Pylint` (run `32870623940`),
+`Pester (launcher.ps1) (ubuntu-latest)`, `Pester (launcher.ps1) (windows-latest)`.
+
+423 passed + as 2 que falhavam = 425 passed. Nenhum teste novo foi adicionado neste ciclo;
+os dois testes que falhavam agora passam, e é exatamente isso que a contagem mostra.
+
+Ciclo fechado com evidência de CI real, não local — a causa raiz deste ciclo foi
+exatamente confiar em execução local que não reflete o ambiente onde o bug vive.

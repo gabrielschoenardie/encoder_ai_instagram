@@ -488,12 +488,19 @@ descartada era baixar o alvo para `-1.6` para o overshoot cair em `≤ -1.5`; fo
 porque mexeria no áudio de todo render para satisfazer um limiar interno que a plataforma
 não exige.
 
-## Achado — 2026-08-25 (ciclo AI, CI vermelho por dependência de ambiente) — corrigindo no ciclo AJ
+## Achado — 2026-08-25 (ciclo AI, CI vermelho por dependência de ambiente) — **CORRIGIDO no ciclo AJ** (`658598a`)
 
 Evidência: log real do job "Tests (ubuntu-latest, Python 3.11)", run `32590519448`, SHA `3f12070` — `2 failed, 423 passed in 3.07s`; leitura de `.github/workflows/ci.yml` confirmando ausência de step de instalação de ffmpeg em todos os jobs.
 
 | ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|----------------|------------------------|------------|--------------------|
 | AIF1 | teste acoplado a ambiente | `enhance/test_output_dir_and_pipeline_tag.py:41-62` | Dois testes de parser chamam `main()` inteiro e dependem de ffmpeg estar instalado | S2 | esperado: CI verde; medido: `main` com 4 jobs `Tests` vermelhos desde o Ciclo AG |
+
+**Status: corrigido (ciclo AJ, commit `658598a`).** Os dois testes agora usam
+`monkeypatch.setattr("ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: [])`
+para pular a checagem de dependência de ffmpeg, isolando-os do binário estar
+presente no ambiente. Confirmado no CI real, run `32870623915`: os 4 jobs
+`Tests` (ubuntu×windows, 3.11×3.12) todos `success`, com o job "Tests
+(ubuntu-latest, Python 3.11)" fechando em `425 passed in 4.45s`.
 
 - **AIF1:** Os testes `test_output_dir_with_batch_does_not_trigger_usage_error` e `test_batch_without_output_dir_does_not_trigger_usage_error` (Ciclo AG, commit `c51516e`) validam que passar `--batch` não dispara o `parser.error()` novo do `--output-dir`. Para isso chamam `_run_main_with_argv()`, que executa `Reels_Encoder_v2_FINAL.main()` de ponta a ponta. O caminho passa pela checagem de dependência de ffmpeg (`Reels_Encoder_v2_FINAL.py:4399-4414`) antes de chegar à lógica de parser que o teste quer validar. Passaram na máquina de quem os escreveu (ffmpeg no PATH); falham em qualquer ambiente sem ffmpeg — inclusive todos os 4 jobs `Tests` do CI (nenhum runner do GitHub Actions vem com ffmpeg, e o workflow não o instala). Ninguém checou o CI após o merge do Ciclo AG; ficou vermelho em silêncio por dias.
