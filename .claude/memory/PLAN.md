@@ -48,8 +48,10 @@ no repo (`ui/test_launcher.py`, `enhance/test_cineon_constants_guard.py`,
   job "Tests (ubuntu-latest, Python 3.11)"): `2 failed, 423 passed` na
   suíte inteira. Baseline local, medido sob PATH sem ffmpeg em `fb870bd`,
   arquivo `enhance/test_output_dir_and_pipeline_tag.py` isolado: `2 failed,
-  9 passed`. Meta: `425 passed` na suíte completa — atingida no CI real
-  (run `32870623915`).
+  9 passed`. Meta: `425 passed` na suíte completa (seleção do CI —
+  `test_render_queue.py enhance/ ui/`, sem `tools/`; a suíte local completa,
+  essa seleção + `tools/`, soma 435) — atingida no CI real (run
+  `32870623915`).
 - **Não fechar o ciclo com base em execução local.** O achado inteiro
   nasceu de uma suíte verde localmente e vermelha no CI real — a prova de
   fechamento (AJ3) exige log real do CI, não apenas `pytest` local.

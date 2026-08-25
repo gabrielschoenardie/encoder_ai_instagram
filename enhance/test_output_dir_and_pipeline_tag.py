@@ -42,9 +42,16 @@ def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path, monkeypatc
     # AIF1: main() checa ffmpeg/ffprobe antes de chegar na logica de parser
     # que este teste valida. O teste e sobre argparse, nao sobre ffmpeg —
     # neutraliza a checagem de dependencia em vez de exigir o binario real.
+    # Isso depende de aquele `from ui.preflight import missing_ffmpeg_binaries`
+    # continuar local dentro de main() (re-resolvido a cada chamada); se subir
+    # para o topo do modulo, este patch para de interceptar.
+    # Tambem cobre o branch de fallback (o `except` logo apos o `try` que
+    # importa missing_ffmpeg_binaries): se esse `try` levantar, main() cai
+    # para shutil.which("ffmpeg")/("ffprobe") direto em R.shutil.
     monkeypatch.setattr(
         "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
     )
+    monkeypatch.setattr(R.shutil, "which", lambda name: f"/usr/bin/{name}")
     try:
         _run_main_with_argv(
             ["--batch", str(tmp_path), "--output-dir", str(tmp_path / "out")]
@@ -62,6 +69,7 @@ def test_batch_without_output_dir_does_not_trigger_usage_error(tmp_path, monkeyp
     monkeypatch.setattr(
         "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
     )
+    monkeypatch.setattr(R.shutil, "which", lambda name: f"/usr/bin/{name}")
     try:
         _run_main_with_argv(["--batch", str(tmp_path)])
         code = None
