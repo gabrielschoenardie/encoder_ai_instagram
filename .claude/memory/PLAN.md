@@ -1,89 +1,52 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AI: registrar os ffmpeg de fase de análise (ADF1)
+# PLAN — Ciclo AJ: isolar os testes de --output-dir da dependência de ffmpeg (AIF1)
 
-Data: 2026-08-22 | Ciclo: AI | Origem: `.claude/memory/FINDINGS.md` § `ADF1` (aberto no Ciclo AD). Ciclo AH fechado e pushado (`097e299`).
+Data: 2026-08-25 | Ciclo: AJ | Origem: `.claude/memory/FINDINGS.md` § `AIF1` (aberto no Ciclo AI) + `docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`.
 
 ## Diagnóstico
 
-`terminate_active_ffmpeg()` (Ciclo AD) só encerra o processo em `_ACTIVE_FFMPEG`.
-Os `ffmpeg` de fase de análise sobem por `subprocess.run()` e nunca são
-registrados, logo sobrevivem ao `exit=130` até terminarem sozinhos.
+`main` está com o CI vermelho desde o Ciclo AG. Confirmado no log real do
+job "Tests (ubuntu-latest, Python 3.11)" do run `32590519448`
+(SHA `3f12070`): `2 failed, 423 passed in 3.07s`, ambas `assert 1 == 0`.
 
-**Correção ao escopo registrado.** O `ADF1` cita "loudnorm e de-rotação". São
-**três**, não dois — o remux do átomo `colr` também está fora do registro.
-Classificação dos 6 `subprocess.run` do módulo:
+Os dois testes de `enhance/test_output_dir_and_pipeline_tag.py`
+(`test_output_dir_with_batch_does_not_trigger_usage_error` e
+`test_batch_without_output_dir_does_not_trigger_usage_error`, Ciclo AG,
+commit `c51516e`) chamam `main()` de ponta a ponta via
+`_run_main_with_argv()` para validar comportamento do parser, mas o
+caminho atravessa a checagem de dependência do ffmpeg em
+`Reels_Encoder_v2_FINAL.py:4399-4414` antes de chegar à lógica de parser
+que o teste quer validar. Nenhum runner do GitHub Actions vem com ffmpeg
+pré-instalado, e o `ci.yml` não o instala.
 
-| site | comando | duração | registrar? |
-| --- | --- | --- | --- |
-| `:383` | `wmic cpu get name` | ms, já tem `timeout=5` | não — não é ffmpeg |
-| `:605` | `ffprobe` (HDR side data) | ms | não |
-| `:1271` | **`ffmpeg`** remux de-rotação | segundos | **sim** |
-| `:1363` | **`ffmpeg`** loudnorm pass 1 (`-f null -`, varre o áudio inteiro) | segundos a minutos | **sim** |
-| `:3783` | **`ffmpeg`** remux do átomo `colr` | segundos | **sim** — ausente do registro do achado |
-| `:3860` | `ffprobe` (verificação de cor) | ms | não |
-
-Registrar `ffprobe` seria ruído: retorna antes de o sinal alcançá-lo.
-
-**Risco que o achado não menciona e que define o desenho.** `_register_ffmpeg`
-(`:192`) guarda **um único global**, e o padrão em uso é `_register_ffmpeg(proc)`
-… `_register_ffmpeg(None)`. Um helper que zere o registro ao sair apagaria o de
-quem estava antes. Não é hipotético: o remux do `colr` (`:3783`) roda enquanto
-`_ACTIVE_FFMPEG` ainda aponta para o processo principal do encode, desregistrado
-só em `:3909`. Zerar ali tornaria o processo principal não-matável nesse
-intervalo — trocaria um S4 por um S3.
-
-**Portanto: salvar e restaurar, nunca zerar.**
+**Por que consertar o teste e não o produto:** a ordem de checagem em
+`main()` é intencional — falhar rápido numa dependência ausente é melhor
+UX do que só descobrir isso depois de escanear arquivos de batch. O
+defeito é o teste ter escopo maior do que precisa (testa parser, mas
+exercita ffmpeg).
 
 ## Desenho
 
-1. `_swap_active_ffmpeg(proc) -> prev`: troca atômica sob `_ACTIVE_FFMPEG_LOCK`,
-   devolve o valor anterior. `_register_ffmpeg` passa a delegar a ela (contrato
-   externo inalterado — os chamadores atuais ignoram o retorno).
-2. `_run_ffmpeg_tracked(cmd, ...) -> subprocess.CompletedProcess`: equivalente a
-   `subprocess.run` para o subconjunto de kwargs realmente usado nos 3 sites —
-   `capture_output`, `text`, `encoding`, `errors`, `check`, `stdout`, `stderr`,
-   `cwd`. Internamente: `popen` → `prev = _swap_active_ffmpeg(proc)` →
-   `communicate()` → **`finally: _swap_active_ffmpeg(prev)`** → monta o
-   `CompletedProcess`; se `check` e `returncode != 0`, levanta
-   `CalledProcessError` com stdout/stderr, como o `subprocess.run` faz.
-   Parâmetro `popen=subprocess.Popen` injetável — idioma da casa
-   (`resolve_binary(name, which=shutil.which, ...)`), torna testável sem `monkeypatch`.
-3. Trocar `subprocess.run` por `_run_ffmpeg_tracked` em `:1271`, `:1363`, `:3783`.
-   **Não** tocar em `:383`, `:605`, `:3860`.
+Correção via `monkeypatch.setattr("ui.preflight.missing_ffmpeg_binaries",
+lambda *a, **kw: [])` nos dois testes falhando — convenção já estabelecida
+no repo (`ui/test_launcher.py`, `enhance/test_cineon_constants_guard.py`,
+`enhance/test_hdr_pipeline.py`). Detalhe completo do desenho:
+`docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AI1 | Escrever este `PLAN.md`. | Orquestrador | `.claude/memory/PLAN.md` | **done** |
-| AI2 | Implementar `_swap_active_ffmpeg` e `_run_ffmpeg_tracked` conforme § Desenho. | `executor-pesado` | `Reels_Encoder_v2_FINAL.py` | pendente |
-| AI3 | Trocar os 3 call sites. Preservar exatamente os kwargs de cada um. | `executor-pesado` | `Reels_Encoder_v2_FINAL.py` | pendente |
-| AI4 | Testes, ver § "Critérios de aceite". Estilo da casa: sem fixtures salvo `tmp_path`, sem `monkeypatch`, sem classes. | `executor-pesado` | `enhance/test_ffmpeg_tracked.py` (novo) | pendente |
-
-## Critérios de aceite (AI4)
-
-1. Durante a execução, o processo passado ao helper está em `_ACTIVE_FFMPEG`
-   (verificar de dentro do `communicate()` do fake `popen`).
-2. **Ao sair, o registro anterior é restaurado** — inclusive quando o anterior
-   era um processo, não `None`. Este é o assert central do ciclo.
-3. O registro é restaurado **também quando o comando falha** e quando
-   `check=True` levanta. Usar `finally`, não caminho feliz.
-4. `CompletedProcess` devolvido tem `returncode`, `stdout` e `stderr` coerentes.
-5. `check=True` levanta `CalledProcessError` em retorno não-zero; não levanta em zero.
-6. `terminate_active_ffmpeg()` devolve `True` para um processo registrado pelo
-   helper (fake com `poll()`/`terminate()`/`wait()`).
-7. Os 3 call sites não usam mais `subprocess.run`, e `:383`, `:605`, `:3860`
-   continuam usando.
+| AJ1 | Registrar o achado `AIF1`, escrever spec + plano na íntegra, reescrever este `PLAN.md`. | executor | `docs/superpowers/specs/2026-08-25-ci-vermelho-ffmpeg-dependency-design.md`, `docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | pendente |
+| AJ2 | Isolar os dois testes da dependência de ffmpeg via `monkeypatch`. | executor | `enhance/test_output_dir_and_pipeline_tag.py` | pendente |
+| AJ3 | Confirmar verde no CI real (não local) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | pendente |
 
 ## Notas de execução
 
-- **`_run_ffmpeg_tracked` não substitui o `Popen` principal do encode** (`:2004`,
-  `:3554`) — aquele tem progresso em streaming e fica como está.
-- Severidade honesta: `ADF1` é **S4**. Esses processos nunca escrevem o
-  entregável, então não produzem o sintoma enganoso do `YF1`. O ganho real é o
-  loudnorm pass 1 em arquivo longo, onde o Ctrl-C hoje deixa ffmpeg girando.
-- Anti-escopo: não tocar em áudio (`TP=-1.4` é decisão fechada), LUT, VBV, GOP,
-  container, nem no handler de `KeyboardInterrupt` em si (`:4466`, `:4519`).
-- Baseline: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` →
-  **416 passed**. Ao final: 416 + os novos.
-- Ao fim, fechar `ADF1` no `FINDINGS.md` com o SHA e **corrigir ali o escopo de
-  2 para 3 processos**, registrando o risco de clobber como parte da correção.
+- Não tocar em `Reels_Encoder_v2_FINAL.py`. Não instalar ffmpeg no CI.
+- Localizar por âncora (nome de função), não por número de linha — os
+  números citados são do commit `3f12070` e vão deslocar.
+- Baseline local sem ffmpeg no PATH: `2 failed, 423 passed` em `enhance/`
+  isolado. Meta: `425 passed` na suíte completa.
+- **Não fechar o ciclo com base em execução local.** O achado inteiro
+  nasceu de uma suíte verde localmente e vermelha no CI real — a prova de
+  fechamento (AJ3) exige log real do CI, não apenas `pytest` local.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
