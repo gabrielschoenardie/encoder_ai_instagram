@@ -505,7 +505,7 @@ presente no ambiente. Confirmado no CI real, run `32870623915`: os 4 jobs
 
 - **AIF1:** Os testes `test_output_dir_with_batch_does_not_trigger_usage_error` e `test_batch_without_output_dir_does_not_trigger_usage_error` (Ciclo AG, commit `c51516e`) validam que passar `--batch` não dispara o `parser.error()` novo do `--output-dir`. Para isso chamam `_run_main_with_argv()`, que executa `Reels_Encoder_v2_FINAL.main()` de ponta a ponta. O caminho passa pela checagem de dependência de ffmpeg (`Reels_Encoder_v2_FINAL.py:4399-4414`) antes de chegar à lógica de parser que o teste quer validar. Passaram na máquina de quem os escreveu (ffmpeg no PATH); falham em qualquer ambiente sem ffmpeg — inclusive todos os 4 jobs `Tests` do CI (nenhum runner do GitHub Actions vem com ffmpeg, e o workflow não o instala). Ninguém checou o CI após o merge do Ciclo AG; ficou vermelho em silêncio por dias.
 
-## Achados — 2026-08-25 (revisão final do Ciclo AJ)
+## Achados — 2026-08-25 (revisão final do Ciclo AJ) — AJF1 **CORRIGIDO no Ciclo AK** (`71bc478` + `692d7e4`)
 
 Evidência: revisão final do branch `claude/ciclo-aj-ci-ffmpeg` (correção do `AIF1`), leitura de `.github/workflows/ci.yml`, `enhance/test_output_dir_and_pipeline_tag.py`, `ui/probe.py` e `ui/test_probe.py`.
 
@@ -521,3 +521,34 @@ Evidência: revisão final do branch `claude/ciclo-aj-ci-ffmpeg` (correção do 
 - **AJF2 (S4):** em `test_batch_without_output_dir_does_not_trigger_usage_error`, o argv passado é `["--batch", str(tmp_path)]` — sem `--output-dir`, então `args.output_dir` é `None` no parser, e o guard `if args.output_dir and not args.batch: parser.error(...)` nunca pode ser alcançado nesse teste (a condição já falha em `args.output_dir`). Verificado por mutação na revisão final: deletar o guard inteiro não move o teste de verde para vermelho. O teste está correto quanto ao que testa (que passar só `--batch` não aciona o guard por acidente), mas não testa o que o nome sugere (que o guard existe e funciona nesse caso). Pré-existente do Ciclo AG (`c51516e`), não introduzido pelo Ciclo AJ — o Ciclo AJ só adicionou `monkeypatch` a este teste, não alterou seu argv nem sua asserção.
 - **AJF3 (S3):** `ui/probe.py`, no trecho de troca de rotação (por volta das linhas 66-73), não tem cobertura nenhuma. Os dois testes existentes em `ui/test_probe.py` afirmam `probe_source_dims(...) is None`: localmente esse `None` vem do `ffprobe` falhando contra um caminho de arquivo inválido (o binário existe mas o arquivo não), e no CI (sem ffmpeg no PATH) o mesmo `None` viria de `FileNotFoundError` por o binário estar ausente — dois caminhos de código completamente diferentes produzindo o mesmo resultado observável, nenhum dos dois passando pelo parse de rotação. A lógica de que `ui/launcher.py` depende para orientar o preview nunca é exercitada por nenhum teste.
 - **AJF4 (S4):** o job `Lint (ruff)` do `ci.yml` roda `ruff check enhance/` apenas. `ui/`, `tools/` e os módulos da raiz (incluindo `Reels_Encoder_v2_FINAL.py`) não passam por lint automatizado nenhum. Consistente com o achado pré-existente `I-a` (débito de lint fora de `enhance/`), mas aqui o ponto é sobre a config do CI, não sobre o débito em si: o CI nunca vai pegar regressão de lint fora de `enhance/`, então o débito de `I-a` não pode nem crescer nem encolher sob observação automatizada.
+
+**Status: AJF1 corrigido (Ciclo AK, commits `71bc478` + `692d7e4`).** `.gitattributes`
+com `*.cube -text` mais renormalização dos 4 blobs para CRLF (`71bc478`), só então `tools/`
+ligado na seleção do `ci.yml` (`692d7e4`). Prova é CI real, não local: run `32875583211`,
+os 4 jobs `Tests` `success`, incluindo o job ubuntu que teria reprovado sem a correção —
+`tools/test_generate_hollywood_lut_cooler.py::test_structure PASSED`, sumário
+`435 passed in 6.86s` (425 anteriores + 10 de `tools/`). Detalhe completo em
+`.claude/memory/STATE.md` § "AK3 — fechamento do Ciclo AK com evidência real de CI".
+AJF2, AJF3 e AJF4 seguem abertos — fora do escopo do Ciclo AK.
+
+## Achado novo — 2026-08-25 (ciclo AK, AK3) — aberto
+
+Evidência: medido pelo Orquestrador durante o fechamento do Ciclo AK (`git cat-file -s`
+vs tamanho no worktree dos dois arquivos).
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| AKF1 | inconsistência de EOL versionado | `cineon_pipeline.py`, `enhance_visualizer.py` (arquivos inteiros) | Dois `.py` versionados com CRLF no blob enquanto o resto do repo é LF | S4 | esperado: `.py` do repo consistentemente LF; medido: blob == worktree em CRLF para os dois (43548 e 22785 bytes) |
+
+- **AKF1 (S4):** caso inverso dos `.cube` do próprio Ciclo AK — lá o blob guardava LF e o
+  worktree Windows mostrava CRLF (corrigido pinando para CRLF, que é a intenção do
+  gerador); aqui `cineon_pipeline.py` e `enhance_visualizer.py` têm o blob gravado **com
+  CRLF** enquanto o resto do repo é LF. `git add --renormalize .`, executado durante o
+  AK1, tentou achatar os dois para LF junto com o resto — foi revertido de propósito, por
+  estar fora do escopo do AK1 (que só autorizava tocar `.gitattributes`, os 4 `.cube` e
+  `FINDINGS.md`). Não quebra nada hoje — Python aceita CRLF e LF sem diferença de
+  execução — mas é inconsistência de repositório: uma renormalização futura (`git add
+  --renormalize .` de novo, ou um `.gitattributes` com `* text=auto`) vai mexer nesses
+  dois arquivos sem ninguém decidir isso de propósito. Decidir em ciclo próprio: normalizar
+  para LF (consistente com o resto do repo) ou pinar via `.gitattributes` (se CRLF for
+  intencional, como é para os `.cube`).
