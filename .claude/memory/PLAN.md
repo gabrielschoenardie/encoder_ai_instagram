@@ -37,7 +37,7 @@ no repo (`ui/test_launcher.py`, `enhance/test_cineon_constants_guard.py`,
 |----|--------|-------------|----------|-------------------|
 | AJ1 | Registrar o achado `AIF1`, escrever spec + plano na íntegra, reescrever este `PLAN.md`. | executor | `docs/superpowers/specs/2026-08-25-ci-vermelho-ffmpeg-dependency-design.md`, `docs/superpowers/plans/2026-08-25-ci-vermelho-ffmpeg-dependency.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | done — `fb870bd` |
 | AJ2 | Isolar os dois testes da dependência de ffmpeg via `monkeypatch`. | executor | `enhance/test_output_dir_and_pipeline_tag.py` | done — `658598a` |
-| AJ3 | Confirmar verde no CI real (não local) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — commit deste registro |
+| AJ3 | Confirmar verde no CI real (não local) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — `fb449d2` |
 
 ## Notas de execução
 
