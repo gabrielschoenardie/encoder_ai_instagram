@@ -1,84 +1,104 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AK: pinar os `.cube` e colocar `tools/` no CI (AJF1)
+# PLAN — Ciclo AL: extrair `build_parser()` / `parse_cli()` de `main()` (R8, fecha AJF2)
 
-Data: 2026-08-25 | Ciclo: AK | Origem: `.claude/memory/FINDINGS.md` § `AJF1` (aberto no Ciclo AJ pela revisão final do branch).
+Data: 2026-08-25 | Ciclo: AL | Origem: ruling R8 da revisão final do Ciclo AJ (PR #43) + `.claude/memory/FINDINGS.md` § `AJF2`.
 
 ## Diagnóstico
 
-`AJF1` foi registrado como "`tools/` está fora da seleção de testes do CI".
-A investigação do Orquestrador mostrou que a causa é mais funda e que a
-correção óbvia (só acrescentar `tools/` à linha do `ci.yml`) **deixaria os
-dois jobs ubuntu vermelhos na hora**.
+O Ciclo AJ deixou os dois testes de `--output-dir` passando em CI, mas ao
+custo de um andaime: `monkeypatch` de `ui.preflight.missing_ffmpeg_binaries`,
+mais `monkeypatch` de `R.shutil.which` para tapar o branch de fallback, mais
+um comentário avisando que tudo isso só funciona enquanto o
+`from ui.preflight import ...` continuar **local dentro de `main()`**.
 
-Medido nesta sessão, no commit `92ae2e6`:
+A causa de todo esse andaime é estrutural: `main()`
+(`Reels_Encoder_v2_FINAL.py:4161`) constrói o parser inline nas linhas
+4162-4377, chama `parse_args()` em 4378 e faz a validação de consistência
+em 4380-4385. Não existe seam para testar argparse sem executar `main()`
+inteiro — e `main()` inteiro passa por preflight de ffmpeg, hardware info,
+launcher de UI e dispatch.
 
-| arquivo `.cube` (tracked) | blob | worktree | delta |
-|---|---|---|---|
-| `FilmLook_Portra400_SkinPriority_D65.cube` | 980725 | 1016677 | 35952 |
-| `HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube` | 970412 | 1006351 | 35939 |
-| `HollywoodCinema_Ultimate_v6.7B_1.5IRE_Instagram8bit_NeutralShadows.cube` | 970401 | 1006340 | 35939 |
-| `HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube` | 970414 | 1006353 | 35939 |
+Consequências medidas:
 
-O delta de cada arquivo é exatamente a contagem de `\r` — o blob guarda
-**LF**, o worktree Windows mostra **CRLF**. Não existe `.gitattributes` no
-repo e `core.autocrlf=true` na máquina local, então a conversão é feita
-por git no checkout, por plataforma.
-
-`tools/generate_hollywood_lut_cooler.py:162` escreve o LUT com
-`newline="\r\n"` — **CRLF é a intenção declarada do gerador**, não um
-acidente. E `tools/test_generate_hollywood_lut_cooler.py::test_structure`
-afirma `raw.count(b"\r\n") == DATA_LINES + 2`, ou seja, testa exatamente
-essa intenção.
-
-Consequência: num runner Linux (autocrlf desligado, sem `.gitattributes`)
-o arquivo é entregue em LF, `test_structure` mede 0 e falha. O defeito não
-é o teste — é o artefato versionado ter sido normalizado para LF na hora
-do commit, divergindo do que o gerador produz.
-
-**Por que isso também explica o "artefato de CRLF local" do Ciclo AJ:** era
-a mesma dependência de plataforma, vista do outro lado.
+- Os testes de parser exercitam ffmpeg sem ter nada a ver com ffmpeg (`AIF1`,
+  Ciclo AJ).
+- `AJF2`: `test_batch_without_output_dir_does_not_trigger_usage_error` é
+  tautológico — no argv dele `args.output_dir` é `None`, então o guard nunca
+  pode disparar. Verificado por mutação na revisão final do AJ: o teste
+  continua verde com o guard deletado.
+- O patch de `ui.preflight` só intercepta por acidente feliz de o import ser
+  local; o Pylint não desabilita `import-outside-toplevel`, então uma
+  limpeza futura quebra o teste sem ninguém ligar os pontos.
 
 ## Desenho
 
-Ordem importa. Pinar os bytes **antes** de ligar `tools/` no CI:
+Extrair dois seams do `main()`, sem renomear nada que exista hoje:
 
-1. `.gitattributes` com `*.cube -text` desliga qualquer conversão de EOL
-   para esses arquivos. Como o worktree local já está em CRLF, re-adicionar
-   os quatro arquivos faz o blob passar a guardar CRLF verbatim — que é o
-   que o gerador emite e o que o teste espera, em qualquer plataforma.
-2. Só então `tools/` entra na seleção do `ci.yml`.
+```python
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(...)   # corpo atual, 4162-4377, verbatim
+    ...
+    return parser
 
-Fazer na ordem inversa deixa o CI vermelho. Pinar sem re-adicionar congela o
-LF de hoje e quebra o teste no **Windows** em vez do Linux.
 
-Efeito colateral desejável: `test_generator_is_deterministic` roda o gerador
-e **sobrescreve o `.cube` versionado**. Com blob e saída do gerador
-byte-idênticos, rodar a suíte deixa de sujar a árvore de trabalho.
+def parse_cli(argv=None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.output_dir and args.batch is None:
+        parser.error(...)                   # mensagem atual, verbatim
+    return args
+
+
+def main():
+    args = parse_cli()
+    # daqui para baixo, main() segue idêntico (hardware info, preflight, UI, dispatch)
+```
+
+**Fronteira, e por que é aqui:** `parse_cli()` termina na validação de
+consistência de argumentos. O bloco `--hardware-info` **fica em `main()`** —
+ele imprime perfil de hardware e chama `sys.exit(0)`, é efeito colateral, não
+parsing. Preflight de ffmpeg idem.
+
+Com esse seam, os dois testes viram unit tests de argparse de verdade:
+chamam `parse_cli([...])` direto, sem `main()`, sem ffmpeg, sem `monkeypatch`.
+O andaime inteiro do Ciclo AJ é **deletado**, não adaptado.
+
+E `AJF2` fecha de graça: o teste novo afirma os valores parseados
+(`args.batch`, `args.output_dir`), então passa a morrer se o guard for
+removido — deixa de ser tautológico.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AK1 | Criar `.gitattributes` com `*.cube -text` e renormalizar os 4 `.cube` para que o blob guarde CRLF. Atualizar `AJF1` no `FINDINGS.md` com a causa raiz medida. | executor | `.gitattributes`, os 4 `*.cube`, `.claude/memory/FINDINGS.md` | done — SHA `71bc478` |
-| AK2 | Incluir `tools/` na seleção de testes do `ci.yml`. | executor | `.github/workflows/ci.yml` | done — SHA `692d7e4` |
-| AK3 | Confirmar verde no CI real nos 4 jobs `Tests` (ubuntu **e** windows) e fechar o ciclo. | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done — SHA `107a09b` |
+| AL1 | TDD RED: reescrever os 3 testes de `--output-dir` para chamar `parse_cli()`, sem `monkeypatch`. Devem falhar por `parse_cli` não existir. | executor-pesado | `enhance/test_output_dir_and_pipeline_tag.py` | pendente |
+| AL2 | Extrair `build_parser()` e `parse_cli()`; `main()` passa a chamar `parse_cli()`. Suite verde. | executor-pesado | `Reels_Encoder_v2_FINAL.py` | pendente |
+| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | pendente |
 
 ## Critérios de aceite
 
-- Para os 4 arquivos: `git cat-file -s HEAD:<arquivo>` **igual** ao tamanho
-  do arquivo no worktree. Hoje diferem pelo número de `\r`.
-- `python -m pytest tools/ -q` → `10 passed`, e `git status --short` limpo
-  depois de rodar (nenhum `.cube` modificado).
-- Seleção nova do CI local: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `435 passed`.
-- CI real: os 4 jobs `Tests` `success`, com `435 passed` no sumário — os
-  425 de hoje + os 10 de `tools/`.
+- **`--help` byte-idêntico.** Baseline capturado em `def5ac2`: 139 linhas,
+  md5 `7dd773cde1f068982e6d97554bacda99`. Um parser extraído que mude o
+  `--help` mudou o contrato de CLI — é regressão, não refactor.
+- `main` continua exportado com o mesmo nome e assinatura: é o console
+  script (`pyproject.toml:37`, `reels-encoder = "Reels_Encoder_v2_FINAL:main"`)
+  e `ui/test_packaging.py:32` afirma isso.
+- Os testes de `--output-dir` passam **com o PATH sem ffmpeg e sem nenhum
+  `monkeypatch`** — é essa a prova de que o acoplamento morreu, não a suíte
+  verde na máquina local.
+- `grep -c "monkeypatch" enhance/test_output_dir_and_pipeline_tag.py` → os
+  patches de `missing_ffmpeg_binaries` e de `shutil.which` não existem mais,
+  nem o comentário `# AIF1:` que os explicava.
+- Suíte completa: `435 passed`. CI real: os 4 jobs `Tests` `success`.
 
 ## Notas de execução
 
-- **Não tocar em `Reels_Encoder_v2_FINAL.py`.** Nada neste ciclo é de produto
-  de encode; é versionamento de artefato e configuração de CI.
-- **Não alterar a lógica de `tools/test_generate_hollywood_lut_cooler.py`.**
-  O teste está certo; quem estava errado era o byte versionado.
-- `-text` (e não `binary`): mantém o diff legível, só desliga conversão de EOL.
-- **Não fechar o ciclo com base em execução local.** Vale a mesma regra do
-  Ciclo AJ: a prova é log real do CI. Aqui com um requisito a mais — o job
-  **ubuntu** é o que reprovaria hoje, então é ele que precisa aparecer verde.
+- **Mover, não reescrever.** O corpo do parser (4162-4377) vai verbatim para
+  `build_parser()`. Não reordenar argumentos, não reformatar help strings, não
+  "melhorar" texto — qualquer um desses quebra o critério do `--help`.
+- Não tocar em `.gitattributes`, nos `.cube`, nem no `ci.yml` — são do Ciclo AK.
+- Não mexer no bloco de preflight nem no de UI de `main()`. O ciclo é sobre
+  criar o seam, não sobre mudar comportamento de runtime.
+- TDD de verdade: AL1 tem que falhar antes de AL2 existir, e o relatório
+  precisa mostrar a falha.
+- **Não fechar o ciclo com base em execução local** — mesma regra dos ciclos
+  AJ e AK: a prova é log real do CI.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
