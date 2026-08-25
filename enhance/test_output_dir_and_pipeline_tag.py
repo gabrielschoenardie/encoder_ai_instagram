@@ -38,7 +38,13 @@ def test_output_dir_without_batch_exits_with_usage_error(tmp_path):
     assert "--batch" in stderr.getvalue()
 
 
-def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path):
+def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path, monkeypatch):
+    # AIF1: main() checa ffmpeg/ffprobe antes de chegar na logica de parser
+    # que este teste valida. O teste e sobre argparse, nao sobre ffmpeg —
+    # neutraliza a checagem de dependencia em vez de exigir o binario real.
+    monkeypatch.setattr(
+        "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
+    )
     try:
         _run_main_with_argv(
             ["--batch", str(tmp_path), "--output-dir", str(tmp_path / "out")]
@@ -52,7 +58,10 @@ def test_output_dir_with_batch_does_not_trigger_usage_error(tmp_path):
     assert code == 0
 
 
-def test_batch_without_output_dir_does_not_trigger_usage_error(tmp_path):
+def test_batch_without_output_dir_does_not_trigger_usage_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "ui.preflight.missing_ffmpeg_binaries", lambda *a, **kw: []
+    )
     try:
         _run_main_with_argv(["--batch", str(tmp_path)])
         code = None
