@@ -77,7 +77,7 @@ com `test_output_dir_without_batch_exits_with_usage_error`, que já força
 |----|--------|-------------|----------|-------------------|
 | AL1 | TDD RED: reescrever os 3 testes de `--output-dir` para chamar `parse_cli()`, sem `monkeypatch`. Devem falhar por `parse_cli` não existir. | executor-pesado | `enhance/test_output_dir_and_pipeline_tag.py` | done (`eb2525a`) |
 | AL2 | Extrair `build_parser()` e `parse_cli()`; `main()` passa a chamar `parse_cli()`. Suite verde. | executor-pesado | `Reels_Encoder_v2_FINAL.py` | done (`caf4eb3`) |
-| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done (`PENDING_SHA`) |
+| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done (`801720e`) |
 
 ## Critérios de aceite
 
