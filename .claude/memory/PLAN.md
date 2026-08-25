@@ -63,15 +63,21 @@ Com esse seam, os dois testes viram unit tests de argparse de verdade:
 chamam `parse_cli([...])` direto, sem `main()`, sem ffmpeg, sem `monkeypatch`.
 O andaime inteiro do Ciclo AJ é **deletado**, não adaptado.
 
-E `AJF2` fecha de graça: o teste novo afirma os valores parseados
-(`args.batch`, `args.output_dir`), então passa a morrer se o guard for
-removido — deixa de ser tautológico.
+E `AJF2` fecha: o teste novo passa a afirmar diretamente a saída de
+`parse_cli()` (`args.batch`, `args.output_dir is None`) em vez de um exit
+code produzido lá adiante em `main()`. Isso é falsificável e mata o mutante
+de **inversão** do guard. Não é o mesmo que "morrer se o guard for
+removido": no argv desse teste (`--batch`, sem `--output-dir`) o guard é
+inalcançável — `args.output_dir` já é `None`, então nenhum teste de caminho
+feliz consegue detectar a remoção do guard por essa via. Essa cobertura fica
+com `test_output_dir_without_batch_exits_with_usage_error`, que já força
+`args.output_dir` truthy e `args.batch` `None`.
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AL1 | TDD RED: reescrever os 3 testes de `--output-dir` para chamar `parse_cli()`, sem `monkeypatch`. Devem falhar por `parse_cli` não existir. | executor-pesado | `enhance/test_output_dir_and_pipeline_tag.py` | pendente |
-| AL2 | Extrair `build_parser()` e `parse_cli()`; `main()` passa a chamar `parse_cli()`. Suite verde. | executor-pesado | `Reels_Encoder_v2_FINAL.py` | pendente |
-| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | pendente |
+| AL1 | TDD RED: reescrever os 3 testes de `--output-dir` para chamar `parse_cli()`, sem `monkeypatch`. Devem falhar por `parse_cli` não existir. | executor-pesado | `enhance/test_output_dir_and_pipeline_tag.py` | done (`eb2525a`) |
+| AL2 | Extrair `build_parser()` e `parse_cli()`; `main()` passa a chamar `parse_cli()`. Suite verde. | executor-pesado | `Reels_Encoder_v2_FINAL.py` | done (`caf4eb3`) |
+| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done (`PENDING_SHA`) |
 
 ## Critérios de aceite
 

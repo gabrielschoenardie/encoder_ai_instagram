@@ -3213,3 +3213,37 @@ contagem de `\r` de cada arquivo. O blob de
 | ID | done ou blocked | arquivo tocado | resultado em 1 linha |
 |----|------------------|-----------------|------------------------|
 | AK3 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Evidência real de CI verde (run `32875583211`, 4 jobs `Tests` success, 435 passed) registrada; AJF1 fechado; AKF1 aberto (CRLF em `cineon_pipeline.py`/`enhance_visualizer.py`) |
+
+## Ciclo AL — extrair build_parser()/parse_cli() de main() (R8) — 2026-08-25
+
+Run `32878346319`, commit `caf4eb3`, os 4 jobs `Tests` `success`:
+
+| job id | job | conclusion |
+|--------|-----|------------|
+| 97901632205 | Tests (ubuntu-latest, Python 3.11) | success |
+| 97901632247 | Tests (ubuntu-latest, Python 3.12) | success |
+| 97901632150 | Tests (windows-latest, Python 3.11) | success |
+| 97901632175 | Tests (windows-latest, Python 3.12) | success |
+
+Linha literal do log do job `97901632205`:
+
+```
+2026-08-25T17:31:44.8401703Z ============================= 435 passed in 5.38s ==============================
+```
+
+Verificações locais (medidas pelo Orquestrador em `caf4eb3`):
+
+- `--help` byte-idêntico ao baseline de `def5ac2`: 139 linhas, md5
+  `7dd773cde1f068982e6d97554bacda99` nos dois, `diff` vazio.
+- `main`, `build_parser`, `parse_cli` todos callable no módulo.
+- `grep -cE "monkeypatch|AIF1" enhance/test_output_dir_and_pipeline_tag.py` → `0`. O
+  andaime do Ciclo AJ foi deletado por inteiro.
+- Com o PATH sem ffmpeg e **sem nenhum monkeypatch**: `11 passed`.
+
+435 passed = mesma contagem do Ciclo AK; nenhum teste novo foi adicionado, os 3 testes de
+`--output-dir` foram reescritos (AL1) para chamar `parse_cli()` direto em vez de `main()`
+inteiro via `monkeypatch`.
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|------------------|-----------------|------------------------|
+| AL3 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Evidência real de CI verde (run `32878346319`, 4 jobs `Tests` success, 435 passed) registrada; AJF2 fechado; ALF1 aberto (bloco de UI de `main()` contorna validação de `parse_cli()`) |

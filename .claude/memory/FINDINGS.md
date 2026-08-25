@@ -505,7 +505,7 @@ presente no ambiente. Confirmado no CI real, run `32870623915`: os 4 jobs
 
 - **AIF1:** Os testes `test_output_dir_with_batch_does_not_trigger_usage_error` e `test_batch_without_output_dir_does_not_trigger_usage_error` (Ciclo AG, commit `c51516e`) validam que passar `--batch` não dispara o `parser.error()` novo do `--output-dir`. Para isso chamam `_run_main_with_argv()`, que executa `Reels_Encoder_v2_FINAL.main()` de ponta a ponta. O caminho passa pela checagem de dependência de ffmpeg (`Reels_Encoder_v2_FINAL.py:4399-4414`) antes de chegar à lógica de parser que o teste quer validar. Passaram na máquina de quem os escreveu (ffmpeg no PATH); falham em qualquer ambiente sem ffmpeg — inclusive todos os 4 jobs `Tests` do CI (nenhum runner do GitHub Actions vem com ffmpeg, e o workflow não o instala). Ninguém checou o CI após o merge do Ciclo AG; ficou vermelho em silêncio por dias.
 
-## Achados — 2026-08-25 (revisão final do Ciclo AJ) — AJF1 **CORRIGIDO no Ciclo AK** (`71bc478` + `692d7e4`)
+## Achados — 2026-08-25 (revisão final do Ciclo AJ) — AJF1 **CORRIGIDO no Ciclo AK** (`71bc478` + `692d7e4`) — AJF2 **CORRIGIDO no Ciclo AL** (`caf4eb3`)
 
 Evidência: revisão final do branch `claude/ciclo-aj-ci-ffmpeg` (correção do `AIF1`), leitura de `.github/workflows/ci.yml`, `enhance/test_output_dir_and_pipeline_tag.py`, `ui/probe.py` e `ui/test_probe.py`.
 
@@ -531,6 +531,25 @@ os 4 jobs `Tests` `success`, incluindo o job ubuntu que teria reprovado sem a co
 `.claude/memory/STATE.md` § "AK3 — fechamento do Ciclo AK com evidência real de CI".
 AJF2, AJF3 e AJF4 seguem abertos — fora do escopo do Ciclo AK.
 
+**Status: AJF2 fechado (Ciclo AL, `caf4eb3`).** O teste deixou de afirmar um exit code
+produzido lá adiante em `main()` ("Nenhum vídeo encontrado") e passa a afirmar a saída de
+`parse_cli` diretamente (`args.batch`, `args.output_dir is None`), o que é falsificável e
+mata o mutante de inversão do guard. A cobertura contra remoção do guard fica com
+`test_output_dir_without_batch_exits_with_usage_error`; nenhum teste de caminho feliz
+consegue detectar a remoção de um guard que o argv dele não alcança, então isso não é
+lacuna residual.
+
+Matriz de mutação medida na revisão (t1 = `test_output_dir_without_batch_exits_with_usage_error`,
+t2 = `test_output_dir_with_batch...`, t3 = `test_batch_without_output_dir...`):
+
+| mutante | t1 | t2 | t3 |
+|---|---|---|---|
+| original `output_dir and batch is None` | pass | pass | pass |
+| M1 guard removido | FAIL | pass | pass |
+| M2 só `output_dir` | pass | FAIL | pass |
+| M3 invertido `batch and output_dir is None` | FAIL | pass | FAIL |
+| M4 `output_dir or batch is None` | pass | FAIL | pass |
+
 ## Achado novo — 2026-08-25 (ciclo AK, AK3) — aberto
 
 Evidência: medido pelo Orquestrador durante o fechamento do Ciclo AK (`git cat-file -s`
@@ -552,3 +571,21 @@ vs tamanho no worktree dos dois arquivos).
   dois arquivos sem ninguém decidir isso de propósito. Decidir em ciclo próprio: normalizar
   para LF (consistente com o resto do repo) ou pinar via `.gitattributes` (se CRLF for
   intencional, como é para os `.cube`).
+
+## Achado novo — 2026-08-25 (ciclo AL, AL3) — aberto
+
+Evidência: leitura de `Reels_Encoder_v2_FINAL.py` (bloco de UI em `main()`) e
+`ui/launcher.py` durante o fechamento do Ciclo AL.
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|----------------|------------------------|------------|--------------------|
+| ALF1 | aquisição de args contorna validação | `Reels_Encoder_v2_FINAL.py`, `if args.ui or (args.input is None and args.batch is None):` | `main()` substitui `args` por `Namespace` de `run_launcher()`, que nunca passa por `parse_cli()` | S4 | esperado: toda fonte de `args` validada; medido: caminho de UI não passa pela validação de consistência |
+
+- **ALF1 (S4):** o bloco de UI de `main()` (âncora: `if args.ui or (args.input is None and
+  args.batch is None):`) substitui `args` por um `Namespace` devolvido por `run_launcher()`
+  que nunca passa pela validação de consistência de `parse_cli()`. É aquisição de
+  argumentos contornando validação de argumentos. Não é bug alcançável hoje: em
+  `ui/launcher.py`, `cfg.output_dir` só é atribuído dentro de fluxos de batch (linhas 146 e
+  182), então o launcher não consegue construir a combinação output-dir-sem-batch.
+  Assimetria latente, pré-existente ao Ciclo AL. Correção natural: fazer o caminho do
+  launcher passar pela mesma validação.
