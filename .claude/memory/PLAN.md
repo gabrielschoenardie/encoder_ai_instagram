@@ -1,110 +1,144 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AL: extrair `build_parser()` / `parse_cli()` de `main()` (R8, fecha AJF2)
+# PLAN — Ciclo AM: cobrir a lógica de rotação de `ui/probe.py` (fecha AJF3)
 
-Data: 2026-08-25 | Ciclo: AL | Origem: ruling R8 da revisão final do Ciclo AJ (PR #43) + `.claude/memory/FINDINGS.md` § `AJF2`.
+Data: 2026-08-26 | Ciclo: AM | Origem: `.claude/memory/FINDINGS.md` § `AJF3`, aberto na varredura do Ciclo AJ e deixado fora do escopo dos Ciclos AK e AL.
 
 ## Diagnóstico
 
-O Ciclo AJ deixou os dois testes de `--output-dir` passando em CI, mas ao
-custo de um andaime: `monkeypatch` de `ui.preflight.missing_ffmpeg_binaries`,
-mais `monkeypatch` de `R.shutil.which` para tapar o branch de fallback, mais
-um comentário avisando que tudo isso só funciona enquanto o
-`from ui.preflight import ...` continuar **local dentro de `main()`**.
+`ui/probe.py:19-78` expõe `probe_source_dims(path)`, que `ui/launcher.py:105`
+chama a cada volta do loop de preview para orientar o viewer do Program. A
+função faz três coisas: monta o argv do ffprobe, parseia o JSON, e decide se
+troca largura por altura.
 
-A causa de todo esse andaime é estrutural: `main()`
-(`Reels_Encoder_v2_FINAL.py:4161`) constrói o parser inline nas linhas
-4162-4377, chama `parse_args()` em 4378 e faz a validação de consistência
-em 4380-4385. Não existe seam para testar argparse sem executar `main()`
-inteiro — e `main()` inteiro passa por preflight de ffmpeg, hardware info,
-launcher de UI e dispatch.
+Os únicos dois testes que existem (`ui/test_probe.py:6-13`) afirmam
+`probe_source_dims(...) is None` — e chegam nesse `None` por caminhos
+**diferentes** em cada ambiente:
 
-Consequências medidas:
+- **local:** o binário `ffprobe` existe, o arquivo não; `check_output` levanta
+  `CalledProcessError` e o `except Exception` devolve `None`.
+- **CI:** não há ffmpeg no PATH; `check_output` levanta `FileNotFoundError`
+  antes de qualquer coisa, e o mesmo `except` devolve o mesmo `None`.
 
-- Os testes de parser exercitam ffmpeg sem ter nada a ver com ffmpeg (`AIF1`,
-  Ciclo AJ).
-- `AJF2`: `test_batch_without_output_dir_does_not_trigger_usage_error` é
-  tautológico — no argv dele `args.output_dir` é `None`, então o guard nunca
-  pode disparar. Verificado por mutação na revisão final do AJ: o teste
-  continua verde com o guard deletado.
-- O patch de `ui.preflight` só intercepta por acidente feliz de o import ser
-  local; o Pylint não desabilita `import-outside-toplevel`, então uma
-  limpeza futura quebra o teste sem ninguém ligar os pontos.
+Dois caminhos de código distintos, mesmo resultado observável, e **nenhum dos
+dois entra no parse**. Tudo entre as linhas 43 e 75 — parse, leitura de
+`stream_tags`, leitura de Display Matrix, precedência de `format_tags`, e a
+troca de rotação — nunca executa em teste nenhum.
+
+Isso é diferente dos outros achados abertos: `AJF4` e `AKF1` são débito
+conhecido e estável. Aqui o teste **afirma um verde que não prova nada sobre a
+lógica que ele parece cobrir** — e a lógica em questão é a que decide se o
+usuário vê o preview do Reel na orientação certa.
+
+**Segundo fato, medido nesta investigação e não registrado no `AJF3`
+original:** `get_input_resolution` (`Reels_Encoder_v2_FINAL.py:947-1012`) é o
+gêmeo de onde `probe.py` foi copiado — argv idêntico, parse idêntico, mesmo
+conjunto `(90, -90, 270, -270)`. Também tem **zero teste** (`grep
+get_input_resolution` em `*test*.py` → nenhum match). As duas diferenças são
+deliberadas: `probe` devolve `None` e é silenciosa, o motor devolve `(0, 0)` e
+imprime. O docstring de `probe.py:23` afirma "Mirrors the engine's rotation
+swap" — hoje nada guarda essa afirmação contra drift.
 
 ## Desenho
 
-Extrair dois seams do `main()`, sem renomear nada que exista hoje:
+Injetar `subprocess.check_output` por `monkeypatch` em `ui.probe` e alimentar
+payloads de ffprobe sintéticos. Nenhum ffmpeg, nenhum arquivo de vídeo,
+nenhuma fixture binária no repo — o mesmo princípio que fechou o `AIF1`.
 
-```python
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(...)   # corpo atual, 4162-4377, verbatim
-    ...
-    return parser
+Formato dos payloads: bytes de JSON como o ffprobe realmente emite. Dois
+detalhes de fidelidade que **não** podem ser "limpos":
 
+- `stream_tags=rotate` vem como **string** (`"rotate": "90"`), não int.
+- Display Matrix vem como **float negativo** (`"rotation": -90.000000`) — é
+  essa a forma do caso iPhone vertical.
 
-def parse_cli(argv=None) -> argparse.Namespace:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.output_dir and args.batch is None:
-        parser.error(...)                   # mensagem atual, verbatim
-    return args
+Um payload que use int onde o ffprobe usa string testa um contrato que não
+existe.
 
+### Matriz de decisão a cobrir
 
-def main():
-    args = parse_cli()
-    # daqui para baixo, main() segue idêntico (hardware info, preflight, UI, dispatch)
-```
+| entrada | rotação efetiva | dims 1920x1080 viram |
+|---|---|---|
+| sem tag, sem side_data | 0 | 1920x1080 |
+| `stream_tags.rotate = "90"` | 90 | 1080x1920 |
+| `stream_tags.rotate = "180"` | 180 | 1920x1080 (sem swap) |
+| `stream_tags.rotate = "270"` | 270 | 1080x1920 |
+| Display Matrix `rotation = -90.0` | -90 | 1080x1920 |
+| tag `"90"` + Display Matrix `rotation = 0` | 90 | 1080x1920 (o 0 **não** apaga a tag) |
+| tag `"180"` + `format_tags.rotate = "90"` | 180 | 1920x1080 (format só vale se stream deu 0) |
+| sem stream rot + `format_tags.rotate = "90"` | 90 | 1080x1920 |
+| `streams: []` | — | `None` |
+| `width: 0` | — | `None` |
 
-**Fronteira, e por que é aqui:** `parse_cli()` termina na validação de
-consistência de argumentos. O bloco `--hardware-info` **fica em `main()`** —
-ele imprime perfil de hardware e chama `sys.exit(0)`, é efeito colateral, não
-parsing. Preflight de ffmpeg idem.
+### Os dois testes existentes
 
-Com esse seam, os dois testes viram unit tests de argparse de verdade:
-chamam `parse_cli([...])` direto, sem `main()`, sem ffmpeg, sem `monkeypatch`.
-O andaime inteiro do Ciclo AJ é **deletado**, não adaptado.
+Não são deletados — a degradação graciosa é comportamento real e vale teste.
+São **tornados determinísticos**: cada um passa a injetar a exceção que
+pretende testar (`FileNotFoundError` para binário ausente, `CalledProcessError`
+para caminho inválido), de modo que local e CI percorram o mesmo caminho. O
+`JSONDecodeError` de saída corrompida ganha o seu.
 
-E `AJF2` fecha: o teste novo passa a afirmar diretamente a saída de
-`parse_cli()` (`args.batch`, `args.output_dir is None`) em vez de um exit
-code produzido lá adiante em `main()`. Isso é falsificável e mata o mutante
-de **inversão** do guard. Não é o mesmo que "morrer se o guard for
-removido": no argv desse teste (`--batch`, sem `--output-dir`) o guard é
-inalcançável — `args.output_dir` já é `None`, então nenhum teste de caminho
-feliz consegue detectar a remoção do guard por essa via. Essa cobertura fica
-com `test_output_dir_without_batch_exits_with_usage_error`, que já força
-`args.output_dir` truthy e `args.batch` `None`.
+## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AL1 | TDD RED: reescrever os 3 testes de `--output-dir` para chamar `parse_cli()`, sem `monkeypatch`. Devem falhar por `parse_cli` não existir. | executor-pesado | `enhance/test_output_dir_and_pipeline_tag.py` | done (`eb2525a`) |
-| AL2 | Extrair `build_parser()` e `parse_cli()`; `main()` passa a chamar `parse_cli()`. Suite verde. | executor-pesado | `Reels_Encoder_v2_FINAL.py` | done (`caf4eb3`) |
-| AL3 | Confirmar verde no CI real e fechar o ciclo (`AJF2` corrigido, R8 cumprido). | executor | `.claude/memory/STATE.md`, `.claude/memory/PLAN.md`, `.claude/memory/FINDINGS.md` | done (`801720e`) |
+| AM1 | Reescrever `ui/test_probe.py`: helper de payload, a matriz de rotação inteira da tabela acima, e os três testes de degradação determinísticos (`FileNotFoundError`, `CalledProcessError`, `JSONDecodeError`). Sem ffmpeg, sem fixture em disco. | executor | `ui/test_probe.py` | done (`045192e`) |
+| AM2 | Teste de contrato do argv: afirmar que o comando montado contém `stream=width,height:stream_tags=rotate:side_data:format_tags=rotate` e o `path` recebido. | executor | `ui/test_probe.py` | done (`045192e`) |
+| AM3 | Guarda de drift: um teste que roda o **mesmo** payload por `probe_source_dims` e por `get_input_resolution` e afirma que as dims batem. Escopo estrito: um único teste, sem tocar em `Reels_Encoder_v2_FINAL.py`. | executor | `ui/test_probe.py` | done (`045192e`), reforçado em AM3-b |
+| AM4 | Matriz de mutação: aplicar cada mutante M1-M8 em `ui/probe.py`, rodar `pytest ui/test_probe.py`, registrar qual teste morre, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | done (`dc1837b`), 8/8 mortos |
+| AM2-b | Acrescentar ao contrato de argv a asserção de `-select_streams v:0`. Sem isso, o ffprobe passa a devolver todos os streams e `streams[0]` pode ser áudio — regressão que payload sintético nunca pega. | executor | `ui/test_probe.py` | done (`d78274d`), mata M10 |
+| AM3-b | Parametrizar a guarda de drift sobre a matriz inteira (`ROTATION_MATRIX_CASES`), preservando o contrato assimétrico: `probe` devolve `None` onde o motor devolve `(0, 0)`. | executor | `ui/test_probe.py` | done (`d78274d`), mata M9 |
+| AM5 | Fechar o ciclo com CI real verde e marcar `AJF3` corrigido. | Orquestrador | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | log real do CI, não execução local |
+
+**Correção de escopo durante a execução (AM2-b, AM3-b).** A revisão do AM1-AM4
+achou duas fraquezas que eram subespecificação deste plano, não erro do
+executor: o AM3 original pedia "um único teste" de drift, e um teste que cobre
+1 dos 10 casos da matriz não guarda contra divergência em ângulo negativo,
+Display Matrix ou precedência de `format_tags` — que é onde drift acontece. E
+o AM2 original não cobria `-select_streams v:0`. As duas viraram item próprio
+em vez de emenda silenciosa, com dois mutantes novos (M9, M10) para provar que
+fecham de fato.
+
+## Matriz de mutação (AM4) — mutantes obrigatórios
+
+| # | mutante em `ui/probe.py` | o que ele quebra |
+|---|---|---|
+| M1 | deletar `width, height = height, width` (linha 71) | swap nunca acontece |
+| M2 | `if rotation in (90, 270)` (linha 70) | ângulos negativos param de rodar |
+| M3 | `if rot != 0` → sempre verdadeiro (linha 62) | Display Matrix 0 apaga a tag do stream |
+| M4 | remover o guard `if rotation == 0:` (linha 65) | `format_tags` passa a ganhar do stream |
+| M5 | deletar o bloco `if "rotate" in tags` (56-57) | `stream_tags` ignorado |
+| M6 | deletar o loop de `side_data_list` (59-63) | Display Matrix ignorado |
+| M7 | `if width > 0 and height > 0` → sempre verdadeiro (73) | devolve `(0, 0)` em vez de `None` |
+| M8 | tirar `stream_tags=rotate` do `-show_entries` (35) | ffprobe para de emitir a tag; **só o AM2 pega** |
+
+M8 é o motivo do AM2 existir: testes que injetam JSON sintético continuam todos
+verdes com o argv quebrado, porque o payload vem de dentro do teste. Sem o
+teste de contrato do comando, a cobertura nova teria a mesma doença do `AJF3`.
 
 ## Critérios de aceite
 
-- **`--help` byte-idêntico.** Baseline capturado em `def5ac2`: 139 linhas,
-  md5 `7dd773cde1f068982e6d97554bacda99`. Um parser extraído que mude o
-  `--help` mudou o contrato de CLI — é regressão, não refactor.
-- `main` continua exportado com o mesmo nome e assinatura: é o console
-  script (`pyproject.toml:37`, `reels-encoder = "Reels_Encoder_v2_FINAL:main"`)
-  e `ui/test_packaging.py:32` afirma isso.
-- Os testes de `--output-dir` passam **com o PATH sem ffmpeg e sem nenhum
-  `monkeypatch`** — é essa a prova de que o acoplamento morreu, não a suíte
-  verde na máquina local.
-- `grep -c "monkeypatch" enhance/test_output_dir_and_pipeline_tag.py` → os
-  patches de `missing_ffmpeg_binaries` e de `shutil.which` não existem mais,
-  nem o comentário `# AIF1:` que os explicava.
-- Suíte completa: `435 passed`. CI real: os 4 jobs `Tests` `success`.
+- `ui/probe.py` **não é modificado**. O ciclo é sobre cobrir comportamento
+  existente, não corrigi-lo. Se a cobertura revelar bug, ele vai para
+  `FINDINGS.md` como achado novo — não é consertado aqui.
+- Os testes rodam com o PATH sem ffmpeg. Prova: `pytest ui/test_probe.py` num
+  shell onde `shutil.which("ffprobe")` é `None`.
+- Cada um dos 8 mutantes tem ao menos um teste em FAIL na tabela do AM4. Um
+  mutante que sobrevive é cobertura de fachada — é a coisa exata que o `AJF3`
+  denuncia, e reintroduzi-la reprova o ciclo.
+- Suíte completa: `435 passed` + os testes novos, sem regressão.
+- CI real verde nos 7 jobs.
 
 ## Notas de execução
 
-- **Mover, não reescrever.** O corpo do parser (4162-4377) vai verbatim para
-  `build_parser()`. Não reordenar argumentos, não reformatar help strings, não
-  "melhorar" texto — qualquer um desses quebra o critério do `--help`.
-- Não tocar em `.gitattributes`, nos `.cube`, nem no `ci.yml` — são do Ciclo AK.
-- Não mexer no bloco de preflight nem no de UI de `main()`. O ciclo é sobre
-  criar o seam, não sobre mudar comportamento de runtime.
-- TDD de verdade: AL1 tem que falhar antes de AL2 existir, e o relatório
-  precisa mostrar a falha.
-- **Não fechar o ciclo com base em execução local** — mesma regra dos ciclos
-  AJ e AK: a prova é log real do CI.
+- Payloads fiéis ao ffprobe: `rotate` string, `rotation` float negativo. Não
+  "normalizar" para int.
+- `monkeypatch.setattr("ui.probe.subprocess.check_output", fake)` — o
+  `monkeypatch` do pytest restaura sozinho; não usar `try/finally` à mão.
+- **Reverter cada mutante do AM4 antes do próximo.** Rodar `git diff --stat --
+  ui/probe.py` no fim do AM4 e confirmar vazio.
+- Não tocar em `ui/launcher.py`, `ui/components.py`, nem no
+  `Reels_Encoder_v2_FINAL.py`. O AM3 só **importa** `get_input_resolution`.
+- Se `get_input_resolution` imprimir no console durante o AM3, isso é esperado
+  (`Reels_Encoder_v2_FINAL.py:995`) — não silenciar mexendo no motor.
+- Não fechar o ciclo com base em execução local. A prova é log real do CI.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
