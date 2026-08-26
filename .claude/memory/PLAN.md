@@ -81,11 +81,22 @@ para caminho inválido), de modo que local e CI percorram o mesmo caminho. O
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AM1 | Reescrever `ui/test_probe.py`: helper de payload, a matriz de rotação inteira da tabela acima, e os três testes de degradação determinísticos (`FileNotFoundError`, `CalledProcessError`, `JSONDecodeError`). Sem ffmpeg, sem fixture em disco. | executor | `ui/test_probe.py` | arquivo verde; `pytest ui/test_probe.py -v` roda com PATH sem ffmpeg |
-| AM2 | Teste de contrato do argv: afirmar que o comando montado contém `stream=width,height:stream_tags=rotate:side_data:format_tags=rotate` e o `path` recebido. | executor | `ui/test_probe.py` | mata o mutante M8 (ver matriz) |
-| AM3 | Guarda de drift: um teste que roda o **mesmo** payload por `probe_source_dims` e por `get_input_resolution` e afirma que as dims batem. Escopo estrito: um único teste, sem tocar em `Reels_Encoder_v2_FINAL.py`. | executor | `ui/test_probe.py` | o teste falha se o conjunto de swap de um dos dois divergir |
-| AM4 | Matriz de mutação: aplicar cada mutante M1-M8 em `ui/probe.py`, rodar `pytest ui/test_probe.py`, registrar qual teste morre, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | tabela com 8 linhas, cada mutante com ao menos um FAIL |
-| AM5 | Fechar o ciclo com CI real verde e marcar `AJF3` corrigido. | executor | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | log real do CI, não execução local |
+| AM1 | Reescrever `ui/test_probe.py`: helper de payload, a matriz de rotação inteira da tabela acima, e os três testes de degradação determinísticos (`FileNotFoundError`, `CalledProcessError`, `JSONDecodeError`). Sem ffmpeg, sem fixture em disco. | executor | `ui/test_probe.py` | done (`045192e`) |
+| AM2 | Teste de contrato do argv: afirmar que o comando montado contém `stream=width,height:stream_tags=rotate:side_data:format_tags=rotate` e o `path` recebido. | executor | `ui/test_probe.py` | done (`045192e`) |
+| AM3 | Guarda de drift: um teste que roda o **mesmo** payload por `probe_source_dims` e por `get_input_resolution` e afirma que as dims batem. Escopo estrito: um único teste, sem tocar em `Reels_Encoder_v2_FINAL.py`. | executor | `ui/test_probe.py` | done (`045192e`), reforçado em AM3-b |
+| AM4 | Matriz de mutação: aplicar cada mutante M1-M8 em `ui/probe.py`, rodar `pytest ui/test_probe.py`, registrar qual teste morre, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | done (`dc1837b`), 8/8 mortos |
+| AM2-b | Acrescentar ao contrato de argv a asserção de `-select_streams v:0`. Sem isso, o ffprobe passa a devolver todos os streams e `streams[0]` pode ser áudio — regressão que payload sintético nunca pega. | executor | `ui/test_probe.py` | done (`d78274d`), mata M10 |
+| AM3-b | Parametrizar a guarda de drift sobre a matriz inteira (`ROTATION_MATRIX_CASES`), preservando o contrato assimétrico: `probe` devolve `None` onde o motor devolve `(0, 0)`. | executor | `ui/test_probe.py` | done (`d78274d`), mata M9 |
+| AM5 | Fechar o ciclo com CI real verde e marcar `AJF3` corrigido. | Orquestrador | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | log real do CI, não execução local |
+
+**Correção de escopo durante a execução (AM2-b, AM3-b).** A revisão do AM1-AM4
+achou duas fraquezas que eram subespecificação deste plano, não erro do
+executor: o AM3 original pedia "um único teste" de drift, e um teste que cobre
+1 dos 10 casos da matriz não guarda contra divergência em ângulo negativo,
+Display Matrix ou precedência de `format_tags` — que é onde drift acontece. E
+o AM2 original não cobria `-select_streams v:0`. As duas viraram item próprio
+em vez de emenda silenciosa, com dois mutantes novos (M9, M10) para provar que
+fecham de fato.
 
 ## Matriz de mutação (AM4) — mutantes obrigatórios
 
