@@ -3264,5 +3264,11 @@ inteiro via `monkeypatch`.
 | M6 | remover loop de `side_data_list` (Display Matrix) | `display_matrix_negative_90` |
 | M7 | `if width > 0 and height > 0` → sempre verdadeiro | `empty_streams_list`, `zero_width` |
 | M8 | remover `stream_tags=rotate` de `-show_entries` | `test_probe_argv_contract` (único teste que pega — confirma a razão de existir do AM2) |
+| M9 | trocar conjunto de swap para `(90, 270)` (nega ângulos negativos) | `display_matrix_negative_90` (AM1) e `test_probe_matches_engine_rotation_swap[display_matrix_negative_90]` (AM3-b, parametrizado) |
+| M10 | remover `-select_streams v:0` do argv | `test_probe_argv_contract` (único teste que pega) |
 
-Nenhum mutante sobreviveu. `pytest ui/test_probe.py -v` → 15 passed. Suíte completa `test_render_queue.py enhance/ ui/ tools/` → 448 passed (baseline 435 + 13 novos), sem regressão.
+Nenhum mutante sobreviveu. `pytest ui/test_probe.py -v` → 24 passed. Suíte completa `test_render_queue.py enhance/ ui/ tools/` → 457 passed (baseline 448 + 9 novos da parametrização do AM3-b), sem regressão.
+
+### AM3-b + AM2-b (correção pós-revisão do Orquestrador)
+
+`test_probe_matches_engine_rotation_swap` parametrizado sobre `ROTATION_MATRIX_CASES` (mesma matriz do AM1): nos casos de dims válidas, `probe_dims == engine_dims == expected`; nos casos `None`, `probe_dims is None and engine_dims == (0, 0)` (contrato assimétrico documentado em `Reels_Encoder_v2_FINAL.py:998-1001`, preservado). `test_probe_argv_contract` ganhou asserção de `-select_streams v:0` no argv. `ui/probe.py` sem diff ao final (`git diff --stat -- ui/probe.py` vazio).

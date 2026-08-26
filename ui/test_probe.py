@@ -51,43 +51,43 @@ def _fake_check_output_factory(payload):
     return _fake_check_output
 
 
-@pytest.mark.parametrize(
-    "kwargs,expected",
-    [
-        pytest.param({}, (1920, 1080), id="no_tag_no_side_data"),
-        pytest.param(
-            {"stream_rotate": "90"}, (1080, 1920), id="stream_rotate_90"
-        ),
-        pytest.param(
-            {"stream_rotate": "180"}, (1920, 1080), id="stream_rotate_180_no_swap"
-        ),
-        pytest.param(
-            {"stream_rotate": "270"}, (1080, 1920), id="stream_rotate_270"
-        ),
-        pytest.param(
-            {"display_matrix_rotation": -90.000000},
-            (1080, 1920),
-            id="display_matrix_negative_90",
-        ),
-        pytest.param(
-            {"stream_rotate": "90", "display_matrix_rotation": 0},
-            (1080, 1920),
-            id="tag_90_plus_display_matrix_0_does_not_erase_tag",
-        ),
-        pytest.param(
-            {"stream_rotate": "180", "format_rotate": "90"},
-            (1920, 1080),
-            id="stream_rotate_wins_over_format_rotate",
-        ),
-        pytest.param(
-            {"format_rotate": "90"},
-            (1080, 1920),
-            id="format_rotate_used_when_no_stream_rotation",
-        ),
-        pytest.param({"streams": False}, None, id="empty_streams_list"),
-        pytest.param({"width": 0}, None, id="zero_width"),
-    ],
-)
+ROTATION_MATRIX_CASES = [
+    pytest.param({}, (1920, 1080), id="no_tag_no_side_data"),
+    pytest.param(
+        {"stream_rotate": "90"}, (1080, 1920), id="stream_rotate_90"
+    ),
+    pytest.param(
+        {"stream_rotate": "180"}, (1920, 1080), id="stream_rotate_180_no_swap"
+    ),
+    pytest.param(
+        {"stream_rotate": "270"}, (1080, 1920), id="stream_rotate_270"
+    ),
+    pytest.param(
+        {"display_matrix_rotation": -90.000000},
+        (1080, 1920),
+        id="display_matrix_negative_90",
+    ),
+    pytest.param(
+        {"stream_rotate": "90", "display_matrix_rotation": 0},
+        (1080, 1920),
+        id="tag_90_plus_display_matrix_0_does_not_erase_tag",
+    ),
+    pytest.param(
+        {"stream_rotate": "180", "format_rotate": "90"},
+        (1920, 1080),
+        id="stream_rotate_wins_over_format_rotate",
+    ),
+    pytest.param(
+        {"format_rotate": "90"},
+        (1080, 1920),
+        id="format_rotate_used_when_no_stream_rotation",
+    ),
+    pytest.param({"streams": False}, None, id="empty_streams_list"),
+    pytest.param({"width": 0}, None, id="zero_width"),
+]
+
+
+@pytest.mark.parametrize("kwargs,expected", ROTATION_MATRIX_CASES)
 def test_probe_rotation_matrix(monkeypatch, kwargs, expected):
     payload = _payload(**kwargs)
     monkeypatch.setattr(
@@ -113,10 +113,14 @@ def test_probe_argv_contract(monkeypatch):
         in cmd
     )
     assert "some/input.mp4" in cmd
+    assert "-select_streams" in cmd
+    select_streams_index = cmd.index("-select_streams")
+    assert cmd[select_streams_index + 1] == "v:0"
 
 
-def test_probe_matches_engine_rotation_swap(monkeypatch):
-    payload = _payload(stream_rotate="90")
+@pytest.mark.parametrize("kwargs,expected", ROTATION_MATRIX_CASES)
+def test_probe_matches_engine_rotation_swap(monkeypatch, kwargs, expected):
+    payload = _payload(**kwargs)
 
     monkeypatch.setattr(
         "ui.probe.subprocess.check_output", _fake_check_output_factory(payload)
@@ -129,7 +133,11 @@ def test_probe_matches_engine_rotation_swap(monkeypatch):
     probe_dims = probe_source_dims("irrelevant/path.mp4")
     engine_dims = get_input_resolution("irrelevant/path.mp4")
 
-    assert probe_dims == engine_dims
+    if expected is None:
+        assert probe_dims is None
+        assert engine_dims == (0, 0)
+    else:
+        assert probe_dims == engine_dims == expected
 
 
 def test_probe_missing_binary_returns_none(monkeypatch):
