@@ -589,3 +589,38 @@ Evidência: leitura de `Reels_Encoder_v2_FINAL.py` (bloco de UI em `main()`) e
   182), então o launcher não consegue construir a combinação output-dir-sem-batch.
   Assimetria latente, pré-existente ao Ciclo AL. Correção natural: fazer o caminho do
   launcher passar pela mesma validação.
+
+**Status: AJF3 corrigido (Ciclo AM, `045192e` + `dc1837b` + `d78274d`).** A lógica de
+rotação de `ui/probe.py` passou de 0 para 22 testes. Prova é CI real, não local: run
+`32993470718`, os 7 jobs `success`, `457 passed` nos 4 legs de `Tests` (435 anteriores
++ 22). `ui/probe.py` **não foi modificado** — `git diff --stat -- ui/probe.py` vazio
+entre `main` e a branch do ciclo; a cobertura afirma o comportamento que existe, não um
+comportamento corrigido junto.
+
+O ponto do achado era teste verde por motivo diferente conforme o ambiente
+(`CalledProcessError` local, `FileNotFoundError` no CI, mesmo `None` observável). Fechou
+por injeção de `subprocess.check_output` via `monkeypatch`: cada teste de degradação
+levanta a exceção que pretende testar, então local e CI percorrem o mesmo caminho.
+Verificado também com `shutil.which("ffprobe")` retornando `None` — a cobertura nova não
+depende de ffmpeg, mesma lição do `AIF1`.
+
+Duas travas contra reintroduzir a doença do próprio `AJF3` — cobertura que parece cobrir:
+
+1. **Contrato de argv** (`test_probe_argv_contract`). Testes que injetam JSON sintético
+   ficam todos verdes com o argv quebrado, porque o payload vem de dentro do teste. Este
+   afirma o `-show_entries` inteiro e `-select_streams v:0`, e é o único que mata M8 e M10.
+2. **Matriz de mutação de 10 mutantes**, cada um aplicado, medido e revertido. Um mutante
+   sobrevivente seria cobertura de fachada. Tabela completa em `.claude/memory/STATE.md`
+   § "AM4 — matriz de mutação".
+
+Fato colateral medido no diagnóstico e **não** registrado no `AJF3` original:
+`get_input_resolution` (`Reels_Encoder_v2_FINAL.py:947-1012`) é o gêmeo de onde
+`ui/probe.py` foi copiado — argv idêntico, parse idêntico, mesmo conjunto
+`(90, -90, 270, -270)` — e também tinha zero teste. O docstring de `ui/probe.py:23`
+afirma "Mirrors the engine's rotation swap" e nada guardava essa afirmação. Coberto por
+`test_probe_matches_engine_rotation_swap`, parametrizado sobre a matriz inteira, que
+preserva o contrato assimétrico deliberado: `probe_source_dims` devolve `None` onde
+`get_input_resolution` devolve `(0, 0)` (`Reels_Encoder_v2_FINAL.py:998-1001`).
+
+Nenhum bug novo em `ui/probe.py` apareceu durante a cobertura. `AJF4`, `AKF1` e `ALF1`
+seguem abertos — fora do escopo do Ciclo AM.

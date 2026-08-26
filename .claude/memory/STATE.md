@@ -3272,3 +3272,47 @@ Nenhum mutante sobreviveu. `pytest ui/test_probe.py -v` → 24 passed. Suíte co
 ### AM3-b + AM2-b (correção pós-revisão do Orquestrador)
 
 `test_probe_matches_engine_rotation_swap` parametrizado sobre `ROTATION_MATRIX_CASES` (mesma matriz do AM1): nos casos de dims válidas, `probe_dims == engine_dims == expected`; nos casos `None`, `probe_dims is None and engine_dims == (0, 0)` (contrato assimétrico documentado em `Reels_Encoder_v2_FINAL.py:998-1001`, preservado). `test_probe_argv_contract` ganhou asserção de `-select_streams v:0` no argv. `ui/probe.py` sem diff ao final (`git diff --stat -- ui/probe.py` vazio).
+
+## AM5 — fechamento do Ciclo AM com evidência real de CI — 2026-08-26
+
+`AJF3` fechado. Prova é log real do CI, não execução local.
+
+Run `32993470718` (https://github.com/gabrielschoenardie/encoder_ai_instagram/actions/runs/32993470718),
+commit `771d83e`, branch `claude/ciclo-am-probe-rotation-coverage`, PR #46. Os 7 jobs `success`:
+
+| job | conclusão |
+|----|-----------|
+| Lint (ruff) | success |
+| Tests (ubuntu-latest, Python 3.11) | success |
+| Tests (ubuntu-latest, Python 3.12) | success |
+| Tests (windows-latest, Python 3.11) | success |
+| Tests (windows-latest, Python 3.12) | success |
+| Pester (launcher.ps1) (ubuntu-latest) | success |
+| Pester (launcher.ps1) (windows-latest) | success |
+
+Sumário do pytest colado dos 4 legs de `Tests`:
+
+```
+Tests (ubuntu-latest, Python 3.12)  ============================= 457 passed in 7.71s ==============================
+Tests (ubuntu-latest, Python 3.11)  ============================= 457 passed in 8.37s ==============================
+Tests (windows-latest, Python 3.11) ============================ 457 passed in 10.24s =============================
+Tests (windows-latest, Python 3.12) ============================ 457 passed in 21.04s =============================
+```
+
+457 = 435 (baseline do Ciclo AL) + 22 novos em `ui/test_probe.py` (2 → 24). Os 22 são:
+10 casos de `test_probe_rotation_matrix`, 10 de `test_probe_matches_engine_rotation_swap`,
+`test_probe_argv_contract`, e `test_probe_corrupted_output_returns_none`. Os dois testes
+originais não foram deletados — foram tornados determinísticos, então não contam como novos.
+
+`ui/probe.py` não foi modificado em nenhum dos 3 commits do ciclo. Confirmado por
+`git diff --stat main..HEAD -- ui/probe.py` vazio, medido antes e depois de cada mutante
+da matriz do AM4.
+
+**Nota operacional — atraso do CI.** O run não apareceu no push. Diagnosticado ao vivo:
+branch no remoto com o SHA certo, `claude/ciclo-am-**` casando com o filtro `branches:`
+de `ci.yml:4`, PR aberto contra `main`, Actions `enabled: true`, workflow `CI`
+`state=active`, e mesmo assim `total_count: 0` na API de runs por ~10 minutos — sem run
+nenhum no repo desde 25/08 17:53. O run entrou sozinho depois, sem nova ação. Não é o
+`UF1` (filtro de branch de worktree): esse filtro casa. Foi latência do lado do GitHub.
+Registrado porque a confusão custou tempo e vai se repetir: `gh run list` vazio logo após
+um push **não** é evidência de que o CI não vai rodar.
