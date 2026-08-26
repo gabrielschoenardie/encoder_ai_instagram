@@ -3247,3 +3247,22 @@ inteiro via `monkeypatch`.
 | ID | done ou blocked | arquivo tocado | resultado em 1 linha |
 |----|------------------|-----------------|------------------------|
 | AL3 | done | .claude/memory/STATE.md, .claude/memory/PLAN.md, .claude/memory/FINDINGS.md | Evidência real de CI verde (run `32878346319`, 4 jobs `Tests` success, 435 passed) registrada; AJF2 fechado; ALF1 aberto (bloco de UI de `main()` contorna validação de `parse_cli()`) |
+| AM1 | done | ui/test_probe.py | Matriz de decisão completa (10 casos parametrizados) via monkeypatch de `subprocess.check_output`, sem ffmpeg/fixture; commit 045192e |
+| AM2 | done | ui/test_probe.py | `test_probe_argv_contract` afirma `stream=width,height:stream_tags=rotate:side_data:format_tags=rotate` e o path no argv; mata M8 (ver AM4) |
+| AM3 | done | ui/test_probe.py | `test_probe_matches_engine_rotation_swap` compara `probe_source_dims` com `get_input_resolution` (import direto, sem tocar `Reels_Encoder_v2_FINAL.py`) sob o mesmo payload sintético (rotate=90); ambos batem em (1080,1920) |
+| AM4 | done | .claude/memory/STATE.md | Matriz de mutação medida em `ui/probe.py` — todos os 8 mutantes revertidos ao final; `git diff --stat -- ui/probe.py` vazio. Tabela abaixo. |
+
+### AM4 — Matriz de mutação medida
+
+| # | mutante | teste(s) que morreram |
+|---|---|---|
+| M1 | remover swap `width, height = height, width` (linha 71) | `stream_rotate_90`, `stream_rotate_270`, `display_matrix_negative_90`, `tag_90_plus_display_matrix_0_does_not_erase_tag`, `format_rotate_used_when_no_stream_rotation`, `test_probe_matches_engine_rotation_swap` (6 testes) |
+| M2 | `if rotation in (90, 270)` (nega ângulos negativos) | `display_matrix_negative_90` |
+| M3 | `if rot != 0` → sempre verdadeiro (Display Matrix 0 apaga tag) | `tag_90_plus_display_matrix_0_does_not_erase_tag` |
+| M4 | remover guard `if rotation == 0:` antes de `format_tags` | `stream_rotate_wins_over_format_rotate` |
+| M5 | remover leitura de `stream_tags.rotate` | `stream_rotate_90`, `stream_rotate_270`, `tag_90_plus_display_matrix_0_does_not_erase_tag`, `stream_rotate_wins_over_format_rotate`, `test_probe_matches_engine_rotation_swap` (5 testes) |
+| M6 | remover loop de `side_data_list` (Display Matrix) | `display_matrix_negative_90` |
+| M7 | `if width > 0 and height > 0` → sempre verdadeiro | `empty_streams_list`, `zero_width` |
+| M8 | remover `stream_tags=rotate` de `-show_entries` | `test_probe_argv_contract` (único teste que pega — confirma a razão de existir do AM2) |
+
+Nenhum mutante sobreviveu. `pytest ui/test_probe.py -v` → 15 passed. Suíte completa `test_render_queue.py enhance/ ui/ tools/` → 448 passed (baseline 435 + 13 novos), sem regressão.
