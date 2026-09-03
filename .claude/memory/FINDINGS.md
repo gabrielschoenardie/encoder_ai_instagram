@@ -862,3 +862,59 @@ Segue aberto: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de p
 `launcher.ps1`), `AKF1`, `ALF1`, `J-b`, `ACF2` (agora reproduzido uma terceira vez, sempre
 pelo mesmo mecanismo — candidato natural a próximo ciclo, já com repro trivial:
 `FORCE_COLOR=3 python -m pytest test_render_queue.py -q`).
+
+## Achado novo e fechamento — `AQF1`, warning de Node 20 nos workflows de CI (Ciclo AQ, 2026-09-03)
+
+Origem: auditoria completa dos dois workflows de CI/CD (`ci.yml`, `pylint.yml`) a pedido
+do usuário — não havia achado prévio registrado. `AQF1` aberto e fechado no mesmo ciclo.
+
+| ID | categoria | onde | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|------|------------------------|------------|--------------------|
+| AQF1 | débito de plataforma CI | `ci.yml` (7 jobs) + `pylint.yml` (2 jobs) | `actions/checkout@v4`, `actions/setup-python@v5`/`v3`, `actions/cache@v4` alvo de Node 20, deprecado | S4 | esperado: sem warning de runtime deprecado; medido: `##[warning]Node.js 20 is deprecated` em 9/9 jobs |
+
+### Status
+
+| ID | status | onde |
+|----|--------|------|
+| AQF1 | **corrigido** | `e517eb8` (bump das 8 linhas) + `fe80ad5` (registro do plano) |
+
+Evidência: run `33770740107` (`ci.yml`) + run `33770702047` (`pylint.yml`), **9/9 jobs
+`success`**. Prova decisiva não foi a cor — os dois workflows já estavam verdes com o
+warning presente antes do fix. A prova foi a **ausência** de
+`##[warning]Node.js 20 is deprecated` no log de `Complete job` de cada um dos 9 jobs,
+grepado nome a nome, com `Tests Passed: 91` mantido nas duas pernas do Pester
+(`ubuntu-latest`, `windows-latest`).
+
+Mudança: 8 linhas em 2 arquivos, primeira major de cada action com Node 24 — não a mais
+recente:
+
+```
+actions/checkout       v4 → v5   (ci.yml ×3, pylint.yml ×1)
+actions/setup-python   v5 → v6   (ci.yml ×2)
+actions/setup-python   v3 → v6   (pylint.yml ×1)
+actions/cache          v4 → v5   (ci.yml ×1)
+```
+
+`checkout@v6` (persistência de credenciais em arquivo separado) e `@v7` (bloqueio de
+checkout de fork PR em `pull_request_target`/`workflow_run`) foram deliberadamente
+descartados: nenhum dos dois gatilhos é usado neste repo, então adotá-los seria mudança
+de comportamento sem necessidade. Mesmo raciocínio em `setup-python@v7`, que remove um
+input (`pip-install`) que nenhum dos dois workflows usa. `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION`
+não foi usado em nenhum momento, nem como debug temporário — vetado por instrução
+explícita do usuário.
+
+**Achado colateral descoberto na auditoria, fora do pedido original:** `actions/cache@v4`
+também estava na lista de actions alvo do warning, só que no job `Tests` — o usuário
+tinha citado apenas `checkout` e `setup-python`.
+
+**Prazo real por trás do que parecia cosmético:** o shim de compatibilidade (rodar action
+Node 20 sob runtime Node 24) já funciona hoje e funcionava antes do fix — os 91 testes do
+Pester nunca falharam por causa disso. O que muda em 2026-09-16 é a remoção completa do
+Node 20 do runner, quando a válvula de escape (`ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true`)
+deixa de existir. Corrigido ~13 dias antes desse prazo, não em reação a quebra.
+
+`pylint.yml` estava com `setup-python@v3` desde a criação do arquivo (2026-06-04,
+`13a82bd`) — nunca revisado, nem quando `ci.yml` foi atualizado para `@v5` depois.
+Inconsistência por arquivo esquecido, não decisão técnica.
+
+Nenhum `.py`, `.ps1` ou teste alterado. Suíte Python: `461 passed`, inalterada.
