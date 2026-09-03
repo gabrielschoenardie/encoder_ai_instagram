@@ -1,123 +1,84 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AT: caminho da UI passa pela mesma validação de args (fecha ALF1)
+# PLAN — Ciclo AU: reconciliar J-b (já corrigido) e fechar a lista irmã defasada
 
-Data: 2026-09-03 | Ciclo: AT | Origem: `.claude/memory/FINDINGS.md` § `ALF1` (Ciclo AL, 2026-08-25), aberto desde então. Último da fila do usuário.
+Data: 2026-09-03 | Ciclo: AU | Origem: `.claude/memory/FINDINGS.md` § `J-b` (Ciclo J, 2026-07-25), último da fila do usuário.
 
 ## Diagnóstico
 
-Lido no código, não presumido do achado. Há **duas** fontes de `args` em
-`Reels_Encoder_v2_FINAL.py`, e só uma é validada:
+Remedido hoje. O `J-b` como escopado — a lista de fallback do `APÊNDICE A`
+(`MANUAL_INSTALACAO.txt:295-309`) — **já foi corrigido**, no commit `9b6ed26`
+("fix(docs,lint): fechar J-b e I-a"), em 2026-07-25. O apêndice hoje não tem lista de
+pacotes: aponta para `pip install -e .[opencv]` e diz que as deps reais vivem no
+`pyproject.toml` — exatamente o fix que o achado recomendava. Mesmo padrão do `I-a`
+(Ciclo AO): corrigido em julho, nunca marcado fechado no `FINDINGS.md`.
 
-- **CLI:** `parse_cli()` (`:4381`) chama `build_parser().parse_args()` e então roda uma
-  checagem de consistência (`:4385`): se `args.output_dir` está setado mas `args.batch is
-  None`, `parser.error(...)` aborta com exit 2.
-- **UI:** o bloco de UI de `main()` (`:4431`) faz `args = run_launcher(...)` (`:4437`),
-  substituindo `args` por um `argparse.Namespace` que `EncodeConfig.to_namespace()`
-  (`ui/config.py:109`) constrói via `argparse.Namespace(**model_dump())` — **puro, sem
-  passar por `parse_cli()` nem por qualquer validação de consistência.**
+**Mas o achado citou o range errado.** O mesmo defeito — lista de pacotes mantida à mão,
+divergente do `pyproject.toml` — sobrevive nas linhas **121-129** do mesmo arquivo, no
+bloco "Isso vai instalar:" do PASSO 3. Medido contra as deps reais:
 
-É aquisição de argumentos contornando a validação de argumentos. As duas fontes deveriam
-convergir para a mesma checagem; hoje a checagem mora dentro de `parse_cli()`, que o
-caminho da UI nunca toca.
+| pyproject (core) | na lista 121-129? |
+|---|---|
+| rich, numpy, av, Pillow, psutil, colour-science, pymediainfo | sim |
+| **pydantic** | **não** |
+| **scipy** | **não** |
+| matplotlib | não (ver achado novo abaixo) |
+| opencv-python (extra `[opencv]`) | sim |
 
-### Confirmado inalcançável hoje — mas latente por construção
+Faltam `pydantic` e `scipy` — **os dois pacotes exatos que o texto do `J-b` nomeia** como
+ausentes. A lista irmã é a instância viva do defeito que o achado descreve; o fix de julho
+tocou o apêndice e deixou esta passar.
 
-Varredura de `ui/launcher.py`: `cfg.output_dir` só é atribuído em contexto de batch —
-`_flow_batch:146` e `_flow_advanced:182`, ambas sob `preset_batch`/`is_batch`. O launcher
-**não consegue** montar hoje a combinação `output_dir` sem `batch`, então o `parser.error`
-nunca dispararia mesmo se fosse chamado. Não é bug alcançável; é assimetria estrutural: a
-validação e a construção do Namespace vivem em lugares diferentes, e nada obriga um fluxo
-futuro do launcher a respeitar a regra. Um `_flow_*` novo que setasse `output_dir` fora de
-batch entregaria um Namespace inválido direto ao dispatch, sem aviso.
+### Achado novo — `AUF1` (dep declarada e não usada)
 
-Severidade S4 pela inalcançabilidade — o valor do ciclo é fechar a assimetria antes que um
-fluxo novo a torne alcançável, não consertar um crash de hoje.
+Verificando a lista contra o código: `matplotlib` está declarado em `pyproject.toml:29`
+(`"matplotlib>=3.9,<4"`) mas **não é importado em nenhum arquivo rastreado** — `git grep
+matplotlib` só acha a própria declaração no `pyproject.toml`. `scipy` (analyzers) e
+`pydantic` (`ui/config.py`) são reais e usados; `matplotlib` não. É classe diferente do
+`J-b` (dep morta no pacote, não doc defasada) e decisão do usuário — remover do
+`pyproject.toml` ou confirmar necessidade. Registrado, **não** corrigido neste ciclo, e
+**não** adicionado à lista do manual: documentar uma dep que pode ser removida
+entrincheiraria um possível erro.
 
 ## Desenho
 
-Uma única função de validação, compartilhada pelas duas fontes. Extrair a checagem inline
-de `parse_cli()` para `_validate_args_consistency(args) -> Optional[str]`, que devolve a
-mensagem de erro ou `None` — sem depender do objeto `parser`, para poder ser chamada dos
-dois lados.
+Corrigir a lista das linhas 121-129 acrescentando `pydantic` e `scipy`, com descrição
+honesta baseada no uso real (`pydantic` → validação de configuração da UI, `ui/config.py`;
+`scipy` → filtros de análise de imagem, `enhance/analyzers/`). Nada mais no arquivo — o
+`APÊNDICE A` já está certo, não se toca.
 
-```python
-def _validate_args_consistency(args) -> Optional[str]:
-    """Checagens de consistência partilhadas pela CLI e pelo caminho do launcher.
-    Devolve a mensagem de erro, ou None se args é consistente."""
-    if args.output_dir and args.batch is None:
-        return (
-            "--output-dir só se aplica a --batch. Em modo single-file, a saída "
-            "vai sempre para a pasta do input; use --batch <pasta> se quiser "
-            "redirecionar o destino."
-        )
-    return None
-```
-
-- `parse_cli()`: substitui o `if` inline por `msg = _validate_args_consistency(args); if
-  msg: parser.error(msg)`. Comportamento idêntico ao de hoje (exit 2, mesma mensagem) —
-  os testes existentes de `parse_cli` provam que não regride.
-- Caminho da UI (`main()`, logo após `args = launched`): `msg =
-  _validate_args_consistency(args); if msg: console.print(f"[red]Erro:[/red] {msg}");
-  sys.exit(2)`. Mesmo exit 2, mensagem consistente.
-
-**Por que não validar no `EncodeConfig` (pydantic):** poria a regra em dois lugares
-(pydantic para UI, `parse_cli` para CLI) — que é exatamente a duplicação de fonte de
-verdade que o achado denuncia. Uma função só, chamada pelos dois caminhos, é o mínimo que
-fecha a assimetria em vez de trocá-la de forma.
-
-`Optional` já está importado (`:86`). Nenhuma dependência nova.
+Não substituir a lista inteira por "veja pyproject.toml" como foi feito no apêndice: aqui
+a lista tem valor de UX num manual de usuário final (descreve em português o que cada
+pacote faz). Corrigir o conteúdo, preservando a forma. Fica registrado que continua sendo
+lista mantida à mão — risco de drift inerente a doc, aceito.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AT1 | Extrair `_validate_args_consistency(args)`; `parse_cli()` passa a chamá-la; o caminho da UI em `main()` (após `args = launched`) passa a chamá-la e `sys.exit(2)` com mensagem se ela retornar erro. Só `Reels_Encoder_v2_FINAL.py`. | executor | `Reels_Encoder_v2_FINAL.py` | função extraída, dois call sites, comportamento da CLI idêntico |
-| AT2 | Testes, todos por chamada direta — sem invocar encode, sem ffmpeg (lição do `AIF1`): (a) `_validate_args_consistency` devolve `None` para `input` só, `batch` só, `batch`+`output_dir`; (b) devolve msg com `--batch` para `output_dir` sem `batch`; (c) **teste-ponte**: `EncodeConfig(input="x.mp4", output_dir="/d", batch=None).to_namespace()` passado à função é pego — prova que o Namespace que o launcher produz está sujeito à mesma validação; (d) **teste de wiring**: `main()` com `parse_cli` monkeypatchado para devolver `EncodeConfig(ui=True).to_namespace()`, `ui.preflight.missing_ffmpeg_binaries` → `[]`, e `ui.launcher.run_launcher` → Namespace inválido (`output_dir` sem `batch`), afirma `SystemExit` code 2. | executor | `enhance/test_output_dir_and_pipeline_tag.py` (ou arquivo de teste próprio do ALF1) | 4 grupos verdes; os testes existentes de `parse_cli` seguem verdes |
-| AT3 | Matriz de mutação: M1 = deletar a chamada no caminho da UI → o teste de wiring (d) fica vermelho, os de `parse_cli` seguem verdes. M2 = deletar a chamada em `parse_cli` → `test_output_dir_without_batch_exits_with_usage_error` fica vermelho. Aplicar, medir, **reverter** cada um. Tabela em `STATE.md`. | executor | `.claude/memory/STATE.md` | 2/2 mutantes mortos por testes distintos; `git diff --stat -- Reels_Encoder_v2_FINAL.py` só a mudança do AT1 ao fim |
-| AT4 | Fechar `ALF1` com CI real verde. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
-
-## Por que o AT3 existe — a lição do AJF3
-
-O perigo específico deste ciclo: extrair a função, chamá-la em `parse_cli`, e **esquecer**
-de ligá-la no caminho da UI. Todos os testes de função (a,b,c) ficariam verdes mesmo assim,
-porque exercitam a função direto — e o bug (caminho da UI sem validação) continuaria
-exatamente igual. Só o teste de wiring (d) prova a ligação, e o mutante M1 prova que (d)
-de fato falha quando a ligação some. Sem M1, o ciclo poderia entregar "verde pelo motivo
-errado" — a doença que o `AJF3` denunciou.
+| AU1 | Em `MANUAL_INSTALACAO.txt`, no bloco "Isso vai instalar:" (linhas ~121-129), acrescentar duas linhas: `pydantic` (validação de configuração) e `scipy` (filtros de análise de imagem), no mesmo formato `  ✓ nome (descrição)` das existentes. Não adicionar `matplotlib`. Não tocar no `APÊNDICE A` nem em nenhuma outra parte do arquivo. | executor | `MANUAL_INSTALACAO.txt` | `git diff` mostra só as 2 linhas adicionadas no bloco certo |
+| AU2 | Fechar `J-b` (reconciliação: corrigido em `9b6ed26` + a lista irmã fechada por este ciclo) e registrar `AUF1` (matplotlib declarado e não usado) no `FINDINGS.md`. | Orquestrador | `.claude/memory/FINDINGS.md` | — |
 
 ## Critérios de aceite
 
-- Só `Reels_Encoder_v2_FINAL.py` (produto) e o arquivo de teste mudam. `ui/launcher.py`,
-  `ui/config.py` **não** são tocados — a correção é a validação convergir, não mexer em
-  como o launcher monta o Namespace.
-- Comportamento da CLI idêntico: mesma mensagem, mesmo exit 2 para `output_dir` sem
-  `batch`. Os três testes existentes de `parse_cli` seguem verdes sem alteração.
-- Teste de wiring (d) verde, e vermelho sob o mutante M1 (validação da UI removida).
-- Os 2 mutantes mortos por testes **distintos** — M1 pelo teste de wiring, M2 pelo teste
-  de CLI. Se um único teste mata os dois, a cobertura não distingue os dois call sites.
-- Nenhum teste chama `main()` de um jeito que exija ffmpeg no PATH — o teste (d) usa
-  monkeypatch de `missing_ffmpeg_binaries` para passar o preflight sem binário real.
-- Suíte Python: `461 passed` + os testes novos, sem regressão.
-- CI real verde nos jobs de `ci.yml` e `pylint.yml`.
+- Só `MANUAL_INSTALACAO.txt` muda, e só o bloco das linhas 121-129 — duas linhas
+  acrescentadas. `APÊNDICE A` intocado. Nenhum `.py`, nenhum `pyproject.toml`.
+- A lista passa a conter `pydantic` e `scipy`. **Não** contém `matplotlib` (pendente da
+  decisão do `AUF1`).
+- Nenhum teste muda (nada cobre o manual). Suíte Python: `467 passed`, sem regressão —
+  confirmação de que o ciclo não tocou código, não prova do fix.
+- **A prova do fix não é CI** — nada testa o conteúdo do manual. A prova é o `git diff`
+  mostrar as duas linhas certas e a lista bater com as deps core do `pyproject.toml`
+  (menos `matplotlib`, deliberado).
 
 ## Notas de execução
 
-- Não tocar em `ui/launcher.py` nem `ui/config.py`. `to_namespace()` continua puro; a
-  validação é responsabilidade de quem consome o Namespace, e o ponto do ciclo é que os
-  dois consumidores usem a mesma.
-- O teste de wiring (d) precisa passar pelo preflight de `main()` (`:4408`) sem ffmpeg:
-  monkeypatch `ui.preflight.missing_ffmpeg_binaries` para devolver `[]`. O
-  `dependency_error_card` não é chamado quando a lista é vazia.
-- `EncodeConfig` tem os campos `ui` e `hardware_info` (`ui/config.py:93-94`), então
-  `EncodeConfig(ui=True).to_namespace()` produz um Namespace que dispara o bloco de UI com
-  `hardware_info=False` — não precisa construir o Namespace à mão.
-- Reverter cada mutante do AT3 antes do próximo; `git diff --stat --
-  Reels_Encoder_v2_FINAL.py` ao fim deve mostrar só a mudança do AT1.
-- Checar o exit code real do `pytest`, nunca o de um `| tail` — armadilha registrada em
-  `STATE.md` § "Ciclo AP", repetida no `AR3`.
-- Ao anexar ao `STATE.md`, começar com `## Ciclo AT` e cabeçalho de tabela.
-- **Nunca `git add -A` nem `git add .`** — há arquivos não rastreados
-  (`961576A_Hollywood_2Pass.qc.html`, `961576A_Hollywood_2Pass.qc.json`, `docs/*.md` novos,
-  `testResults.xml`, `videos/`). Adicionar por caminho explícito.
-- Não fechar com base em execução local. A prova é log real do CI.
+- Este é o ciclo mais leve da fila: uma edição de doc de duas linhas. Não expandir —
+  não reescrever a lista, não mexer no apêndice, não corrigir `matplotlib` (é decisão do
+  usuário via `AUF1`).
+- Não tocar em `pyproject.toml`. O `AUF1` é registro, não conserto.
+- CI vai rodar de qualquer forma (o push dispara) e deve ficar verde, mas isso só atesta
+  ausência de regressão de código — a correção da doc se prova lendo o diff.
+- **Nunca `git add -A` nem `git add .`** — há arquivos não rastreados (`961576A_*.qc.*`,
+  `docs/*.md` novos, `testResults.xml`, `videos/`). Adicionar por caminho explícito.
+- Ao anexar ao `STATE.md` (se registrar algo), começar com `## Ciclo AU` e cabeçalho.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
