@@ -1,104 +1,100 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AO: estender o gate de lint ao repo (fecha AJF4, ABF3, I-a)
+# PLAN — Ciclo AP: fixar a versão do Pester no CI (fecha UF3)
 
-Data: 2026-09-03 | Ciclo: AO | Origem: `.claude/memory/FINDINGS.md` § `I-a` (Ciclo I), § `ABF3` (Ciclo AB), § `AJF4` (Ciclo AJ) — três registros do mesmo gap, adiados desde 2026-07-25.
+Data: 2026-09-03 | Ciclo: AP | Origem: `.claude/memory/FINDINGS.md` § `UF3` (Ciclo U, 2026-08-15), adiado desde então.
 
 ## Diagnóstico
 
-`.github/workflows/ci.yml:25` roda `ruff check enhance/ --output-format=github`. `ui/`,
-`tools/`, os módulos da raiz e `.claude/skills/.../scripts/` nunca passam por lint
-automatizado. O CI não pode pegar regressão de lint fora de `enhance/`.
+`.github/workflows/ci.yml` (job `pester`) instala e importa com
+`-MinimumVersion 5.5.0`, sem teto. `Install-Module`/`Import-Module` com
+`-MinimumVersion` resolvem para a **mais alta disponível** no runner, então o CI segue
+silenciosamente o major mais novo que o GitHub decidir empacotar.
 
-### O débito de 58 violações não existe mais — medido, não presumido
+### Remedido hoje — os números do `UF3` ainda valem
 
-Os três achados descrevem o mesmo gap, mas o `I-a` acrescenta um número que virou a razão
-para adiar: "58 erros E4/E7/E9/F fora de `enhance/`; só 17 auto-fixáveis". Esse número é de
-2026-07-25 e **está obsoleto**. Medição de hoje, `ruff 0.14.10`, mesmo `select` do
-`pyproject.toml` (`E4`, `E7`, `E9`, `F`, `I`):
+Ao contrário do `I-a` (cujo débito de 58 violações já não existia quando o Ciclo AO foi
+medir), aqui a medição de 2026-09-03 confirma o registro do Ciclo U:
 
-| área | violações |
-|---|---|
-| `enhance/` | 0 |
-| `ui/` | 0 |
-| `tools/` | 0 |
-| raiz (`.py` rastreados) | 0 |
-| `.claude/skills/.../scripts/` | 0 |
-| **`ruff check .` (repo inteiro, 72 arquivos)** | **0** |
+| onde | Pester disponíveis | carregado | banner |
+|---|---|---|---|
+| CI, leg ubuntu | 6.1.0, 5.9.0 | **6.1.0** | `Running tests from 2 files.` |
+| CI, leg windows | 6.1.0, 5.9.0, 3.4.0 | **6.1.0** | `Running tests from 2 files.` |
+| máquina do usuário | **só 5.7.1** | 5.7.1 | `Starting discovery in 2 files.` |
 
-O débito foi pago em algum ciclo entre julho e hoje sem que nenhum dos três achados fosse
-atualizado — mesmo padrão de `XF2`, `XF3` e `AJF1`, reconciliados no Ciclo AN. Não há
-triagem a fazer. **Este ciclo é uma linha de configuração, não um ciclo de decisão.**
+Evidência: run `33758949898`, step `Install Pester` (saída do
+`Get-Module Pester -ListAvailable`) e step `Run Pester`. O banner é o discriminante entre
+os majors — 5.x imprime `Starting discovery in`, 6.x imprime `Running tests from`.
 
-Os `per-file-ignores` do `pyproject.toml` mascaram 15 erros. Verificado que os quatro são
-legítimos e já documentados com comentário no próprio arquivo (imports de probe dentro de
-`try/except ImportError`, `import version` que é o próprio smoke-check, `E402` depois de
-`sys.path.insert`). Não mexer neles.
+**91 testes passam nos dois majors.** Contagem idêntica local e CI, o que descarta a
+hipótese de o major 6 estar deixando de coletar algo em silêncio — se estivesse, a
+contagem divergiria. O problema do `UF3` não é a suíte estar quebrada; é ninguém ter
+escolhido sob o que ela roda.
 
-### A lacuna é real hoje — medida por injeção
-
-Injetando `import os, sys` + `x=1;y=2` em um arquivo de cada área nova, revertendo em
-seguida:
-
-| arquivo | `ruff check enhance/` | `ruff check .` |
-|---|---|---|
-| `ui/probe.py` | passa (cego) | 4 erros |
-| `tools/verificador_instalacao.py` | passa (cego) | 2 erros |
-| `ebu_meter.py` (raiz) | passa (cego) | 4 erros |
-| `.claude/skills/.../analyze_source.py` | passa (cego) | 4 erros |
-
-### Determinismo já resolvido
-
-O ruff **já está pinado** no CI (`ci.yml:22`, `pip install ruff==0.14.10`), a mesma versão
-usada nesta medição. Não há aqui o risco de versão flutuante do `UF3` (Pester com
-`-MinimumVersion` sem teto), e a medição local é fiel ao que o CI vai fazer. Nada a mudar
-nesse ponto.
+É a mesma classe de defeito que o Ciclo AJ chamou de "verde pelo motivo errado", só que em
+versão de dependência em vez de caminho de código: local e CI ficam verdes sob frameworks
+diferentes, e uma quebra de compatibilidade futura do Pester chegaria como falha surpresa
+num run que não mudou nada do repo.
 
 ## Desenho
 
-Trocar o alvo por `.` em vez de listar diretórios: `ruff check .` respeita o `.gitignore`
-(verificado — `venv/` e `audit_tmp/` ficam fora, 0 arquivos deles na lista) e passa a
-cobrir automaticamente qualquer diretório novo. Listar diretórios à mão recria a mesma
-classe de defeito — uma lista que envelhece em silêncio, que é exatamente o que o `AJF1`
-denunciou quando `tools/` ficou fora do alvo do pytest.
+**Decisão do usuário: fixar `5.7.1`** — a versão que a máquina de desenvolvimento já tem.
+O CI passa a rodar exatamente o que o desenvolvedor roda, eliminando o split sem exigir
+instalação nova. Escolher `6.1.0` teria mantido o split invertido, a menos que o local
+fosse atualizado junto.
 
-**Decisão: `ruff check . --output-format=github`.**
+Trocar `-MinimumVersion 5.5.0` por `-RequiredVersion 5.7.1` nos **dois** pontos:
+`Install-Module` e `Import-Module`. Trocar só um deixaria o `Import-Module` livre para
+pegar a 6.1.0 pré-instalada no runner — o pin do install não vincula o import.
+
+O pin é auto-verificável por construção: os runners **não** trazem a 5.7.1 (têm 6.1.0,
+5.9.0 e, no Windows, 3.4.0), então `Import-Module -RequiredVersion 5.7.1` falha alto se o
+install não tiver trazido a versão certa. Não é preciso step de asserção separado.
+
+Manter o `Get-Module Pester -ListAvailable` do step de install: é o que deixa no log o
+registro do que havia no runner, e é a evidência que tornou esta medição possível.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AO1 | Trocar `ruff check enhance/` por `ruff check .` em `.github/workflows/ci.yml:25`, mantendo `--output-format=github`. Uma linha. Não tocar no step de install nem no pin de versão. | executor | `.github/workflows/ci.yml` | `git diff --stat` mostra 1 arquivo, 1 linha |
-| AO2 | Matriz de mutação do gate: para cada uma das 4 áreas novas, injetar uma violação, rodar `ruff check enhance/` **e** `ruff check .`, registrar que a primeira passa e a segunda falha, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | 4/4 áreas com `enhance/` cego e `.` pegando; `git status --porcelain -- '*.py'` vazio ao fim |
-| AO3 | Fechar `I-a`, `ABF3` e `AJF4` com CI real verde; registrar que o débito de 58 do `I-a` já não existia. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
+| AP1 | No job `pester` do `ci.yml`: `Install-Module Pester -MinimumVersion 5.5.0` → `-RequiredVersion 5.7.1`, e `Import-Module Pester -MinimumVersion 5.5.0` → `-RequiredVersion 5.7.1`. Duas linhas. Não tocar em `-Force`, `-Scope`, `-SkipPublisherCheck`, no `Get-Module`, no `Invoke-Pester`, nem nos outros jobs. | executor | `.github/workflows/ci.yml` | `git diff --stat` mostra 1 arquivo, 2 linhas |
+| AP2 | Provar que `-RequiredVersion` vincula de fato, localmente: (a) `Import-Module Pester -RequiredVersion 5.7.1` carrega 5.7.1; (b) `Import-Module Pester -RequiredVersion 9.9.9` falha alto em vez de cair para outra versão; (c) a suíte roda sob o pin com `91 passed`. Registrar em `STATE.md`. | executor | `.claude/memory/STATE.md` | 3/3 medidos, com a saída real de cada um |
+| AP3 | Fechar `UF3` com CI real verde, confirmando no log que o banner virou o de 5.x e que a contagem seguiu 91. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
 
-## Por que o AO2 existe
+## Por que o AP2 existe
 
-Trocar a linha e ver o CI verde **não prova nada**: o CI já estava verde antes, com o
-alvo estreito. Um gate que não gateia é indistinguível de um gate que funciona enquanto o
-código está limpo — e o código está limpo hoje. A prova de que a mudança fecha o gap é a
-injeção: `enhance/` cego e `.` pegando, nas quatro áreas. É a mesma disciplina dos Ciclos
-AM e AN, e a razão de não aceitar "CI verde" como evidência de cobertura nova.
+Mesma razão do AO2: CI verde depois da mudança não prova nada — já estava verde antes, sob
+a 6.1.0. O que precisa ser provado é que o **flag vincula**, ou seja, que
+`-RequiredVersion` falha em vez de degradar para outra versão quando a pedida não está lá.
+Sem o item (b), um pin escrito errado ficaria verde por o runner ter alguma versão
+utilizável, que é a doença que o ciclo veio curar.
+
+## Critério de aceite decisivo — o banner
+
+A prova de que o pin pegou **não** é o CI ficar verde: é o log do job `Run Pester` mudar
+de `Running tests from 2 files.` (6.x) para `Starting discovery in 2 files.` (5.x), com a
+contagem seguindo em `Tests Passed: 91`. Verde com o banner de 6.x significa que o pin não
+vinculou e o ciclo falhou, mesmo com todos os jobs `success`.
 
 ## Critérios de aceite
 
-- `.github/workflows/ci.yml` muda em **exatamente uma linha**. Sem tocar no pin do ruff,
-  no `output-format`, nos outros jobs, ou no `pyproject.toml`.
-- Nenhuma alteração em `.py` de produto ou de teste. Este ciclo não paga débito de lint —
-  não há débito a pagar. Se aparecer violação, ela é regressão de outro ciclo e vira
-  achado novo, não conserto aqui.
-- Os `per-file-ignores` do `pyproject.toml` ficam intactos.
-- `git status --porcelain -- '*.py'` vazio ao fim do AO2 — nenhuma violação injetada
-  sobrevive.
-- Suíte completa: `461 passed`, sem regressão (este ciclo não toca em código, então
-  qualquer mudança na contagem é sinal de erro).
-- CI real verde nos 7 jobs, com o job `Lint (ruff)` rodando o alvo novo.
+- `.github/workflows/ci.yml` muda em **exatamente duas linhas**, ambas no job `pester`.
+- Nenhum `.py`, nenhum `.ps1`, nenhum arquivo de teste alterado. Este ciclo não corrige
+  teste — se algum quebrar sob a 5.7.1, isso é achado novo e o ciclo para para eu decidir.
+- Suíte Python: `461 passed`, inalterada (este ciclo não a toca).
+- CI real verde nos 7 jobs, **com o banner de 5.x nas duas pernas do `pester`** e
+  `Tests Passed: 91` em cada uma.
 
 ## Notas de execução
 
-- **Reverter cada injeção do AO2 antes da próxima.** Use `cp` para backup e restauração,
-  ou `git checkout --` no arquivo. Conferir `git status --porcelain -- '*.py'` vazio ao
-  final.
-- Não adicionar `ruff format`, `--fix`, regras novas ao `select`, ou qualquer outro
-  linter. O escopo é o alvo do comando, nada mais.
-- Não fechar o ciclo com base em execução local. A prova é log real do CI.
+- Se `Install-Module Pester -RequiredVersion 5.7.1` falhar em algum runner por a versão
+  não estar na PSGallery, **pare e reporte**. Não afrouxar o pin para `-MinimumVersion`
+  nem trocar de versão por conta própria — a escolha da versão é decisão registrada do
+  usuário neste plano.
+- O item (b) do AP2 vai gerar erro no console de propósito. É o resultado esperado;
+  capture a mensagem, não a trate como falha do ciclo.
+- Não adicionar matriz de versões de Pester. Foi oferecida ao usuário e recusada em favor
+  do pin único.
+- Não fechar o ciclo com base em execução local. A prova é log real do CI, e
+  especificamente o banner.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
