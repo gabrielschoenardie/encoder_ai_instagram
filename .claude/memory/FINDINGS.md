@@ -965,3 +965,50 @@ prioridade — não é mais só um achado parado, é um gerador ativo de falso a
 ciclo que toca `test_render_queue.py` de qualquer forma, mesmo indiretamente.
 
 Seguem abertos: `UF2`, `ALF1`, `J-b`, `ACF2`.
+
+### Fechamento — `ACF2` corrigido (Ciclo AS, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| ACF2 | **corrigido** | `09243ba` (`force_terminal=False` nas 10 instanciações) + `878047a` (provas AS2/AS3) |
+
+Evidência: run `33773582250` (`ci.yml`) + run `33773550664` (`pylint.yml`), **9/9 jobs
+`success`**. Mas a prova decisiva deste ciclo **não** é o CI — o runner nunca exportou
+`FORCE_COLOR`, então o CI nunca reproduziu o bug e nunca teria detectado a cura. A prova
+real, reproduzida de forma independente pelo Orquestrador antes e depois do merge:
+
+| cenário | `test_render_queue.py` isolado | suíte completa |
+|---|---|---|
+| `FORCE_COLOR=3 COLORTERM=truecolor` | `26 passed` | `461 passed` |
+| ambiente limpo | `26 passed` | `461 passed` |
+
+Contagem idêntica nos dois cenários — a correção não muda nada fora do caso de bug.
+
+**Correção ao fix sugerido no achado original.** O `ACF2` (Ciclo AC, 2026-08-18) sugeria
+`no_color=True`. Testado antes de planejar: **insuficiente** — suprime cor mas não
+negrito. O caso real de falha usa `[bold]1[/bold]/[bold]2[/bold]`, que sob `FORCE_COLOR`
+produz `\x1b[1;33m1\x1b[0m\x1b[33m/\x1b[0m\x1b[1;33m2\x1b[0m` — `no_color=True` teria
+removido só a cor (`33`), deixando o negrito (`1`) e ainda quebrando `'1/2' in text`.
+`force_terminal=False` suprime tudo (zero bytes ESC nas mesmas condições do repro) e é o
+uso documentado do parâmetro `rich.Console` para forçar "não é terminal" independente do
+ambiente — não gambiarra.
+
+**Escopo ampliado das 4 instanciações que falhavam para as 10 que existem no arquivo.**
+As outras 6 sobreviviam por acidente de asserção (símbolo isolado, string sem estilo
+específico), não por serem robustas ao ambiente. Mesmo raciocínio do `ruff check .`
+(Ciclo AO, em vez de listar diretório) e do `*.py text eol=lf` por padrão (Ciclo AR, em
+vez de entrada por arquivo): corrigir só a instância que quebrou hoje deixaria a mesma
+classe de fragilidade pronta para bater de novo com qualquer mudança futura de estilo na
+tabela ou nos símbolos.
+
+`render_queue.py` (código de produto) não foi tocado — o acoplamento era inteiramente do
+lado do teste.
+
+### Contagem final do `ACF2` nesta sessão
+
+Três incidentes reais confirmados antes do fix: origem do achado (Task 4 do Ciclo AC),
+verificação do merge do Ciclo AP (Orquestrador), e o AR3 do Ciclo AR (executor, marcado
+"blocked" por diagnóstico errado antes de eu corrigir). Não deve haver um quarto — as 10
+instanciações do arquivo inteiro estão cobertas, não só as que já tinham quebrado.
+
+Seguem abertos: `UF2`, `ALF1`, `J-b`.
