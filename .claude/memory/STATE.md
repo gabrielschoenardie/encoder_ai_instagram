@@ -3428,3 +3428,9 @@ Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ to
 | M2 | remove chamada de `_validate_args_consistency` em `parse_cli()` | `test_output_dir_without_batch_exits_with_usage_error` | `16 passed, 1 failed` — só esse teste cai (`assert False`, `SystemExit` não levantado); o teste de wiring (d) segue verde | sim |
 
 M1 e M2 são mortos por testes distintos (grupo d vs. teste de CLI), confirmando que os dois call sites são cobertos separadamente — não há sobreposição de cobertura entre os dois pontos de validação.
+
+## Ciclo AU
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AU1 | done | MANUAL_INSTALACAO.txt | Acrescentadas 2 linhas ao bloco "Isso vai instalar:" (após colour-science, antes de opencv-python): `  ✓ pydantic (validação de configuração)` e `  ✓ scipy (filtros de análise de imagem)`; `matplotlib` não adicionado; APÊNDICE A intocado; `git diff --stat` = `1 file changed, 2 insertions(+)`; commit 1f0134c |
