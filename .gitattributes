@@ -1,2 +1,6 @@
 # CRLF é a intenção declarada do gerador (tools/generate_hollywood_lut_cooler.py:162); não normalizar EOL destes blobs.
 *.cube -text
+
+# LF por convenção do repo (fecha AKF1). Regra por padrão, não por arquivo, para que um
+# .py novo editado com core.autocrlf=true não reintroduza CRLF sem ninguém decidir.
+*.py text eol=lf

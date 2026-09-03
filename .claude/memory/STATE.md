@@ -3394,4 +3394,12 @@ Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ to
 | ID | status | arquivo tocado | resultado |
 |----|--------|----------------|-----------|
 | AQ1 | done | .github/workflows/ci.yml, .github/workflows/pylint.yml | 8 linhas trocadas (checkout v4→v5, setup-python v5/v3→v6, cache v4→v5), `git diff --stat` confirma 12+4 linhas / 8 alterações efetivas em 2 arquivos |
+
+## Ciclo AR
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AR1 | done | .gitattributes | acrescentada `*.py text eol=lf` com comentário; `*.cube -text` intacta; commit a675036 |
+| AR2 | done | cineon_pipeline.py, enhance_visualizer.py | `git add --renormalize` escopado aos 2 arquivos; commit 12593d1; `git diff -b a675036..12593d1 -- cineon_pipeline.py enhance_visualizer.py` vazio (exit 0); `file` pós-checkout confirma sem CRLF |
+| AR3 | done | — | Correção do Orquestrador sobre o resultado reportado pelo executor: **não é regressão de `rich`, é `ACF2`** (achado já registrado, terceiro incidente nesta sessão — Task 4 do Ciclo AC, verificação do merge do Ciclo AP, e agora aqui). As 4 falhas batem exatamente com a assinatura do `ACF2`: `FORCE_COLOR`/`COLORTERM` herdados do shell do executor fazem o `rich` emitir ANSI onde os testes esperam texto puro. Reexecutei de forma independente com `env -u FORCE_COLOR -u COLORTERM python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed`, exit 0. `git diff -b a2a9f9d..HEAD -- test_render_queue.py` vazio, confirmando que este ciclo não tocou o arquivo — não havia achado novo a abrir. `ruff check .` limpo (confirmado pelo executor). Critério de aceite do AR3 satisfeito. |
 | AQ2 | done | — | YAML válido em ambos (`yaml.safe_load` sem erro); suíte Python `461 passed` (com `FORCE_COLOR` do shell desligado — variável de ambiente do terminal, não do repo, mascarava 4 testes de saída Rich) |
