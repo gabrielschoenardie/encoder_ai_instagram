@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """AG4 — cobre AEF1 (--output-dir sem --batch) e AFF1 (pipeline_tag derivado
 da LUT em uso, ver .claude/memory/FINDINGS.md § AEF1 e § AFF1).
+
+AT2 — cobre ALF1: caminho da UI passa pela mesma validação de args
+(ver .claude/memory/PLAN.md § Ciclo AT).
 """
 
 import contextlib
@@ -8,6 +11,7 @@ import io
 import re
 
 import Reels_Encoder_v2_FINAL as R  # noqa: E402
+from ui.config import EncodeConfig  # noqa: E402
 
 
 def test_output_dir_without_batch_exits_with_usage_error(tmp_path):
@@ -150,3 +154,71 @@ def test_comment_format_2pass_mode_with_nolut_tag():
     assert "target:5000k" in comment
     assert "max:8000k" in comment
     assert "buf:16000k" in comment
+
+
+# ─── AT2(a) — _validate_args_consistency devolve None para combinações válidas ──
+
+def test_validate_args_consistency_none_for_input_only():
+    args = R.parse_cli(["input.mp4"])
+    assert R._validate_args_consistency(args) is None
+
+
+def test_validate_args_consistency_none_for_batch_only(tmp_path):
+    args = R.parse_cli(["--batch", str(tmp_path)])
+    assert R._validate_args_consistency(args) is None
+
+
+def test_validate_args_consistency_none_for_batch_with_output_dir(tmp_path):
+    out_dir = tmp_path / "out"
+    args = R.parse_cli(["--batch", str(tmp_path), "--output-dir", str(out_dir)])
+    assert R._validate_args_consistency(args) is None
+
+
+# ─── AT2(b) — _validate_args_consistency devolve msg para output_dir sem batch ──
+
+def test_validate_args_consistency_msg_for_output_dir_without_batch(tmp_path):
+    ns = EncodeConfig(input="x.mp4", output_dir=str(tmp_path), batch=None).to_namespace()
+    msg = R._validate_args_consistency(ns)
+    assert msg is not None
+    assert "--batch" in msg
+
+
+# ─── AT2(c) — teste-ponte: Namespace do launcher sujeito à mesma validação ──────
+
+def test_validate_args_consistency_catches_launcher_namespace(tmp_path):
+    ns = EncodeConfig(
+        input="x.mp4", output_dir=str(tmp_path), batch=None
+    ).to_namespace()
+
+    msg = R._validate_args_consistency(ns)
+
+    assert msg is not None
+    assert "--batch" in msg
+
+
+# ─── AT2(d) — teste de wiring: main() valida o Namespace vindo da UI ───────────
+
+def test_main_exits_2_when_ui_namespace_is_inconsistent(monkeypatch):
+    cli_ns = EncodeConfig(ui=True).to_namespace()
+    monkeypatch.setattr(R, "parse_cli", lambda: cli_ns)
+
+    import ui.preflight
+    monkeypatch.setattr(ui.preflight, "missing_ffmpeg_binaries", lambda: [])
+
+    invalid_ns = EncodeConfig(
+        input="x.mp4", output_dir="/d", batch=None
+    ).to_namespace()
+
+    import ui.launcher
+    monkeypatch.setattr(ui.launcher, "run_launcher", lambda console=None: invalid_ns)
+
+    raised = False
+    code = None
+    try:
+        R.main()
+    except SystemExit as exc:
+        raised = True
+        code = exc.code
+
+    assert raised
+    assert code == 2

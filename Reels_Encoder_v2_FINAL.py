@@ -4378,16 +4378,25 @@ COMPARAÇÃO:
     return parser
 
 
-def parse_cli(argv=None) -> argparse.Namespace:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
+def _validate_args_consistency(args) -> Optional[str]:
+    """Checagens de consistência partilhadas pela CLI e pelo caminho do launcher.
+    Devolve a mensagem de erro, ou None se args é consistente."""
     if args.output_dir and args.batch is None:
-        parser.error(
+        return (
             "--output-dir só se aplica a --batch. Em modo single-file, a saída "
             "vai sempre para a pasta do input; use --batch <pasta> se quiser "
             "redirecionar o destino."
         )
+    return None
+
+
+def parse_cli(argv=None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    msg = _validate_args_consistency(args)
+    if msg:
+        parser.error(msg)
 
     return args
 
@@ -4435,6 +4444,10 @@ def main():
             if launched is None:
                 sys.exit(0)  # usuário cancelou
             args = launched
+            msg = _validate_args_consistency(args)
+            if msg:
+                console.print(f"[red]Erro:[/red] {msg}")
+                sys.exit(2)
         except ImportError:
             if args.ui:
                 console.print(
