@@ -807,7 +807,7 @@ class LUT3D:
             0.026979 0.027936 0.031946
             ...
         """
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
             lines = f.readlines()
 
         # Extrair LUT_3D_SIZE
