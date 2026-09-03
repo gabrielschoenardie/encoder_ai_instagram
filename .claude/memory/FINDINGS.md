@@ -815,3 +815,50 @@ medição local é fiel ao CI. O `UF3` (Pester com `-MinimumVersion` sem teto) s
 
 Seguem abertos: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção
 do `launcher.ps1`), `UF3`, `AKF1`, `ALF1`, `J-b`, `ACF2`.
+
+### Fechamento — `UF3` corrigido (Ciclo AP, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| UF3 | **corrigido** | `db0ec13` (pin no `ci.yml`) + `3fc4081` (evidência local de que `-RequiredVersion` vincula) |
+
+Evidência: run `33760672653`, 7/7 jobs `success`. Prova decisiva não foi a cor — foi o
+banner do job `Run Pester` nas duas pernas:
+
+```
+ubuntu:   Starting discovery in 2 files.   Tests Passed: 91
+windows:  Starting discovery in 2 files.   Tests Passed: 91
+```
+
+`Starting discovery in` é o banner do Pester 5.x. Antes do fix, as duas pernas imprimiam
+`Running tests from 2 files.` (6.x) — confirmado no run anterior (`33758949898`) citado no
+diagnóstico do Ciclo AP. Se o merge tivesse ficado verde com o banner de 6.x, o pin não
+teria vinculado apesar dos 7/7 — por isso o banner, não a cor, foi o critério de aceite.
+
+Mudança: duas linhas em `.github/workflows/ci.yml`, job `pester` — `-MinimumVersion 5.5.0`
+→ `-RequiredVersion 5.7.1` no `Install-Module` e no `Import-Module`. As duas eram
+necessárias: o pin do install não vincula o import sozinho, e o runner tinha 6.1.0
+pré-instalada esperando para ser carregada se só uma das duas fosse trocada.
+
+**Nota operacional — falso alarme na verificação local, causa própria.** Ao verificar a
+suíte pós-merge, rodei `python -m pytest ... | tail -2` e o merge prosseguiu mesmo com
+`4 failed` — o `&&` da cadeia viu o exit code do `tail`, não o do `pytest`, mascarando a
+falha. Investigando: as 4 falhas eram `ACF2` (achado já registrado, não deste ciclo) —
+`test_run_job_marks_success_and_keeps_log`, `test_run_job_marks_failure_and_captures_log`,
+`test_render_final_report_lists_failure_with_captured_log`,
+`test_render_final_report_counts_interrupted` — causadas por `FORCE_COLOR=3` e
+`COLORTERM=truecolor` herdados neste shell, batendo exatamente com a descrição do `ACF2`
+(dois somem com `NO_COLOR=1`, dois persistem por construírem `Console` que ainda assim
+recebe ANSI). Confirmado que o merge não tocou nenhum `.py`
+(`git diff --stat HEAD~1..HEAD -- '*.py'` vazio) e que, com as variáveis de cor removidas
+do ambiente (`env -u FORCE_COLOR -u COLORTERM`), a suíte volta a `461 passed` limpo — o
+mesmo baseline de antes do ciclo. Não é regressão do Ciclo AP; é o `ACF2` reproduzindo de
+novo, desta vez batendo o Orquestrador em vez de um agente, como já tinha acontecido na
+Task 4 do Ciclo AC. Lição a não perder: nunca verificar suíte pós-merge com a saída
+canalizada por `| tail` sem checar `PIPESTATUS`/`$?` — o exit code do pipeline não é o do
+pytest.
+
+Segue aberto: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção do
+`launcher.ps1`), `AKF1`, `ALF1`, `J-b`, `ACF2` (agora reproduzido uma terceira vez, sempre
+pelo mesmo mecanismo — candidato natural a próximo ciclo, já com repro trivial:
+`FORCE_COLOR=3 python -m pytest test_render_queue.py -q`).
