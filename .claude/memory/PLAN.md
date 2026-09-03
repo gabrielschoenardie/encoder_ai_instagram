@@ -1,118 +1,123 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AS: desacoplar `test_render_queue.py` da cor do terminal (fecha ACF2)
+# PLAN — Ciclo AT: caminho da UI passa pela mesma validação de args (fecha ALF1)
 
-Data: 2026-09-03 | Ciclo: AS | Origem: `.claude/memory/FINDINGS.md` § `ACF2` (Ciclo AC, 2026-08-18), aberto desde então. Priorizado à frente de `ALF1`/`J-b` por decisão do usuário, dado o histórico de recorrência.
+Data: 2026-09-03 | Ciclo: AT | Origem: `.claude/memory/FINDINGS.md` § `ALF1` (Ciclo AL, 2026-08-25), aberto desde então. Último da fila do usuário.
 
 ## Diagnóstico
 
-Reproduzido nesta investigação, não presumido do achado: `FORCE_COLOR=3 COLORTERM=truecolor
-python -m pytest test_render_queue.py -q` → **4 failed, 22 passed**, as mesmas 4 do
-registro original:
+Lido no código, não presumido do achado. Há **duas** fontes de `args` em
+`Reels_Encoder_v2_FINAL.py`, e só uma é validada:
 
-```
-test_run_job_marks_success_and_keeps_log
-test_run_job_marks_failure_and_captures_log
-test_render_final_report_lists_failure_with_captured_log
-test_render_final_report_counts_interrupted
-```
+- **CLI:** `parse_cli()` (`:4381`) chama `build_parser().parse_args()` e então roda uma
+  checagem de consistência (`:4385`): se `args.output_dir` está setado mas `args.batch is
+  None`, `parser.error(...)` aborta com exit 2.
+- **UI:** o bloco de UI de `main()` (`:4431`) faz `args = run_launcher(...)` (`:4437`),
+  substituindo `args` por um `argparse.Namespace` que `EncodeConfig.to_namespace()`
+  (`ui/config.py:109`) constrói via `argparse.Namespace(**model_dump())` — **puro, sem
+  passar por `parse_cli()` nem por qualquer validação de consistência.**
 
-Causa: os quatro constroem `Console(file=io.StringIO(), ...)` sem `force_terminal`, e o
-`rich` (14.2.0) consulta a variável de ambiente `FORCE_COLOR` para decidir se emite ANSI
-— mesmo quando o `file` é um `StringIO`, que não é um terminal de verdade. O ambiente
-vence a detecção correta.
+É aquisição de argumentos contornando a validação de argumentos. As duas fontes deveriam
+convergir para a mesma checagem; hoje a checagem mora dentro de `parse_cli()`, que o
+caminho da UI nunca toca.
 
-### Não é achado isolado — recorrência real, três incidentes nesta sessão
+### Confirmado inalcançável hoje — mas latente por construção
 
-Este `ACF2` já bateu três vezes: na Task 4 do Ciclo AC (origem do achado), na minha
-verificação do merge do Ciclo AP, e no `AR3` do Ciclo AR — sempre pelo mesmo mecanismo,
-sempre custando investigação para provar que não é regressão do código. Não é um achado
-parado; é um gerador ativo de falso alarme a cada ciclo que toca `test_render_queue.py`
-de qualquer forma, direta ou indireta.
+Varredura de `ui/launcher.py`: `cfg.output_dir` só é atribuído em contexto de batch —
+`_flow_batch:146` e `_flow_advanced:182`, ambas sob `preset_batch`/`is_batch`. O launcher
+**não consegue** montar hoje a combinação `output_dir` sem `batch`, então o `parser.error`
+nunca dispararia mesmo se fosse chamado. Não é bug alcançável; é assimetria estrutural: a
+validação e a construção do Namespace vivem em lugares diferentes, e nada obriga um fluxo
+futuro do launcher a respeitar a regra. Um `_flow_*` novo que setasse `output_dir` fora de
+batch entregaria um Namespace inválido direto ao dispatch, sem aviso.
 
-### Correção ao fix sugerido no achado original
-
-O texto do `ACF2` sugeria duas saídas: `no_color=True` nos `Console` de teste, ou
-comparar contra o texto sem ANSI. **Testei `no_color=True` e não é suficiente** — ele
-suprime cor mas não estilo (negrito). O caso real de falha usa `[bold]1[/bold]/[bold]2[/bold]`,
-que sob `FORCE_COLOR` produz `\x1b[1;33m1\x1b[0m\x1b[33m/\x1b[0m\x1b[1;33m2\x1b[0m` —
-`no_color=True` teria removido só o `33` (cor), deixando o `1` (negrito) e ainda quebrando
-a asserção de substring `1/2`.
-
-**`force_terminal=False` funciona** — testado nas mesmas condições exatas do repro
-(`FORCE_COLOR=3 COLORTERM=truecolor`): zero bytes ESC na saída, `1/2` intacto. É também o
-parâmetro documentado do `rich.Console` para forçar "não é terminal" independente do
-ambiente — não é gambiarra, é o uso pretendido do parâmetro. Confirmado sem efeito
-colateral em ambiente limpo: `Console(file=StringIO())` sem `force_terminal` já
-auto-detecta `isatty()==False` num `StringIO`, então passar `force_terminal=False`
-explicitamente é no-op fora do cenário `FORCE_COLOR`.
-
-### Escopo: todos os `Console` do arquivo de teste, não só os 4 que falham hoje
-
-`test_render_queue.py` tem **10** instanciações de `Console(...)`. Só 4 falham sob
-`FORCE_COLOR` hoje — as outras 6 sobrevivem por acidente de asserção (checam presença de
-símbolo isolado, ou uma sequência de caracteres tipo `"TAIL-MARKER"` que o `rich` não
-teria razão de estilizar caractere a caractere), não porque sejam robustas ao ambiente.
-Corrigir só as 4 deixaria as outras 6 na mesma condição de fragilidade latente — a mesma
-classe de "verde pelo motivo errado" que motivou fechar o `AJF3`, e o mesmo raciocínio que
-levou o Ciclo AO a trocar `ruff check enhance/` por `ruff check .` em vez de listar
-diretório por diretório, e o Ciclo AR a fixar `*.py text eol=lf` por padrão em vez de por
-arquivo. Este ciclo aplica `force_terminal=False` às **10** instanciações.
+Severidade S4 pela inalcançabilidade — o valor do ciclo é fechar a assimetria antes que um
+fluxo novo a torne alcançável, não consertar um crash de hoje.
 
 ## Desenho
 
-Acrescentar `force_terminal=False` a cada `Console(...)` em `test_render_queue.py`. Só
-isso — nenhuma mudança em `render_queue.py` (código de produto). O acoplamento é
-inteiramente do lado do teste: os testes constroem seus próprios `Console` para capturar
-saída, e são esses objetos — não o `Console` real que a aplicação usa em produção — que
-precisam ser determinísticos.
+Uma única função de validação, compartilhada pelas duas fontes. Extrair a checagem inline
+de `parse_cli()` para `_validate_args_consistency(args) -> Optional[str]`, que devolve a
+mensagem de erro ou `None` — sem depender do objeto `parser`, para poder ser chamada dos
+dois lados.
+
+```python
+def _validate_args_consistency(args) -> Optional[str]:
+    """Checagens de consistência partilhadas pela CLI e pelo caminho do launcher.
+    Devolve a mensagem de erro, ou None se args é consistente."""
+    if args.output_dir and args.batch is None:
+        return (
+            "--output-dir só se aplica a --batch. Em modo single-file, a saída "
+            "vai sempre para a pasta do input; use --batch <pasta> se quiser "
+            "redirecionar o destino."
+        )
+    return None
+```
+
+- `parse_cli()`: substitui o `if` inline por `msg = _validate_args_consistency(args); if
+  msg: parser.error(msg)`. Comportamento idêntico ao de hoje (exit 2, mesma mensagem) —
+  os testes existentes de `parse_cli` provam que não regride.
+- Caminho da UI (`main()`, logo após `args = launched`): `msg =
+  _validate_args_consistency(args); if msg: console.print(f"[red]Erro:[/red] {msg}");
+  sys.exit(2)`. Mesmo exit 2, mensagem consistente.
+
+**Por que não validar no `EncodeConfig` (pydantic):** poria a regra em dois lugares
+(pydantic para UI, `parse_cli` para CLI) — que é exatamente a duplicação de fonte de
+verdade que o achado denuncia. Uma função só, chamada pelos dois caminhos, é o mínimo que
+fecha a assimetria em vez de trocá-la de forma.
+
+`Optional` já está importado (`:86`). Nenhuma dependência nova.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AS1 | Acrescentar `force_terminal=False` a cada uma das 10 instanciações de `Console(...)` em `test_render_queue.py`. Nenhuma outra mudança no arquivo. Não tocar em `render_queue.py`. | executor | `test_render_queue.py` | `git diff` mostra só a adição do parâmetro, 10 ocorrências |
-| AS2 | Provar a correção sob as condições exatas do repro: `FORCE_COLOR=3 COLORTERM=truecolor python -m pytest test_render_queue.py -q` → `26 passed`, 0 failed. Rodar também em ambiente limpo (sem essas variáveis) e confirmar contagem idêntica — a mudança não pode alterar comportamento fora do cenário de bug. | executor | — | ambas as execuções, `26 passed` nas duas, colado em `STATE.md` |
-| AS3 | Suíte completa (`python -m pytest test_render_queue.py enhance/ ui/ tools/ -q`) sob `FORCE_COLOR=3 COLORTERM=truecolor` e sem — `461 passed` nos dois casos. Checar exit code real, não de pipe. | executor | — | `461 passed` × 2, exit 0 nos dois |
-| AS4 | Fechar `ACF2` com CI real verde. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
+| AT1 | Extrair `_validate_args_consistency(args)`; `parse_cli()` passa a chamá-la; o caminho da UI em `main()` (após `args = launched`) passa a chamá-la e `sys.exit(2)` com mensagem se ela retornar erro. Só `Reels_Encoder_v2_FINAL.py`. | executor | `Reels_Encoder_v2_FINAL.py` | função extraída, dois call sites, comportamento da CLI idêntico |
+| AT2 | Testes, todos por chamada direta — sem invocar encode, sem ffmpeg (lição do `AIF1`): (a) `_validate_args_consistency` devolve `None` para `input` só, `batch` só, `batch`+`output_dir`; (b) devolve msg com `--batch` para `output_dir` sem `batch`; (c) **teste-ponte**: `EncodeConfig(input="x.mp4", output_dir="/d", batch=None).to_namespace()` passado à função é pego — prova que o Namespace que o launcher produz está sujeito à mesma validação; (d) **teste de wiring**: `main()` com `parse_cli` monkeypatchado para devolver `EncodeConfig(ui=True).to_namespace()`, `ui.preflight.missing_ffmpeg_binaries` → `[]`, e `ui.launcher.run_launcher` → Namespace inválido (`output_dir` sem `batch`), afirma `SystemExit` code 2. | executor | `enhance/test_output_dir_and_pipeline_tag.py` (ou arquivo de teste próprio do ALF1) | 4 grupos verdes; os testes existentes de `parse_cli` seguem verdes |
+| AT3 | Matriz de mutação: M1 = deletar a chamada no caminho da UI → o teste de wiring (d) fica vermelho, os de `parse_cli` seguem verdes. M2 = deletar a chamada em `parse_cli` → `test_output_dir_without_batch_exits_with_usage_error` fica vermelho. Aplicar, medir, **reverter** cada um. Tabela em `STATE.md`. | executor | `.claude/memory/STATE.md` | 2/2 mutantes mortos por testes distintos; `git diff --stat -- Reels_Encoder_v2_FINAL.py` só a mudança do AT1 ao fim |
+| AT4 | Fechar `ALF1` com CI real verde. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
 
-## Critério de aceite decisivo — o teste do próprio bug
+## Por que o AT3 existe — a lição do AJF3
 
-A prova não é só "CI verde" — o CI nunca teve esse problema, porque o runner não exporta
-`FORCE_COLOR` (já registrado no achado original). A prova é rodar a suíte **com as
-variáveis do repro exportadas**, localmente, e confirmar `26 passed` em
-`test_render_queue.py` (22 que já passavam + os 4 que falhavam) e `461 passed` na suíte
-inteira. Um CI verde sem essa checagem local não teria detectado a doença nem detecta a
-cura.
+O perigo específico deste ciclo: extrair a função, chamá-la em `parse_cli`, e **esquecer**
+de ligá-la no caminho da UI. Todos os testes de função (a,b,c) ficariam verdes mesmo assim,
+porque exercitam a função direto — e o bug (caminho da UI sem validação) continuaria
+exatamente igual. Só o teste de wiring (d) prova a ligação, e o mutante M1 prova que (d)
+de fato falha quando a ligação some. Sem M1, o ciclo poderia entregar "verde pelo motivo
+errado" — a doença que o `AJF3` denunciou.
 
 ## Critérios de aceite
 
-- `test_render_queue.py` é o único arquivo alterado. `render_queue.py` (produto)
-  permanece intocado.
-- As 10 instanciações de `Console(...)` recebem `force_terminal=False`; nenhum outro
-  parâmetro, assert, ou estrutura de teste muda.
-- `FORCE_COLOR=3 COLORTERM=truecolor pytest test_render_queue.py -q` → `26 passed`.
-- Suíte completa sob as mesmas variáveis → `461 passed`.
-- Suíte completa em ambiente limpo → `461 passed`, contagem idêntica (a mudança não
-  altera nada fora do cenário de bug).
-- CI real verde (o CI não reproduz o bug, mas confirma ausência de regressão nas
-  plataformas de produção).
+- Só `Reels_Encoder_v2_FINAL.py` (produto) e o arquivo de teste mudam. `ui/launcher.py`,
+  `ui/config.py` **não** são tocados — a correção é a validação convergir, não mexer em
+  como o launcher monta o Namespace.
+- Comportamento da CLI idêntico: mesma mensagem, mesmo exit 2 para `output_dir` sem
+  `batch`. Os três testes existentes de `parse_cli` seguem verdes sem alteração.
+- Teste de wiring (d) verde, e vermelho sob o mutante M1 (validação da UI removida).
+- Os 2 mutantes mortos por testes **distintos** — M1 pelo teste de wiring, M2 pelo teste
+  de CLI. Se um único teste mata os dois, a cobertura não distingue os dois call sites.
+- Nenhum teste chama `main()` de um jeito que exija ffmpeg no PATH — o teste (d) usa
+  monkeypatch de `missing_ffmpeg_binaries` para passar o preflight sem binário real.
+- Suíte Python: `461 passed` + os testes novos, sem regressão.
+- CI real verde nos jobs de `ci.yml` e `pylint.yml`.
 
 ## Notas de execução
 
-- Não tocar em `render_queue.py`. O acoplamento é só do lado do teste.
-- Não usar `no_color=True` — testado e insuficiente (não remove negrito). Usar
-  `force_terminal=False`.
-- Não usar `NO_COLOR=1` como variável de ambiente do CI ou de wrapper de teste — a
-  correção é no construtor do `Console`, não uma variável de ambiente adicional para
-  lembrar de exportar.
-- **Nunca use `git add -A` nem `git add .`** — o repositório tem arquivos não rastreados
-  (`961576A_Hollywood_2Pass.qc.html`, `961576A_Hollywood_2Pass.qc.json`,
-  `docs/fila-interrupcao.md`, `docs/launcher-portavel-reels-encoder.md`,
-  `docs/windows-ci-e-interrupcao-robusta.md`, `testResults.xml`, `videos/`) que não
-  pertencem a ciclo nenhum. Adicionar por caminho explícito.
-- Ao verificar suíte, checar o exit code real do `pytest`, nunca o de um `| tail` —
-  armadilha já registrada em `STATE.md` § "Ciclo AP" e repetida no `AR3`.
-- Ao anexar sua seção ao `STATE.md`, começar com `## Ciclo AS` e cabeçalho de tabela.
-- Não fechar o ciclo com base só em CI verde — o CI não reproduz o cenário do bug. A prova
-  decisiva é a execução local com `FORCE_COLOR`/`COLORTERM` exportados.
+- Não tocar em `ui/launcher.py` nem `ui/config.py`. `to_namespace()` continua puro; a
+  validação é responsabilidade de quem consome o Namespace, e o ponto do ciclo é que os
+  dois consumidores usem a mesma.
+- O teste de wiring (d) precisa passar pelo preflight de `main()` (`:4408`) sem ffmpeg:
+  monkeypatch `ui.preflight.missing_ffmpeg_binaries` para devolver `[]`. O
+  `dependency_error_card` não é chamado quando a lista é vazia.
+- `EncodeConfig` tem os campos `ui` e `hardware_info` (`ui/config.py:93-94`), então
+  `EncodeConfig(ui=True).to_namespace()` produz um Namespace que dispara o bloco de UI com
+  `hardware_info=False` — não precisa construir o Namespace à mão.
+- Reverter cada mutante do AT3 antes do próximo; `git diff --stat --
+  Reels_Encoder_v2_FINAL.py` ao fim deve mostrar só a mudança do AT1.
+- Checar o exit code real do `pytest`, nunca o de um `| tail` — armadilha registrada em
+  `STATE.md` § "Ciclo AP", repetida no `AR3`.
+- Ao anexar ao `STATE.md`, começar com `## Ciclo AT` e cabeçalho de tabela.
+- **Nunca `git add -A` nem `git add .`** — há arquivos não rastreados
+  (`961576A_Hollywood_2Pass.qc.html`, `961576A_Hollywood_2Pass.qc.json`, `docs/*.md` novos,
+  `testResults.xml`, `videos/`). Adicionar por caminho explícito.
+- Não fechar com base em execução local. A prova é log real do CI.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
