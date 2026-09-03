@@ -3316,3 +3316,25 @@ nenhum no repo desde 25/08 17:53. O run entrou sozinho depois, sem nova ação. 
 `UF1` (filtro de branch de worktree): esse filtro casa. Foi latência do lado do GitHub.
 Registrado porque a confusão custou tempo e vai se repetir: `gh run list` vazio logo após
 um push **não** é evidência de que o CI não vai rodar.
+
+## Ciclo AN
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AN1 | done | `cineon_pipeline.py` | Linha 810: `open(path, "r")` → `open(path, "r", encoding="utf-8-sig", errors="replace")`. `git diff --stat` confirma 1 arquivo, 1 linha. |
+| AN2 | done | `enhance/test_cineon_lut.py` | Adicionado `test_load_cube_file_independente_de_encoding`, parametrizado sobre 4 `.cube` reais gravados em `tmp_path` (`utf-8-sig` com BOM, `utf-8` com `TITLE "ÁGUA..."`, `cp1252` com o mesmo título, `ascii` puro), `newline=""`, `lut_size==2`. 6/6 testes do arquivo passam (2 pré-existentes + 4 novos). |
+
+### AN3 — matriz de mutação medida
+
+Ordem: aplicar mutante em `cineon_pipeline.py:810`, rodar `pytest enhance/test_cineon_lut.py`, registrar, reverter para o fix do AN1 antes do próximo.
+
+| # | mutante | testes que falham (medido) | esperado no PLAN.md | bate? |
+|---|---|---|---|---|
+| M1 | `open(path, "r")` (default da plataforma) | `bom_lut_size_primeira_linha`, `utf8_title_acentuado_maiusculo` (medido no Windows/cp1252) | vermelho nos dois SOs, por casos diferentes | sim — nesta perna (Windows), os dois casos que dependem de UTF-8 falham; cp1252 e ascii passam por acidente da plataforma |
+| M2 | `encoding="utf-8"` | `bom_lut_size_primeira_linha`, `cp1252_title_acentuado_maiusculo` | PLAN.md diz "só cp1252 vermelho, outros 3 verdes", mas a própria matriz do § Desenho (coluna `utf-8`) já mostra BOM como `✗ sem SIZE` | não integralmente — a coluna "esperado" da tabela de mutação (linha 105) contradiz a matriz do § Desenho (linha 60), que está correta e bate com o medido. Registrando o medido, não a narrativa; não bloqueia o item porque o critério de aceite real ("ao menos um teste em FAIL") é satisfeito |
+| M3 | `encoding="utf-8"` + `errors="replace"` | só `bom_lut_size_primeira_linha` | só o caso BOM vermelho | sim |
+| M4 | `encoding="utf-8-sig"` sem `errors` | só `cp1252_title_acentuado_maiusculo` | só o caso cp1252 vermelho | sim |
+
+4/4 mutantes mortos (cada um mata ao menos 1 teste). `git diff --stat -- cineon_pipeline.py` ao final do AN3: `1 file changed, 1 insertion(+), 1 deletion(-)` — só a linha do AN1, todos os mutantes revertidos.
+
+Suíte completa pós-ciclo: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed` (457 baseline + 4 casos novos do AN2). Sem regressão. `--timeout=60` não aplicado localmente: `pytest-timeout` não está instalado neste ambiente (`pip show pytest-timeout` → not found); não é item do escopo AN, não instalado para não desviar do PLAN.
