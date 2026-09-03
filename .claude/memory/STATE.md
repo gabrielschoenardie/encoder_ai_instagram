@@ -3411,3 +3411,20 @@ Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ to
 | AS1 | done | test_render_queue.py | `force_terminal=False` acrescentado às 10 instanciações de `Console(...)` (linhas 79, 92, 106, 121, 138, 153, 175, 291, 313, 328); `git diff` só adiciona o parâmetro, `render_queue.py` intocado; commit 09243ba |
 | AS2 | done | — | `FORCE_COLOR=3 COLORTERM=truecolor python -m pytest test_render_queue.py -q` → `26 passed`, exit 0; sem essas variáveis → `26 passed`, exit 0 idêntico |
 | AS3 | done | — | `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` com `FORCE_COLOR=3 COLORTERM=truecolor` → `461 passed`, exit 0; sem essas variáveis → `461 passed`, exit 0 idêntico |
+
+## Ciclo AT
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AT1 | done | Reels_Encoder_v2_FINAL.py | `_validate_args_consistency(args) -> Optional[str]` extraída; `parse_cli()` chama e faz `parser.error(msg)`; caminho da UI em `main()` (após `args = launched`) chama e faz `sys.exit(2)` com `console.print` se `msg` não for `None`; `ui/launcher.py` e `ui/config.py` intocados |
+| AT2 | done | enhance/test_output_dir_and_pipeline_tag.py | 4 grupos (a,b,c,d) adicionados: (a) 3 testes `None` p/ input só, batch só, batch+output_dir; (b) msg com `--batch` p/ output_dir sem batch via `EncodeConfig(...).to_namespace()`; (c) teste-ponte confirma Namespace do launcher sujeito à mesma validação; (d) teste de wiring monkeypatcha `R.parse_cli`, `ui.preflight.missing_ffmpeg_binaries`, `ui.launcher.run_launcher` e afirma `SystemExit(2)` em `R.main()`; `pytest enhance/test_output_dir_and_pipeline_tag.py -v` → `17 passed`, exit 0; suíte completa `python -m pytest -q` → `467 passed`, exit 0 |
+| AT3 | done | .claude/memory/STATE.md | matriz de mutação abaixo; 2/2 mutantes mortos por testes distintos; ambos revertidos; `git diff --stat -- Reels_Encoder_v2_FINAL.py` ao fim = `18 insertions(+), 5 deletions(-)`, idêntico ao AT1 isolado |
+
+### Matriz de mutação AT3
+
+| mutante | mudança | teste que morre | resultado (`pytest enhance/test_output_dir_and_pipeline_tag.py -v`) | revertido |
+|---------|---------|------------------|------------------------------------------------------------------------|-----------|
+| M1 | remove chamada de `_validate_args_consistency` no caminho da UI em `main()` | `test_main_exits_2_when_ui_namespace_is_inconsistent` (grupo d) | `16 passed, 1 failed` — só o teste de wiring cai (`assert 1 == 2`); os 3 testes de `parse_cli` seguem verdes | sim |
+| M2 | remove chamada de `_validate_args_consistency` em `parse_cli()` | `test_output_dir_without_batch_exits_with_usage_error` | `16 passed, 1 failed` — só esse teste cai (`assert False`, `SystemExit` não levantado); o teste de wiring (d) segue verde | sim |
+
+M1 e M2 são mortos por testes distintos (grupo d vs. teste de CLI), confirmando que os dois call sites são cobertos separadamente — não há sobreposição de cobertura entre os dois pontos de validação.
