@@ -3403,3 +3403,11 @@ Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ to
 | AR2 | done | cineon_pipeline.py, enhance_visualizer.py | `git add --renormalize` escopado aos 2 arquivos; commit 12593d1; `git diff -b a675036..12593d1 -- cineon_pipeline.py enhance_visualizer.py` vazio (exit 0); `file` pós-checkout confirma sem CRLF |
 | AR3 | done | — | Correção do Orquestrador sobre o resultado reportado pelo executor: **não é regressão de `rich`, é `ACF2`** (achado já registrado, terceiro incidente nesta sessão — Task 4 do Ciclo AC, verificação do merge do Ciclo AP, e agora aqui). As 4 falhas batem exatamente com a assinatura do `ACF2`: `FORCE_COLOR`/`COLORTERM` herdados do shell do executor fazem o `rich` emitir ANSI onde os testes esperam texto puro. Reexecutei de forma independente com `env -u FORCE_COLOR -u COLORTERM python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed`, exit 0. `git diff -b a2a9f9d..HEAD -- test_render_queue.py` vazio, confirmando que este ciclo não tocou o arquivo — não havia achado novo a abrir. `ruff check .` limpo (confirmado pelo executor). Critério de aceite do AR3 satisfeito. |
 | AQ2 | done | — | YAML válido em ambos (`yaml.safe_load` sem erro); suíte Python `461 passed` (com `FORCE_COLOR` do shell desligado — variável de ambiente do terminal, não do repo, mascarava 4 testes de saída Rich) |
+
+## Ciclo AS
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AS1 | done | test_render_queue.py | `force_terminal=False` acrescentado às 10 instanciações de `Console(...)` (linhas 79, 92, 106, 121, 138, 153, 175, 291, 313, 328); `git diff` só adiciona o parâmetro, `render_queue.py` intocado; commit 09243ba |
+| AS2 | done | — | `FORCE_COLOR=3 COLORTERM=truecolor python -m pytest test_render_queue.py -q` → `26 passed`, exit 0; sem essas variáveis → `26 passed`, exit 0 idêntico |
+| AS3 | done | — | `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` com `FORCE_COLOR=3 COLORTERM=truecolor` → `461 passed`, exit 0; sem essas variáveis → `461 passed`, exit 0 idêntico |
