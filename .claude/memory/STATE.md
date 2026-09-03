@@ -3389,5 +3389,9 @@ Banner de 5.x (`Starting discovery in`), `91` testes, todos passando, sob o pin.
 
 Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed`.
 
+## Ciclo AQ
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
 | AQ1 | done | .github/workflows/ci.yml, .github/workflows/pylint.yml | 8 linhas trocadas (checkout v4→v5, setup-python v5/v3→v6, cache v4→v5), `git diff --stat` confirma 12+4 linhas / 8 alterações efetivas em 2 arquivos |
 | AQ2 | done | — | YAML válido em ambos (`yaml.safe_load` sem erro); suíte Python `461 passed` (com `FORCE_COLOR` do shell desligado — variável de ambiente do terminal, não do repo, mascarava 4 testes de saída Rich) |
