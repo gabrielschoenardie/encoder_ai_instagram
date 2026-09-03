@@ -918,3 +918,50 @@ deixa de existir. Corrigido ~13 dias antes desse prazo, não em reação a quebr
 Inconsistência por arquivo esquecido, não decisão técnica.
 
 Nenhum `.py`, `.ps1` ou teste alterado. Suíte Python: `461 passed`, inalterada.
+
+### Fechamento — `AKF1` corrigido (Ciclo AR, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| AKF1 | **corrigido** | `a675036` (`.gitattributes`) + `12593d1` (renormalização) + `e3dfc07` (registro/correção) |
+
+Evidência: run `33772212009` (`ci.yml`) + run `33772180125` (`pylint.yml`), **9/9 jobs
+`success`**. `Tests Passed: 91` mantido nas duas pernas do Pester. Suíte Python `461
+passed`, exit 0 confirmado explicitamente (não via pipe).
+
+Decisão, diferente dos `.cube` do próprio Ciclo AK: aqui não havia razão técnica para
+CRLF — verificado byte a byte que todo `\r` nos dois arquivos era terminador de linha,
+nenhum literal embutido, então renormalizar era conversão pura, sem efeito semântico.
+`.gitattributes` ganhou `*.py text eol=lf` — regra por padrão, não entrada por arquivo,
+porque a máquina de desenvolvimento tem `core.autocrlf=true` e um `.py` novo editado ali
+reintroduziria CRLF sem ninguém decidir isso. Mesmo raciocínio do `ruff check .` no
+Ciclo AO: entrada por arquivo é a classe de defeito que o `AJF1` denunciou.
+
+`git add --renormalize` foi escopado só aos dois arquivos nomeados no achado — não
+repo-wide. O Ciclo AK já tinha tentado `--renormalize .` sem escopo e revertido por estar
+fora do plano; a lição não precisou ser reaprendida.
+
+Prova de que só o terminador mudou: `git diff -b` (ignora EOL) entre antes e depois da
+renormalização, restrito aos dois arquivos — vazio.
+
+**Nota operacional — quarto incidente do `ACF2` na sessão, agora custando um ciclo
+inteiro.** O executor reportou `457 passed, 4 failed` no AR3 e marcou a tarefa como
+bloqueada, suspeitando de regressão do `rich`. Investigado: eram as mesmas 4 falhas do
+`ACF2` (`test_run_job_marks_success_and_keeps_log`,
+`test_run_job_marks_failure_and_captures_log`,
+`test_render_final_report_lists_failure_with_captured_log`,
+`test_render_final_report_counts_interrupted`), causadas por `FORCE_COLOR`/`COLORTERM`
+herdados do shell do executor — não pelo código, e não relacionadas à renormalização de
+EOL. `test_render_queue.py` não foi tocado por este ciclo. Comportamento do executor foi
+correto (parou e perguntou em vez de decidir sozinho ou consertar fora de escopo); só o
+diagnóstico da causa estava errado, corrigido em `STATE.md` antes de prosseguir.
+
+Contagem de incidentes reais do `ACF2` nesta sessão: Task 4 do Ciclo AC (origem do
+achado), verificação do merge do Ciclo AP (Orquestrador), e agora o AR3 (executor) —
+três vezes em sessões diferentes, sempre pelo mesmo mecanismo, sempre custando
+investigação para provar que não é regressão. Repro trivial já registrado:
+`FORCE_COLOR=3 python -m pytest test_render_queue.py -q`. Candidato natural a subir de
+prioridade — não é mais só um achado parado, é um gerador ativo de falso alarme a cada
+ciclo que toca `test_render_queue.py` de qualquer forma, mesmo indiretamente.
+
+Seguem abertos: `UF2`, `ALF1`, `J-b`, `ACF2`.
