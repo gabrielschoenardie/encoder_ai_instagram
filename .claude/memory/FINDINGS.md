@@ -708,3 +708,47 @@ atribuído incondicionalmente, `render_queue.py:188`), `XF3` (`estimate_eta` gan
 do CI, `.github/workflows/ci.yml:61`). Seguem abertos: `UF2` (nenhuma perna de CI roda
 Windows PowerShell 5.1, o motor de produção do `launcher.ps1`), `UF3`, `AJF4`/`ABF3`/`I-a`
 (lint só em `enhance/`), `AKF1`, `ALF1`, `J-b`, `ACF2`.
+
+### Fechamento — `ACF1` e `ANF1` corrigidos (Ciclo AN, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| ACF1 | **corrigido** | `e880918` (fix + 4 testes) + `46578f4` (matriz de mutação) + `db2f91f` (esta correção de registro) |
+| ANF1 | **corrigido** | mesma linha, mesmo commit; caso `bom_lut_size_primeira_linha` |
+
+Evidência: run de CI `33756549431`, **7/7 jobs `success`**, `461 passed` nas quatro pernas
+de `Tests` (Windows/Ubuntu × Python 3.11/3.12). Os 4 casos novos aparecem `PASSED`
+nominalmente nos logs das duas plataformas — não inferido de contagem agregada.
+
+Mudança de produto: uma linha em `cineon_pipeline.py:810`.
+
+```python
+-with open(path, "r") as f:
++with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+```
+
+**A simetria de plataforma, que era o critério que decidia o ciclo, foi provada pela
+matriz de mutação e não pelo CI.** O AN3 rodou em Windows, então o M1 (default da
+plataforma) só exercita a perna cp1252. Mas o M2 (`encoding="utf-8"`) **é** o default do
+Linux: que ele derrube `bom` + `cp1252` é medição direta de que o estado pré-fix era
+vermelho na perna Ubuntu também, por casos diferentes dos que derrubam a Windows
+(`bom` + `utf8`, via M1). Sem isso, o ciclo teria entregue 4 testes verdes nas duas pernas
+sem prova de que alguma vez estiveram vermelhos — a fachada que o `AJF3` denunciou.
+
+Os casos `utf8_title_acentuado_maiusculo` e `cp1252_title_acentuado_maiusculo` são
+complementares **de propósito**. Qualquer um dos dois, sozinho, seria verde por acidente
+numa das pernas. Não remover um deles em nome de "simplificar" — a redundância aparente é
+o produto.
+
+`errors="replace"` foi decisão medida, não conveniência: é a única coluna verde nas quatro
+linhas da matriz do `PLAN.md` § Desenho. Vale porque o parser consome apenas
+`LUT_3D_SIZE` e linhas numéricas, descartando `TITLE`, `#` e `LUT_3D_INPUT_RANGE` — byte
+indecodificável só pode cair em campo descartado. **Condição de revisão:** se o parser
+passar a ler `TITLE`, a decisão precisa ser reavaliada. Dado numérico corrompido não passa
+silencioso: a checagem de contagem (`cineon_pipeline.py:845-850`, `LUT incompleto`)
+levanta.
+
+Nenhum bug novo apareceu em `_load_cube_file` durante a cobertura. Segue aberto o resto do
+inventário: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção do
+`launcher.ps1` e único onde o `QF1` reproduzia), `UF3`, `AJF4`/`ABF3`/`I-a` (lint só em
+`enhance/`), `AKF1`, `ALF1`, `J-b`, `ACF2`.
