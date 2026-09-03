@@ -1,111 +1,118 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AR: normalizar EOL de `cineon_pipeline.py` e `enhance_visualizer.py` para LF (fecha AKF1)
+# PLAN — Ciclo AS: desacoplar `test_render_queue.py` da cor do terminal (fecha ACF2)
 
-Data: 2026-09-03 | Ciclo: AR | Origem: `.claude/memory/FINDINGS.md` § `AKF1` (Ciclo AK, 2026-08-25), aberto desde então.
+Data: 2026-09-03 | Ciclo: AS | Origem: `.claude/memory/FINDINGS.md` § `ACF2` (Ciclo AC, 2026-08-18), aberto desde então. Priorizado à frente de `ALF1`/`J-b` por decisão do usuário, dado o histórico de recorrência.
 
 ## Diagnóstico
 
-Remedido hoje, não presumido do achado — mesma disciplina que corrigiu o `I-a` no Ciclo
-AO. Os números do `AKF1` seguem válidos (com uma diferença de tamanho esperada, ver
-abaixo):
+Reproduzido nesta investigação, não presumido do achado: `FORCE_COLOR=3 COLORTERM=truecolor
+python -m pytest test_render_queue.py -q` → **4 failed, 22 passed**, as mesmas 4 do
+registro original:
 
-| arquivo | blob | worktree | tamanho hoje |
-|---|---|---|---|
-| `cineon_pipeline.py` | CRLF | CRLF | 43588 bytes (era 43548 no achado — diferença de 40 bytes bate com a linha do fix do Ciclo AN, `cineon_pipeline.py:810`, que alongou uma linha) |
-| `enhance_visualizer.py` | CRLF | CRLF | 22785 bytes, inalterado |
+```
+test_run_job_marks_success_and_keeps_log
+test_run_job_marks_failure_and_captures_log
+test_render_final_report_lists_failure_with_captured_log
+test_render_final_report_counts_interrupted
+```
 
-Confirmado: **nenhum outro `.py` rastreado no repo tem CRLF** — varredura em todos os
-arquivos de `git ls-files '*.py'` exceto os dois. Os dois entraram no repo já em CRLF, no
-commit inicial `ce992c3` ("Add files via upload"), e nunca foram tocados por uma
-normalização — não é regressão de ciclo nenhum.
+Causa: os quatro constroem `Console(file=io.StringIO(), ...)` sem `force_terminal`, e o
+`rich` (14.2.0) consulta a variável de ambiente `FORCE_COLOR` para decidir se emite ANSI
+— mesmo quando o `file` é um `StringIO`, que não é um terminal de verdade. O ambiente
+vence a detecção correta.
 
-**Diferente dos `.cube` do próprio Ciclo AK, aqui não há razão técnica para CRLF.** O
-`.gitattributes` atual já documenta a exceção deliberada dos `.cube` (`*.cube -text`,
-comentário citando o gerador). Para `.py`, Python não distingue CRLF de LF na execução —
-não há motivo funcional, e o resto do repo já convencionou LF.
+### Não é achado isolado — recorrência real, três incidentes nesta sessão
 
-### Seguro renormalizar — verificado byte a byte
+Este `ACF2` já bateu três vezes: na Task 4 do Ciclo AC (origem do achado), na minha
+verificação do merge do Ciclo AP, e no `AR3` do Ciclo AR — sempre pelo mesmo mecanismo,
+sempre custando investigação para provar que não é regressão do código. Não é um achado
+parado; é um gerador ativo de falso alarme a cada ciclo que toca `test_render_queue.py`
+de qualquer forma, direta ou indireta.
 
-Contei todo byte `\r` (`0x0D`) contra todo par `\r\n` nos dois arquivos: idênticos nos
-dois (`1097`/`1097` em `cineon_pipeline.py`, `580`/`580` em `enhance_visualizer.py`). Não
-há `\r` solto nem `\r\n` como literal de string dentro de uma linha — todo `\r` é
-terminador de linha. Renormalizar para LF é conversão pura de quebra de linha, sem efeito
-semântico no código.
+### Correção ao fix sugerido no achado original
 
-Confirmado também: o `ruff` (estendido ao repo inteiro no Ciclo AO) não tem regra sensível
-a EOL no `select` (`E4`, `E7`, `E9`, `F`, `I`) — a mudança não interage com o gate de lint.
+O texto do `ACF2` sugeria duas saídas: `no_color=True` nos `Console` de teste, ou
+comparar contra o texto sem ANSI. **Testei `no_color=True` e não é suficiente** — ele
+suprime cor mas não estilo (negrito). O caso real de falha usa `[bold]1[/bold]/[bold]2[/bold]`,
+que sob `FORCE_COLOR` produz `\x1b[1;33m1\x1b[0m\x1b[33m/\x1b[0m\x1b[1;33m2\x1b[0m` —
+`no_color=True` teria removido só o `33` (cor), deixando o `1` (negrito) e ainda quebrando
+a asserção de substring `1/2`.
+
+**`force_terminal=False` funciona** — testado nas mesmas condições exatas do repro
+(`FORCE_COLOR=3 COLORTERM=truecolor`): zero bytes ESC na saída, `1/2` intacto. É também o
+parâmetro documentado do `rich.Console` para forçar "não é terminal" independente do
+ambiente — não é gambiarra, é o uso pretendido do parâmetro. Confirmado sem efeito
+colateral em ambiente limpo: `Console(file=StringIO())` sem `force_terminal` já
+auto-detecta `isatty()==False` num `StringIO`, então passar `force_terminal=False`
+explicitamente é no-op fora do cenário `FORCE_COLOR`.
+
+### Escopo: todos os `Console` do arquivo de teste, não só os 4 que falham hoje
+
+`test_render_queue.py` tem **10** instanciações de `Console(...)`. Só 4 falham sob
+`FORCE_COLOR` hoje — as outras 6 sobrevivem por acidente de asserção (checam presença de
+símbolo isolado, ou uma sequência de caracteres tipo `"TAIL-MARKER"` que o `rich` não
+teria razão de estilizar caractere a caractere), não porque sejam robustas ao ambiente.
+Corrigir só as 4 deixaria as outras 6 na mesma condição de fragilidade latente — a mesma
+classe de "verde pelo motivo errado" que motivou fechar o `AJF3`, e o mesmo raciocínio que
+levou o Ciclo AO a trocar `ruff check enhance/` por `ruff check .` em vez de listar
+diretório por diretório, e o Ciclo AR a fixar `*.py text eol=lf` por padrão em vez de por
+arquivo. Este ciclo aplica `force_terminal=False` às **10** instanciações.
 
 ## Desenho
 
-**Decisão: normalizar os dois arquivos para LF, e fixar via `.gitattributes` para que a
-inconsistência não volte.** A alternativa seria pinar CRLF como intencional (o caminho que
-o Ciclo AK escolheu para os `.cube`) — mas não há razão técnica para isso aqui, e o
-próprio texto do `AKF1` já apontava que "renormalizar para LF" era uma das duas saídas
-válidas.
-
-**Regra do `.gitattributes`: `*.py text eol=lf`, não uma entrada por arquivo.** Duas
-razões, ambas já aplicadas neste projeto de sessão para sessão:
-
-1. Uma entrada por arquivo protege só os dois arquivos de hoje. Um `.py` novo, editado por
-   alguém com `core.autocrlf=true` (que é exatamente a config desta máquina — verificado
-   `git config --get core.autocrlf` → `true`), reintroduziria CRLF sem ninguém decidir
-   isso — a mesma classe de "lista que envelhece calada" que o `AJF1` denunciou no alvo do
-   pytest e que o Ciclo AO evitou ao trocar `ruff check enhance/` por `ruff check .` em vez
-   de listar diretório por diretório.
-2. `text eol=lf` força LF no checkout **independente** do `core.autocrlf` de quem clona —
-   fecha o vetor de recorrência, não só o sintoma atual.
-
-**Renormalização escopada, não repo-wide.** O `AK1` já tentou `git add --renormalize .`
-para o repo inteiro e foi revertido por estar fora de escopo — a lição já está registrada
-em `FINDINGS.md`. Este ciclo renormaliza só os dois arquivos nomeados no achado:
-`git add --renormalize cineon_pipeline.py enhance_visualizer.py`.
+Acrescentar `force_terminal=False` a cada `Console(...)` em `test_render_queue.py`. Só
+isso — nenhuma mudança em `render_queue.py` (código de produto). O acoplamento é
+inteiramente do lado do teste: os testes constroem seus próprios `Console` para capturar
+saída, e são esses objetos — não o `Console` real que a aplicação usa em produção — que
+precisam ser determinísticos.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AR1 | Acrescentar ao `.gitattributes`: `*.py text eol=lf`, com comentário explicando a decisão (por que LF, por que pattern e não arquivo a arquivo). Não tocar na entrada existente de `*.cube`. | executor | `.gitattributes` | `git diff --stat` mostra 1 arquivo, linha(s) adicionada(s), entrada de `.cube` intacta |
-| AR2 | `git add --renormalize cineon_pipeline.py enhance_visualizer.py` **só** nesses dois arquivos — não repo-wide. Confirmar que `git diff -b main..HEAD -- cineon_pipeline.py enhance_visualizer.py` (diff ignorando espaço em branco/EOL) é vazio, ou seja, a única mudança é terminador de linha. | executor | `cineon_pipeline.py`, `enhance_visualizer.py` | `file cineon_pipeline.py enhance_visualizer.py` reporta ASCII/UTF-8 sem CRLF; `git diff -b` vazio nos dois |
-| AR3 | Confirmar que nenhum outro arquivo do repo foi tocado pelo `--renormalize` escopado (`git status --porcelain` só deve listar os dois `.py` + `.gitattributes`), rodar suíte Python completa e `ruff check .`. | executor | — | `git status --porcelain -- '*.py' '.gitattributes'` só lista os 3 arquivos esperados; `461 passed`; `ruff check .` limpo |
-| AR4 | Fechar `AKF1` com CI real verde. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
+| AS1 | Acrescentar `force_terminal=False` a cada uma das 10 instanciações de `Console(...)` em `test_render_queue.py`. Nenhuma outra mudança no arquivo. Não tocar em `render_queue.py`. | executor | `test_render_queue.py` | `git diff` mostra só a adição do parâmetro, 10 ocorrências |
+| AS2 | Provar a correção sob as condições exatas do repro: `FORCE_COLOR=3 COLORTERM=truecolor python -m pytest test_render_queue.py -q` → `26 passed`, 0 failed. Rodar também em ambiente limpo (sem essas variáveis) e confirmar contagem idêntica — a mudança não pode alterar comportamento fora do cenário de bug. | executor | — | ambas as execuções, `26 passed` nas duas, colado em `STATE.md` |
+| AS3 | Suíte completa (`python -m pytest test_render_queue.py enhance/ ui/ tools/ -q`) sob `FORCE_COLOR=3 COLORTERM=truecolor` e sem — `461 passed` nos dois casos. Checar exit code real, não de pipe. | executor | — | `461 passed` × 2, exit 0 nos dois |
+| AS4 | Fechar `ACF2` com CI real verde. | Orquestrador | `.claude/memory/FINDINGS.md` | log real do CI |
 
-## Critério de aceite decisivo — diff semântico vazio
+## Critério de aceite decisivo — o teste do próprio bug
 
-A prova de que a renormalização não alterou comportamento não é "os testes passam" — é
-`git diff -b` (ignora mudança de espaço em branco/EOL) entre o commit antes e depois do
-AR2, restrito aos dois arquivos, vazio. Se aparecer qualquer linha nesse diff, algo além
-do terminador mudou e o ciclo para para eu investigar antes de prosseguir.
+A prova não é só "CI verde" — o CI nunca teve esse problema, porque o runner não exporta
+`FORCE_COLOR` (já registrado no achado original). A prova é rodar a suíte **com as
+variáveis do repro exportadas**, localmente, e confirmar `26 passed` em
+`test_render_queue.py` (22 que já passavam + os 4 que falhavam) e `461 passed` na suíte
+inteira. Um CI verde sem essa checagem local não teria detectado a doença nem detecta a
+cura.
 
 ## Critérios de aceite
 
-- `.gitattributes` ganha só a entrada `*.py text eol=lf` (mais comentário). A entrada de
-  `*.cube -text` do Ciclo AK fica intacta.
-- `cineon_pipeline.py` e `enhance_visualizer.py` passam a ter blob e worktree em LF.
-  Nenhum outro arquivo é tocado pela renormalização.
-- `git diff -b` vazio nos dois arquivos entre antes/depois — só terminador de linha mudou.
-- Suíte Python: `461 passed`, sem regressão.
-- `ruff check .`: limpo, sem violação nova (confirma que o Ciclo AO segue cobrindo o
-  repo inteiro sem reação à mudança de EOL).
-- CI real verde nos jobs de `ci.yml` e `pylint.yml`. O Pester não toca nesses dois
-  arquivos Python — não há razão para variar, mas confirmar `Tests Passed: 91` mesmo assim,
-  por disciplina.
+- `test_render_queue.py` é o único arquivo alterado. `render_queue.py` (produto)
+  permanece intocado.
+- As 10 instanciações de `Console(...)` recebem `force_terminal=False`; nenhum outro
+  parâmetro, assert, ou estrutura de teste muda.
+- `FORCE_COLOR=3 COLORTERM=truecolor pytest test_render_queue.py -q` → `26 passed`.
+- Suíte completa sob as mesmas variáveis → `461 passed`.
+- Suíte completa em ambiente limpo → `461 passed`, contagem idêntica (a mudança não
+  altera nada fora do cenário de bug).
+- CI real verde (o CI não reproduz o bug, mas confirma ausência de regressão nas
+  plataformas de produção).
 
 ## Notas de execução
 
-- Não normalizar CRLF→LF por edição manual de texto (sed, Edit tool linha a linha) — usar
-  `git add --renormalize`, que é a ferramenta correta para isso e não arrisca introduzir
-  diferença de conteúdo por acidente de encoding.
-- Não rodar `git add --renormalize .` (sem escopo) — é exatamente o que o `AK1` fez e foi
-  revertido. Nomear os dois arquivos explicitamente no comando.
-- Não tocar na entrada `*.cube -text` existente no `.gitattributes`, nem em qualquer outro
-  arquivo além dos dois nomeados no achado.
-- **Nunca usar `git add -A` nem `git add .`** — o repositório tem arquivos não rastreados
+- Não tocar em `render_queue.py`. O acoplamento é só do lado do teste.
+- Não usar `no_color=True` — testado e insuficiente (não remove negrito). Usar
+  `force_terminal=False`.
+- Não usar `NO_COLOR=1` como variável de ambiente do CI ou de wrapper de teste — a
+  correção é no construtor do `Console`, não uma variável de ambiente adicional para
+  lembrar de exportar.
+- **Nunca use `git add -A` nem `git add .`** — o repositório tem arquivos não rastreados
   (`961576A_Hollywood_2Pass.qc.html`, `961576A_Hollywood_2Pass.qc.json`,
   `docs/fila-interrupcao.md`, `docs/launcher-portavel-reels-encoder.md`,
   `docs/windows-ci-e-interrupcao-robusta.md`, `testResults.xml`, `videos/`) que não
   pertencem a ciclo nenhum. Adicionar por caminho explícito.
-- Ao verificar a suíte pós-mudança, checar o exit code real do `pytest`, não o de um pipe
-  (`| tail`) — armadilha já registrada em `STATE.md` § "Ciclo AP", e que se repetiu na
-  minha própria verificação do merge do Ciclo AP.
-- Não fechar o ciclo com base em execução local. A prova é log real do CI.
+- Ao verificar suíte, checar o exit code real do `pytest`, nunca o de um `| tail` —
+  armadilha já registrada em `STATE.md` § "Ciclo AP" e repetida no `AR3`.
+- Ao anexar sua seção ao `STATE.md`, começar com `## Ciclo AS` e cabeçalho de tabela.
+- Não fechar o ciclo com base só em CI verde — o CI não reproduz o cenário do bug. A prova
+  decisiva é a execução local com `FORCE_COLOR`/`COLORTERM` exportados.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
