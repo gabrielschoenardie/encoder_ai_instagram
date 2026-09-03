@@ -1063,3 +1063,56 @@ Namespace inválido ao dispatch.
 Com `ALF1` e `J-b` (este último ainda aberto), a fila de findings da sessão fica: **`J-b`
 e `UF2` abertos**; todo o resto priorizado pelo usuário nesta sessão (`AJF4`/`ABF3`/`I-a`,
 `UF3`, `AQF1`, `AKF1`, `ACF2`, `ALF1`) fechado com CI real.
+
+### Fechamento — `J-b` corrigido, `AUF1` registrado (Ciclo AU, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| J-b | **corrigido** | APÊNDICE A já fora corrigido em `9b6ed26` (julho, "fechar J-b e I-a"); lista irmã (linhas 121-129) fechada por `1f0134c` (Ciclo AU) |
+
+**O `J-b` como escopado já estava corrigido** e nunca fora marcado fechado — terceiro caso
+do mesmo padrão nesta sessão (depois de `I-a` no Ciclo AO e do reconhecimento de
+`XF2`/`XF3`/`AJF1` no Ciclo AN). O commit `9b6ed26`, de 2026-07-25, trocou a lista
+defasada do `APÊNDICE A` pelo ponteiro `pip install -e .[opencv]` + "deps reais no
+pyproject.toml" — exatamente o fix que o achado recomendava.
+
+**Mas o achado citou o range errado.** O mesmo defeito (lista de pacotes à mão, divergente
+do `pyproject.toml`) sobrevivia nas linhas 121-129 do manual, no bloco "Isso vai
+instalar:", faltando `pydantic` e `scipy` — os dois pacotes exatos que o texto do `J-b`
+nomeia como ausentes. O Ciclo AU acrescentou as duas linhas, com descrição baseada no uso
+real (`pydantic` → `ui/config.py`; `scipy` → `enhance/analyzers/`). A lista descritiva tem
+valor de UX num manual de usuário final, então corrigiu-se o conteúdo preservando a forma —
+diferente do apêndice, que virou ponteiro.
+
+Prova: nada testa o manual, então CI verde (run do merge, `ci.yml` + `pylint.yml` success)
+só atesta ausência de regressão de código. A correção da doc está no `git diff`: as duas
+linhas certas, lista batendo com as deps core do `pyproject.toml` menos `matplotlib`
+(deliberado). Suíte `467 passed`, inalterada.
+
+### Achado novo — `AUF1` (dep declarada e não usada)
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| AUF1 | dep declarada e não usada | `pyproject.toml:29` (`"matplotlib>=3.9,<4"`) | `matplotlib` é dependência core declarada mas não importada em nenhum arquivo do repo | S4 | esperado: toda dep core tem uso; medido: `git grep matplotlib` só acha a própria declaração |
+
+- **AUF1 (S4):** descoberto verificando a lista do manual contra o código no Ciclo AU.
+  `scipy` (`enhance/analyzers/banding.py`, `detail.py`) e `pydantic` (`ui/config.py`) são
+  deps reais e usadas; `matplotlib` não tem nenhum `import` em arquivo rastreado. Instala
+  em todo ambiente (é dep core, entra no `pip install -e .`) sem propósito conhecido.
+  Classe diferente do `J-b` (dep morta no pacote, não doc defasada). **Deliberadamente não
+  adicionado ao manual pelo Ciclo AU** — documentar uma dep que pode ser removida
+  entrincheiraria um possível erro. Decisão do usuário em ciclo próprio: remover de
+  `pyproject.toml` (reduz o footprint de instalação), ou confirmar que há uso não-óbvio
+  (import dinâmico, script de asset, uso futuro planejado) e registrar a intenção. Antes de
+  remover, verificar: `tools/`, geração de assets, e qualquer `importlib`/`__import__`
+  dinâmico que o grep estático não pega.
+
+### Estado da fila de findings da sessão
+
+Todos os itens priorizados pelo usuário nesta sessão estão fechados com evidência real:
+`AJF4`/`ABF3`/`I-a` (AO), `UF3` (AP), `AQF1` (AQ), `AKF1` (AR), `ACF2` (AS), `ALF1` (AT),
+`J-b` (AU). Seguem abertos, fora da fila original:
+
+- **`UF2` (S3):** nenhuma perna de CI roda Windows PowerShell 5.1, o motor de produção do
+  `launcher.ps1`. Maior severidade em aberto; o único que exige mexer na matriz do CI.
+- **`AUF1` (S4):** `matplotlib` declarado e não usado (acima).
