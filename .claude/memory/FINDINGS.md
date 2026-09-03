@@ -752,3 +752,66 @@ Nenhum bug novo apareceu em `_load_cube_file` durante a cobertura. Segue aberto 
 inventário: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção do
 `launcher.ps1` e único onde o `QF1` reproduzia), `UF3`, `AJF4`/`ABF3`/`I-a` (lint só em
 `enhance/`), `AKF1`, `ALF1`, `J-b`, `ACF2`.
+
+### Fechamento — `AJF4`, `ABF3` e `I-a` corrigidos (Ciclo AO, 2026-09-03)
+
+Os três achados descrevem o **mesmo** gap, abertos em ciclos diferentes: o job `Lint (ruff)`
+rodava `ruff check enhance/`, deixando `ui/`, `tools/`, os módulos da raiz e
+`.claude/skills/.../scripts/` sem lint automatizado.
+
+| ID | status | onde |
+|----|--------|------|
+| AJF4 | **corrigido** | `9f895b7` (`ci.yml:25`) + `c721496` (matriz do gate) |
+| ABF3 | **corrigido** | idem — mesma linha, mesmo gap |
+| I-a | **corrigido** | idem, com a ressalva do débito abaixo |
+
+Evidência: run `33758949898`, 7/7 jobs `success`. Confirmado no log que o job `Lint (ruff)`
+executou o alvo novo (`Run ruff check . --output-format=github`), não apenas que ficou
+verde.
+
+Mudança: uma linha em `.github/workflows/ci.yml:25`.
+
+```yaml
+-run: ruff check enhance/ --output-format=github
++run: ruff check . --output-format=github
+```
+
+**O débito de 58 violações do `I-a` já não existia.** O achado registra "58 erros
+E4/E7/E9/F fora de `enhance/`; só 17 auto-fixáveis", medido em 2026-07-25 — e foi esse
+número que justificou adiar o item por seis ciclos, inclusive na recomendação que o
+Orquestrador deu ao usuário no início desta sessão ("destampa uma pilha de violações que
+precisam de triagem antes de virar gate"). Medição de hoje, mesmo `ruff 0.14.10` do CI e
+mesmo `select` do `pyproject.toml`: **0 violações no repo inteiro**, 72 arquivos. O débito
+foi pago em algum ciclo entre julho e hoje sem que nenhum dos três achados fosse
+atualizado.
+
+Terceiro caso do mesmo padrão em duas sessões, depois de `XF2`, `XF3` e `AJF1`
+(reconciliados no Ciclo AN). **O padrão em si merece atenção:** achado que registra uma
+medição numérica envelhece pior do que achado que registra um defeito estrutural, porque o
+número continua parecendo verdade e vira a razão de adiar. Vale remedir antes de citar
+número de achado antigo — foi o que transformou este ciclo de "triagem cara" em uma linha.
+
+**Por que o CI verde não seria prova.** O CI já estava verde antes, com o alvo estreito.
+Um gate que não gateia é indistinguível de um que funciona enquanto o código está limpo — e
+o código está limpo. A prova é a injeção do AO2, com reversão: em `ui/probe.py`,
+`tools/verificador_instalacao.py`, `ebu_meter.py` e
+`.claude/skills/.../analyze_source.py`, `ruff check enhance/` passa cego e `ruff check .`
+pega de 4 a 6 erros. Tabela completa em `STATE.md` § "Ciclo AO".
+
+Escolha de `.` em vez de lista de diretórios: o ruff respeita o `.gitignore` (verificado —
+`venv/` e `audit_tmp/` fora) e cobre diretório novo automaticamente. Listar à mão recria a
+classe de defeito que o `AJF1` denunciou, quando `tools/` ficou fora do alvo do pytest sem
+ninguém notar.
+
+Verificado e **não** alterado: os `per-file-ignores` do `pyproject.toml` mascaram 15 erros,
+os quatro legítimos e já comentados no próprio arquivo (imports de probe em
+`try/except ImportError`, `import version` que é o próprio smoke-check, `E402` depois de
+`sys.path.insert`).
+
+Verificado e **não** aplicável aqui: o ruff já estava pinado no CI (`ci.yml:22`,
+`ruff==0.14.10`), então o risco de versão flutuante do `UF3` não existe neste job, e a
+medição local é fiel ao CI. O `UF3` (Pester com `-MinimumVersion` sem teto) segue aberto e
+é literalmente a versão Pester do problema que o ruff não tem.
+
+Seguem abertos: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção
+do `launcher.ps1`), `UF3`, `AKF1`, `ALF1`, `J-b`, `ACF2`.
