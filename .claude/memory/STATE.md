@@ -3355,3 +3355,36 @@ Suíte completa pós-ciclo: `python -m pytest test_render_queue.py enhance/ ui/ 
 | `.claude/skills/instagram-reels-encoder/scripts/analyze_source.py` | All checks passed! | 6 erros (E401, E402, I001, F401, F811, E702) |
 
 Suíte completa pós-ciclo: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed`, sem regressão (baseline). `ruff check .` no repo inteiro após reversão: `All checks passed!`.
+## Ciclo AP
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AP1 | done | `.github/workflows/ci.yml` | `Install-Module`/`Import-Module Pester -MinimumVersion 5.5.0` → `-RequiredVersion 5.7.1` nas duas linhas do job `pester`. `git diff --stat` confirma 1 arquivo, `2 insertions(+), 2 deletions(-)`. Commit `db0ec13`. |
+| AP2 | done | `.claude/memory/STATE.md` | 3/3 medido localmente com `pwsh 7.5.1` (só 5.7.1 instalada). Detalhe abaixo. |
+
+### AP2 — evidência de que `-RequiredVersion` vincula
+
+(a) `Import-Module Pester -RequiredVersion 5.7.1; (Get-Module Pester).Version`:
+```
+Major Minor Build Revision
+----- ----- ----- --------
+5     7     1     -1
+```
+Carregou 5.7.1, como esperado.
+
+(b) Sessão limpa, `Import-Module Pester -RequiredVersion 9.9.9`:
+```
+Import-Module: The specified module 'Pester' with version '9.9.9' was not loaded because no valid module file was found in any module directory.
+```
+Falhou alto (exit code 1), não degradou para outra versão — confirma que o flag vincula.
+
+(c) `Import-Module Pester -RequiredVersion 5.7.1; Invoke-Pester -Path ./tests -CI`:
+```
+Starting discovery in 2 files.
+Discovery found 91 tests in 270ms.
+...
+Tests Passed: 91, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 0
+```
+Banner de 5.x (`Starting discovery in`), `91` testes, todos passando, sob o pin.
+
+Suíte Python inalterada: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed`.
