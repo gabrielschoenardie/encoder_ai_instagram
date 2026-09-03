@@ -1,144 +1,154 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AM: cobrir a lógica de rotação de `ui/probe.py` (fecha AJF3)
+# PLAN — Ciclo AN: leitura de `.cube` independente de plataforma (fecha ACF1, fecha ANF1)
 
-Data: 2026-08-26 | Ciclo: AM | Origem: `.claude/memory/FINDINGS.md` § `AJF3`, aberto na varredura do Ciclo AJ e deixado fora do escopo dos Ciclos AK e AL.
+Data: 2026-09-03 | Ciclo: AN | Origem: `.claude/memory/FINDINGS.md` § `ACF1`, aberto no Ciclo AC (Task 4) e adiado desde então.
 
 ## Diagnóstico
 
-`ui/probe.py:19-78` expõe `probe_source_dims(path)`, que `ui/launcher.py:105`
-chama a cada volta do loop de preview para orientar o viewer do Program. A
-função faz três coisas: monta o argv do ffprobe, parseia o JSON, e decide se
-troca largura por altura.
+`cineon_pipeline.py:810` (`LUT3D._load_cube_file`) abre o `.cube` sem `encoding=`:
 
-Os únicos dois testes que existem (`ui/test_probe.py:6-13`) afirmam
-`probe_source_dims(...) is None` — e chegam nesse `None` por caminhos
-**diferentes** em cada ambiente:
+```python
+with open(path, "r") as f:
+```
 
-- **local:** o binário `ffprobe` existe, o arquivo não; `check_output` levanta
-  `CalledProcessError` e o `except Exception` devolve `None`.
-- **CI:** não há ffmpeg no PATH; `check_output` levanta `FileNotFoundError`
-  antes de qualquer coisa, e o mesmo `except` devolve o mesmo `None`.
+Cai no default da plataforma — `cp1252` no Windows, `utf-8` no Linux. É código de
+produto, não de teste, e é alcançável pelo usuário final: `--cineon-lut`
+(`Reels_Encoder_v2_FINAL.py:4300`) aceita caminho arbitrário de `.cube`, e o call site é
+`Reels_Encoder_v2_FINAL.py:3294`, dentro de `run_ffmpeg_with_cineon`. Resolve e FCPX
+gravam UTF-8.
 
-Dois caminhos de código distintos, mesmo resultado observável, e **nenhum dos
-dois entra no parse**. Tudo entre as linhas 43 e 75 — parse, leitura de
-`stream_tags`, leitura de Display Matrix, precedência de `format_tags`, e a
-troca de rotação — nunca executa em teste nenhum.
+Agrava que as linhas imediatamente acima (`:3285-3287`) validam `os.path.exists` com
+mensagem vermelha amigável, e aí a linha seguinte estoura traceback cru.
 
-Isso é diferente dos outros achados abertos: `AJF4` e `AKF1` são débito
-conhecido e estável. Aqui o teste **afirma um verde que não prova nada sobre a
-lógica que ele parece cobrir** — e a lógica em questão é a que decide se o
-usuário vê o preview do Reel na orientação certa.
+### O repro registrado no `ACF1` está errado — medido nesta investigação
 
-**Segundo fato, medido nesta investigação e não registrado no `AJF3`
-original:** `get_input_resolution` (`Reels_Encoder_v2_FINAL.py:947-1012`) é o
-gêmeo de onde `probe.py` foi copiado — argv idêntico, parse idêntico, mesmo
-conjunto `(90, -90, 270, -270)`. Também tem **zero teste** (`grep
-get_input_resolution` em `*test*.py` → nenhum match). As duas diferenças são
-deliberadas: `probe` devolve `None` e é silenciosa, o motor devolve `(0, 0)` e
-imprime. O docstring de `probe.py:23` afirma "Mirrors the engine's rotation
-swap" — hoje nada guarda essa afirmação contra drift.
+O achado afirma que `TITLE "Portra 400 — Skin"` já basta para estourar em Windows. **Não
+basta.** O travessão existe em cp1252 (`0x97`); decodifica como mojibake, sem exceção, e o
+parser descarta a linha `TITLE` de qualquer forma. Quem tentasse verificar o `ACF1` pelo
+repro documentado concluiria que não é bug.
+
+O que quebra de fato é acentuada **maiúscula** cujo segundo byte UTF-8 cai num slot
+indefinido do cp1252 — `Á` (`C3 81`), `Í` (`C3 8D`), `Ï` (`C3 8F`), `Ð` (`C3 90`),
+`Ý` (`C3 9D`):
+
+```
+TITLE "ÁGUA Film Look"
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x81 in position 8
+```
+
+Minúsculas acentuadas (`á`, `ç`, `ã`), travessão e emoji passam. O caso real é LUT
+titulada em caixa alta em português — `CINEMATOGRÁFICO`, `ÁGUA` — que é convenção comum
+de colorista.
+
+### Achado novo descoberto no planejamento: `ANF1` (BOM)
+
+Um `.cube` gravado com BOM UTF-8 e `LUT_3D_SIZE` na **primeira** linha já falha hoje, em
+**qualquer** plataforma: o BOM vira prefixo da primeira linha, `line.startswith("LUT_3D_SIZE")`
+nunca casa, e o parser levanta `ValueError: LUT_3D_SIZE não encontrado` — mensagem que
+aponta para a causa errada. É defeito independente do `ACF1`, na mesma função, e a mesma
+linha conserta os dois. Registrado como `ANF1` e fechado por este ciclo, não adiado.
 
 ## Desenho
 
-Injetar `subprocess.check_output` por `monkeypatch` em `ui.probe` e alimentar
-payloads de ffprobe sintéticos. Nenhum ffmpeg, nenhum arquivo de vídeo,
-nenhuma fixture binária no repo — o mesmo princípio que fechou o `AIF1`.
+O fix de uma linha prescrito no `ACF1` (`encoding="utf-8"`) é **insuficiente e
+regressivo**. Matriz medida no planejamento — quatro `.cube` reais gravados em disco,
+lidos pelo parser real:
 
-Formato dos payloads: bytes de JSON como o ffprobe realmente emite. Dois
-detalhes de fidelidade que **não** podem ser "limpos":
+| caso | hoje (default) | `utf-8` | `utf-8-sig` | `utf-8-sig` + `errors="replace"` |
+|---|---|---|---|---|
+| BOM, `LUT_3D_SIZE` na 1a linha | ✗ sem SIZE | ✗ sem SIZE | ✓ | ✓ |
+| UTF-8, `TITLE "ÁGUA"` | ✗ Windows / ✓ Linux | ✓ | ✓ | ✓ |
+| cp1252, `TITLE "ÁGUA"` | ✓ Windows / ✗ Linux | ✗ | ✗ | ✓ |
+| ASCII puro (a LUT do repo) | ✓ | ✓ | ✓ | ✓ |
 
-- `stream_tags=rotate` vem como **string** (`"rotate": "90"`), não int.
-- Display Matrix vem como **float negativo** (`"rotation": -90.000000`) — é
-  essa a forma do caso iPhone vertical.
+`encoding="utf-8"` troca um crash por outro: mata o caso UTF-8 e passa a matar o caso
+cp1252, que hoje funciona em Windows. Só a última coluna é verde nas quatro linhas.
 
-Um payload que use int onde o ffprobe usa string testa um contrato que não
-existe.
+**Decisão: `open(path, "r", encoding="utf-8-sig", errors="replace")`.**
 
-### Matriz de decisão a cobrir
-
-| entrada | rotação efetiva | dims 1920x1080 viram |
-|---|---|---|
-| sem tag, sem side_data | 0 | 1920x1080 |
-| `stream_tags.rotate = "90"` | 90 | 1080x1920 |
-| `stream_tags.rotate = "180"` | 180 | 1920x1080 (sem swap) |
-| `stream_tags.rotate = "270"` | 270 | 1080x1920 |
-| Display Matrix `rotation = -90.0` | -90 | 1080x1920 |
-| tag `"90"` + Display Matrix `rotation = 0` | 90 | 1080x1920 (o 0 **não** apaga a tag) |
-| tag `"180"` + `format_tags.rotate = "90"` | 180 | 1920x1080 (format só vale se stream deu 0) |
-| sem stream rot + `format_tags.rotate = "90"` | 90 | 1080x1920 |
-| `streams: []` | — | `None` |
-| `width: 0` | — | `None` |
-
-### Os dois testes existentes
-
-Não são deletados — a degradação graciosa é comportamento real e vale teste.
-São **tornados determinísticos**: cada um passa a injetar a exceção que
-pretende testar (`FileNotFoundError` para binário ausente, `CalledProcessError`
-para caminho inválido), de modo que local e CI percorram o mesmo caminho. O
-`JSONDecodeError` de saída corrompida ganha o seu.
+Justificativa do `errors="replace"`, que normalmente seria suspeito: este parser consome
+exclusivamente `LUT_3D_SIZE` e linhas numéricas, ambas ASCII em qualquer `.cube` real. Ele
+**descarta** `TITLE`, comentários `#` e `LUT_3D_INPUT_RANGE`. Byte indecodificável só pode
+aparecer nos campos descartados, então substituí-lo não perde informação que o parser use
+— e é a diferença entre abortar o encode e ignorar um caractere de um título que já era
+ignorado. Se o parser um dia passar a ler `TITLE`, esta decisão precisa ser revisitada.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AM1 | Reescrever `ui/test_probe.py`: helper de payload, a matriz de rotação inteira da tabela acima, e os três testes de degradação determinísticos (`FileNotFoundError`, `CalledProcessError`, `JSONDecodeError`). Sem ffmpeg, sem fixture em disco. | executor | `ui/test_probe.py` | done (`045192e`) |
-| AM2 | Teste de contrato do argv: afirmar que o comando montado contém `stream=width,height:stream_tags=rotate:side_data:format_tags=rotate` e o `path` recebido. | executor | `ui/test_probe.py` | done (`045192e`) |
-| AM3 | Guarda de drift: um teste que roda o **mesmo** payload por `probe_source_dims` e por `get_input_resolution` e afirma que as dims batem. Escopo estrito: um único teste, sem tocar em `Reels_Encoder_v2_FINAL.py`. | executor | `ui/test_probe.py` | done (`045192e`), reforçado em AM3-b |
-| AM4 | Matriz de mutação: aplicar cada mutante M1-M8 em `ui/probe.py`, rodar `pytest ui/test_probe.py`, registrar qual teste morre, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | done (`dc1837b`), 8/8 mortos |
-| AM2-b | Acrescentar ao contrato de argv a asserção de `-select_streams v:0`. Sem isso, o ffprobe passa a devolver todos os streams e `streams[0]` pode ser áudio — regressão que payload sintético nunca pega. | executor | `ui/test_probe.py` | done (`d78274d`), mata M10 |
-| AM3-b | Parametrizar a guarda de drift sobre a matriz inteira (`ROTATION_MATRIX_CASES`), preservando o contrato assimétrico: `probe` devolve `None` onde o motor devolve `(0, 0)`. | executor | `ui/test_probe.py` | done (`d78274d`), mata M9 |
-| AM5 | Fechar o ciclo com CI real verde e marcar `AJF3` corrigido. | Orquestrador | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md`, `.claude/memory/PLAN.md` | log real do CI, não execução local |
+| AN1 | Trocar `open(path, "r")` por `open(path, "r", encoding="utf-8-sig", errors="replace")` em `_load_cube_file`. Uma linha. Nada mais no arquivo. | executor | `cineon_pipeline.py` | `git diff --stat` mostra 1 arquivo, 1 linha |
+| AN2 | Testes em `enhance/test_cineon_lut.py`: parametrizar sobre os 4 casos da matriz, gravando `.cube` reais em `tmp_path` com `encoding=` explícito (`utf-8-sig`, `utf-8`, `cp1252`, `ascii`) e `newline=""`. Cada caso afirma `lut.lut_size == 2` após `LUT3D(str(p))`. | executor | `enhance/test_cineon_lut.py` | 4 casos passam; ver critério de simetria abaixo |
+| AN3 | Matriz de mutação: aplicar M1-M4 em `cineon_pipeline.py`, rodar `pytest enhance/test_cineon_lut.py`, registrar qual teste morre, **reverter**. Colar a tabela medida em `STATE.md`. | executor | `.claude/memory/STATE.md` | 4/4 mutantes mortos, `git diff --stat -- cineon_pipeline.py` vazio ao fim |
+| AN4 | Corrigir o repro do `ACF1` no registro (o travessão não quebra; `Á`/`Í`/`Ï`/`Ð`/`Ý` quebram), registrar `ANF1`, marcar os dois fechados. | Orquestrador | `.claude/memory/FINDINGS.md` | — |
+| AN5 | Fechar o ciclo com CI real verde. | Orquestrador | `.claude/memory/STATE.md` | log real do CI, não execução local |
 
-**Correção de escopo durante a execução (AM2-b, AM3-b).** A revisão do AM1-AM4
-achou duas fraquezas que eram subespecificação deste plano, não erro do
-executor: o AM3 original pedia "um único teste" de drift, e um teste que cobre
-1 dos 10 casos da matriz não guarda contra divergência em ângulo negativo,
-Display Matrix ou precedência de `format_tags` — que é onde drift acontece. E
-o AM2 original não cobria `-select_streams v:0`. As duas viraram item próprio
-em vez de emenda silenciosa, com dois mutantes novos (M9, M10) para provar que
-fecham de fato.
+## Critério de simetria de plataforma (a lição do AJF3)
 
-## Matriz de mutação (AM4) — mutantes obrigatórios
+Este é o ponto que decide se o ciclo vale alguma coisa. Antes do AN1, o conjunto de
+testes do AN2 tem de ficar **vermelho nos dois SOs**, por casos diferentes:
 
-| # | mutante em `ui/probe.py` | o que ele quebra |
-|---|---|---|
-| M1 | deletar `width, height = height, width` (linha 71) | swap nunca acontece |
-| M2 | `if rotation in (90, 270)` (linha 70) | ângulos negativos param de rodar |
-| M3 | `if rot != 0` → sempre verdadeiro (linha 62) | Display Matrix 0 apaga a tag do stream |
-| M4 | remover o guard `if rotation == 0:` (linha 65) | `format_tags` passa a ganhar do stream |
-| M5 | deletar o bloco `if "rotate" in tags` (56-57) | `stream_tags` ignorado |
-| M6 | deletar o loop de `side_data_list` (59-63) | Display Matrix ignorado |
-| M7 | `if width > 0 and height > 0` → sempre verdadeiro (73) | devolve `(0, 0)` em vez de `None` |
-| M8 | tirar `stream_tags=rotate` do `-show_entries` (35) | ffprobe para de emitir a tag; **só o AM2 pega** |
+- **Windows** (`cp1252`): o caso UTF-8 `ÁGUA` estoura `UnicodeDecodeError`; o caso cp1252 passa.
+- **Linux** (`utf-8`): o caso cp1252 `ÁGUA` estoura `UnicodeDecodeError`; o caso UTF-8 passa.
+- **Ambos**: o caso BOM levanta `ValueError`.
 
-M8 é o motivo do AM2 existir: testes que injetam JSON sintético continuam todos
-verdes com o argv quebrado, porque o payload vem de dentro do teste. Sem o
-teste de contrato do comando, a cobertura nova teria a mesma doença do `AJF3`.
+Os dois casos acentuados são complementares de propósito — sozinho, cada um seria verde
+por acidente numa das pernas do CI, que é exatamente a doença que o `AJF3` denunciou. Um
+conjunto que só contivesse o caso UTF-8 passaria verde no Linux antes do fix e ninguém
+notaria.
+
+## Matriz de mutação (AN3)
+
+| # | mutante em `cineon_pipeline.py:810` | o que ele quebra | esperado |
+|---|---|---|---|
+| M1 | voltar para `open(path, "r")` | default da plataforma | vermelho nos dois SOs, por casos diferentes |
+| M2 | `encoding="utf-8"` (o fix prescrito no `ACF1`) | mata BOM e cp1252 | casos BOM e cp1252 vermelhos, os outros 2 verdes |
+| M3 | `encoding="utf-8"` + `errors="replace"` | BOM sobrevive na 1a linha | só o caso BOM vermelho |
+| M4 | `encoding="utf-8-sig"` sem `errors` | header legado estoura | só o caso cp1252 vermelho |
+
+M2, M3 e M4 existem para provar que cada metade da decisão é necessária: um mutante que
+sobrevive significa que aquele pedaço do fix não está sendo testado, e o `errors="replace"`
+ou o `-sig` viraria escolha não justificada por medição.
+
+**Correção de plano (AN3).** A coluna "esperado" do M2 dizia originalmente "caso cp1252
+vermelho, os outros 3 verdes", o que contradiz a matriz do § Desenho — onde a coluna
+`utf-8` já mostra o caso BOM como `✗ sem SIZE`. O executor mediu `bom` + `cp1252`,
+registrou a divergência em `STATE.md` em vez de dobrar o medido para bater com a
+narrativa, e não bloqueou o item porque o critério de aceite real ("ao menos um teste em
+FAIL") estava satisfeito. Erro meu de redação da tabela, não do executor nem da decisão
+técnica; a linha acima está corrigida.
+
+**Como o M2 fecha a metade Linux do critério de simetria.** O AN3 roda numa máquina
+Windows, então o M1 (default da plataforma) só exercita a perna cp1252. Mas o M2 **é** o
+default do Linux: ler com `encoding="utf-8"` é exatamente o que a perna Ubuntu faz hoje sem
+`encoding=`. Que o M2 derrube `bom` + `cp1252` é, portanto, medição direta de que o estado
+pré-fix é vermelho também no Linux — por casos diferentes dos que derrubam o Windows
+(`bom` + `utf8`, via M1). A simetria fica provada pela matriz de mutação, sem depender de
+rodar o CI com o mutante aplicado.
 
 ## Critérios de aceite
 
-- `ui/probe.py` **não é modificado**. O ciclo é sobre cobrir comportamento
-  existente, não corrigi-lo. Se a cobertura revelar bug, ele vai para
-  `FINDINGS.md` como achado novo — não é consertado aqui.
-- Os testes rodam com o PATH sem ffmpeg. Prova: `pytest ui/test_probe.py` num
-  shell onde `shutil.which("ffprobe")` é `None`.
-- Cada um dos 8 mutantes tem ao menos um teste em FAIL na tabela do AM4. Um
-  mutante que sobrevive é cobertura de fachada — é a coisa exata que o `AJF3`
-  denuncia, e reintroduzi-la reprova o ciclo.
-- Suíte completa: `435 passed` + os testes novos, sem regressão.
-- CI real verde nos 7 jobs.
+- `cineon_pipeline.py` muda em **exatamente uma linha**. Nenhuma outra alteração no
+  arquivo — sem refactor do parser, sem tratar `TITLE`, sem mensagem de erro nova.
+- Os 4 mutantes têm ao menos um teste em FAIL na tabela do AN3.
+- A LUT real do repo (`FilmLook_Portra400_SkinPriority_D65.cube`, ASCII, `TITLE` na 1a
+  linha) continua carregando — os dois testes existentes de `test_cineon_lut.py`
+  (`test_roundtrip_neutral_ramp_transparente`, `test_roundtrip_white_atinge_pico`) seguem
+  verdes sem alteração.
+- Suíte completa: `457 passed` + os testes novos, sem regressão.
+- CI real verde nos 7 jobs, com atenção às pernas Windows **e** Ubuntu — a simetria é o
+  produto deste ciclo.
 
 ## Notas de execução
 
-- Payloads fiéis ao ffprobe: `rotate` string, `rotation` float negativo. Não
-  "normalizar" para int.
-- `monkeypatch.setattr("ui.probe.subprocess.check_output", fake)` — o
-  `monkeypatch` do pytest restaura sozinho; não usar `try/finally` à mão.
-- **Reverter cada mutante do AM4 antes do próximo.** Rodar `git diff --stat --
-  ui/probe.py` no fim do AM4 e confirmar vazio.
-- Não tocar em `ui/launcher.py`, `ui/components.py`, nem no
-  `Reels_Encoder_v2_FINAL.py`. O AM3 só **importa** `get_input_resolution`.
-- Se `get_input_resolution` imprimir no console durante o AM3, isso é esperado
-  (`Reels_Encoder_v2_FINAL.py:995`) — não silenciar mexendo no motor.
+- Gravar os `.cube` de teste com `newline=""` para que o conteúdo em disco não dependa do
+  SO que rodou o teste.
+- **Não** consertar `audit_tmp/audit_lut.py:43`, que tem o mesmo `open(path, "r")`: o
+  diretório não é rastreado pelo git (`git ls-files audit_tmp/` = vazio). Não é código de
+  produto.
+- Não tocar em `Reels_Encoder_v2_FINAL.py`. O call site (`:3294`) e a validação de
+  existência (`:3285-3287`) ficam como estão.
+- **Reverter cada mutante do AN3 antes do próximo.** Rodar `git diff --stat --
+  cineon_pipeline.py` no fim do AN3 e confirmar vazio.
 - Não fechar o ciclo com base em execução local. A prova é log real do CI.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.

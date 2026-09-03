@@ -624,3 +624,131 @@ preserva o contrato assimétrico deliberado: `probe_source_dims` devolve `None` 
 
 Nenhum bug novo em `ui/probe.py` apareceu durante a cobertura. `AJF4`, `AKF1` e `ALF1`
 seguem abertos — fora do escopo do Ciclo AM.
+
+## Correção de registro + achado novo — 2026-09-03 (planejamento do Ciclo AN)
+
+Origem: varredura a pedido do usuário ("existe algo altamente crítico ainda?"), seguida do
+planejamento do Ciclo AN. Tudo abaixo foi **medido**, gravando `.cube` reais em disco e
+lendo-os pelo parser real — não inferido do código.
+
+### `ACF1` — o repro registrado estava errado
+
+A entrada original do `ACF1` (Ciclo AC, 2026-08-18) afirma que um `TITLE "Portra 400 — Skin"`
+em UTF-8 "já basta para estourar em Windows". **Não basta, e isso foi verificado.** O
+travessão `—` existe em cp1252 (`0x97`): decodifica como mojibake, sem exceção. E o parser
+descarta a linha `TITLE` de qualquer forma — só consome `LUT_3D_SIZE` e as linhas
+numéricas. Quem tentasse confirmar o `ACF1` pelo repro documentado concluiria que não é
+bug e fecharia o achado como inválido.
+
+O bug é real; o repro é que estava errado. O que quebra de fato é acentuada **maiúscula**
+cujo segundo byte UTF-8 cai num slot indefinido do cp1252 — `Á` (`C3 81`), `Í` (`C3 8D`),
+`Ï` (`C3 8F`), `Ð` (`C3 90`), `Ý` (`C3 9D`):
+
+```
+TITLE "ÁGUA Film Look"
+UnicodeDecodeError: 'charmap' codec can't decode byte 0x81 in position 8
+```
+
+Minúsculas acentuadas (`á`, `ç`, `ã`), travessão e emoji passam. O caso realista é LUT
+titulada em caixa alta em português — `CINEMATOGRÁFICO`, `ÁGUA` — convenção comum de
+colorista.
+
+Alcance confirmado: `--cineon-lut` (`Reels_Encoder_v2_FINAL.py:4300`) aceita caminho
+arbitrário; call site em `:3294`. Resolve e FCPX gravam UTF-8. Não é hipotético.
+
+**O fix prescrito no `ACF1` (`open(path, "r", encoding="utf-8")`) também estava errado** —
+é regressivo. Matriz medida:
+
+| caso | hoje (default) | `utf-8` | `utf-8-sig` | `utf-8-sig` + `errors="replace"` |
+|---|---|---|---|---|
+| BOM, `LUT_3D_SIZE` na 1a linha | ✗ sem SIZE | ✗ sem SIZE | ✓ | ✓ |
+| UTF-8, `TITLE "ÁGUA"` | ✗ Windows / ✓ Linux | ✓ | ✓ | ✓ |
+| cp1252, `TITLE "ÁGUA"` | ✓ Windows / ✗ Linux | ✗ | ✗ | ✓ |
+| ASCII puro (a LUT do repo) | ✓ | ✓ | ✓ | ✓ |
+
+`encoding="utf-8"` troca um crash por outro: mata o caso UTF-8 e passa a matar o caso
+cp1252, que hoje funciona em Windows. Só a última coluna é verde nas quatro linhas.
+
+### Achado novo — `ANF1`
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| ANF1 | parser: BOM não tratado | `cineon_pipeline.py:810` (`LUT3D._load_cube_file`) | `.cube` com BOM UTF-8 e `LUT_3D_SIZE` na 1a linha falha em qualquer plataforma | S3 | esperado: LUT carrega; medido: `ValueError: LUT_3D_SIZE não encontrado`, apontando causa errada |
+
+- **ANF1 (S3):** o BOM (`EF BB BF`) vira prefixo da primeira linha, então
+  `line.startswith("LUT_3D_SIZE")` nunca casa e o parser levanta
+  `ValueError: LUT_3D_SIZE não encontrado em {path}` — mensagem que acusa um arquivo
+  malformado quando o arquivo está correto. Diferente do `ACF1`, **não** depende de
+  plataforma: falha igual em Windows e Linux, porque nenhum dos dois defaults consome BOM.
+  Só não aparece com a LUT do repo porque ela tem `TITLE` na primeira linha, o que empurra
+  o `LUT_3D_SIZE` para a segunda e faz o BOM cair numa linha que o parser descarta.
+  Defeito independente do `ACF1`, na mesma linha, e a mesma correção fecha os dois.
+
+### Status
+
+| ID | status | onde |
+|----|--------|------|
+| ACF1 | **em correção — Ciclo AN** | `.claude/memory/PLAN.md` § Ciclo AN (AN1/AN2/AN3). Fecha só com log real de CI verde nas duas pernas (AN5) |
+| ANF1 | **em correção — Ciclo AN** | idem; mesma linha, teste próprio |
+| ACF2 | **aberto** | inalterado — teste acoplado a `FORCE_COLOR`, fora do escopo do Ciclo AN |
+
+O critério que decide este ciclo está no PLAN.md § "Critério de simetria de plataforma":
+antes do fix, o conjunto de testes tem de ficar vermelho nas **duas** pernas do CI, por
+casos diferentes — o caso UTF-8 derruba a perna Windows, o caso cp1252 derruba a perna
+Linux. Cada um sozinho seria verde por acidente numa das pernas, que é exatamente a doença
+que o `AJF3` denunciou e o Ciclo AM fechou.
+
+Verificado na mesma varredura e **não** aberto como achado: `audit_tmp/audit_lut.py:43`
+tem o mesmo `open(path, "r")`, mas o diretório não é rastreado pelo git
+(`git ls-files audit_tmp/` = vazio) — não é código de produto.
+
+Reconfirmados como já corrigidos, com o registro desatualizado: `XF2` (`job.log` agora é
+atribuído incondicionalmente, `render_queue.py:188`), `XF3` (`estimate_eta` ganhou
+`in_flight_elapsed`, `render_queue.py:84-105`) e `AJF1` (`tools/` entrou no alvo do pytest
+do CI, `.github/workflows/ci.yml:61`). Seguem abertos: `UF2` (nenhuma perna de CI roda
+Windows PowerShell 5.1, o motor de produção do `launcher.ps1`), `UF3`, `AJF4`/`ABF3`/`I-a`
+(lint só em `enhance/`), `AKF1`, `ALF1`, `J-b`, `ACF2`.
+
+### Fechamento — `ACF1` e `ANF1` corrigidos (Ciclo AN, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| ACF1 | **corrigido** | `e880918` (fix + 4 testes) + `46578f4` (matriz de mutação) + `db2f91f` (esta correção de registro) |
+| ANF1 | **corrigido** | mesma linha, mesmo commit; caso `bom_lut_size_primeira_linha` |
+
+Evidência: run de CI `33756549431`, **7/7 jobs `success`**, `461 passed` nas quatro pernas
+de `Tests` (Windows/Ubuntu × Python 3.11/3.12). Os 4 casos novos aparecem `PASSED`
+nominalmente nos logs das duas plataformas — não inferido de contagem agregada.
+
+Mudança de produto: uma linha em `cineon_pipeline.py:810`.
+
+```python
+-with open(path, "r") as f:
++with open(path, "r", encoding="utf-8-sig", errors="replace") as f:
+```
+
+**A simetria de plataforma, que era o critério que decidia o ciclo, foi provada pela
+matriz de mutação e não pelo CI.** O AN3 rodou em Windows, então o M1 (default da
+plataforma) só exercita a perna cp1252. Mas o M2 (`encoding="utf-8"`) **é** o default do
+Linux: que ele derrube `bom` + `cp1252` é medição direta de que o estado pré-fix era
+vermelho na perna Ubuntu também, por casos diferentes dos que derrubam a Windows
+(`bom` + `utf8`, via M1). Sem isso, o ciclo teria entregue 4 testes verdes nas duas pernas
+sem prova de que alguma vez estiveram vermelhos — a fachada que o `AJF3` denunciou.
+
+Os casos `utf8_title_acentuado_maiusculo` e `cp1252_title_acentuado_maiusculo` são
+complementares **de propósito**. Qualquer um dos dois, sozinho, seria verde por acidente
+numa das pernas. Não remover um deles em nome de "simplificar" — a redundância aparente é
+o produto.
+
+`errors="replace"` foi decisão medida, não conveniência: é a única coluna verde nas quatro
+linhas da matriz do `PLAN.md` § Desenho. Vale porque o parser consome apenas
+`LUT_3D_SIZE` e linhas numéricas, descartando `TITLE`, `#` e `LUT_3D_INPUT_RANGE` — byte
+indecodificável só pode cair em campo descartado. **Condição de revisão:** se o parser
+passar a ler `TITLE`, a decisão precisa ser reavaliada. Dado numérico corrompido não passa
+silencioso: a checagem de contagem (`cineon_pipeline.py:845-850`, `LUT incompleto`)
+levanta.
+
+Nenhum bug novo apareceu em `_load_cube_file` durante a cobertura. Segue aberto o resto do
+inventário: `UF2` (nenhuma perna de CI roda Windows PowerShell 5.1, motor de produção do
+`launcher.ps1` e único onde o `QF1` reproduzia), `UF3`, `AJF4`/`ABF3`/`I-a` (lint só em
+`enhance/`), `AKF1`, `ALF1`, `J-b`, `ACF2`.

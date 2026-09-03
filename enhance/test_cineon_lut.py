@@ -58,3 +58,46 @@ def test_roundtrip_white_atinge_pico(lut):
         f"branco lin=1.0 deve mapear para 1.0 apos clip; obtido {out[0]:.5f} "
         f"({(out[0] - 1.0) * 255:+.1f} codes)"
     )
+
+
+_CUBE_DATA_2 = (
+    "0.0 0.0 0.0\n"
+    "1.0 0.0 0.0\n"
+    "0.0 1.0 0.0\n"
+    "1.0 1.0 0.0\n"
+    "0.0 0.0 1.0\n"
+    "1.0 0.0 1.0\n"
+    "0.0 1.0 1.0\n"
+    "1.0 1.0 1.0\n"
+)
+
+_CUBE_CASES = {
+    "bom_lut_size_primeira_linha": (
+        "utf-8-sig",
+        "LUT_3D_SIZE 2\n" + _CUBE_DATA_2,
+    ),
+    "utf8_title_acentuado_maiusculo": (
+        "utf-8",
+        'TITLE "ÁGUA Film Look"\nLUT_3D_SIZE 2\n' + _CUBE_DATA_2,
+    ),
+    "cp1252_title_acentuado_maiusculo": (
+        "cp1252",
+        'TITLE "ÁGUA Film Look"\nLUT_3D_SIZE 2\n' + _CUBE_DATA_2,
+    ),
+    "ascii_puro": (
+        "ascii",
+        'TITLE "Film Look"\nLUT_3D_SIZE 2\n' + _CUBE_DATA_2,
+    ),
+}
+
+
+@pytest.mark.parametrize("caso", sorted(_CUBE_CASES))
+def test_load_cube_file_independente_de_encoding(tmp_path, caso):
+    encoding, content = _CUBE_CASES[caso]
+    p = tmp_path / f"{caso}.cube"
+    with open(p, "w", encoding=encoding, newline="") as f:
+        f.write(content)
+
+    loaded = LUT3D(str(p))
+
+    assert loaded.lut_size == 2
