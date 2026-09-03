@@ -1012,3 +1012,54 @@ verificação do merge do Ciclo AP (Orquestrador), e o AR3 do Ciclo AR (executor
 instanciações do arquivo inteiro estão cobertas, não só as que já tinham quebrado.
 
 Seguem abertos: `UF2`, `ALF1`, `J-b`.
+
+### Fechamento — `ALF1` corrigido (Ciclo AT, 2026-09-03)
+
+| ID | status | onde |
+|----|--------|------|
+| ALF1 | **corrigido** | `a10b452` (`_validate_args_consistency` + 2 call sites + 17 testes) + `826cc4b` (matriz de mutação) |
+
+Evidência: run `33786751971` (`ci.yml`, 7/7 jobs `success`) + run `33786711715`
+(`pylint.yml`, 3.11/3.12 `success`). `Tests Passed: 91` nas duas pernas do Pester. Suíte
+Python `467 passed` (461 baseline + 6... na prática 17 testes novos, alguns substituindo
+cobertura; contagem final medida, exit 0 confirmado explicitamente).
+
+Mecanismo do achado, lido no código: `to_namespace()` (`ui/config.py:109`) é
+`argparse.Namespace(**model_dump())` puro, e o caminho da UI de `main()` (`:4437`)
+substituía `args` por esse Namespace sem passar pela checagem de consistência que
+`parse_cli()` (`:4385`) fazia. Duas fontes de `args`, uma validação só, no lugar errado.
+
+Fix: `_validate_args_consistency(args) -> Optional[str]` extraída da checagem inline,
+chamada pelos dois consumidores — `parse_cli()` → `parser.error()` (exit 2, mensagem
+idêntica à de antes), caminho da UI → `console.print` + `sys.exit(2)`. `ui/launcher.py` e
+`ui/config.py` **não** foram tocados: `to_namespace()` continua puro, a validação é
+responsabilidade convergente de quem consome o Namespace.
+
+Descartada a alternativa de validar no pydantic do `EncodeConfig`: poria a regra em dois
+lugares (pydantic para UI, `parse_cli` para CLI), a mesma duplicação de fonte de verdade
+que o achado denuncia. Uma função só fecha a assimetria; duas a trocariam de forma.
+
+**A prova decisiva foi a matriz de mutação, reproduzida de forma independente pelo
+Orquestrador** — não só o CI verde:
+
+| mutante | testes que falham |
+|---|---|
+| M1 (remove validação do caminho da UI) | só `test_main_exits_2_when_ui_namespace_is_inconsistent` |
+| M2 (remove validação de `parse_cli`) | só `test_output_dir_without_batch_exits_with_usage_error` |
+
+Dois call sites mortos por testes **distintos** — se um único teste matasse os dois, a
+cobertura não distinguiria os caminhos. O risco específico do ciclo era extrair a função,
+ligá-la em `parse_cli` e esquecer de ligá-la na UI: os 16 testes de função ficariam verdes
+e o bug continuaria idêntico (a doença do `AJF3`). O teste de wiring — que monkeypatcha
+`parse_cli`/`missing_ffmpeg_binaries`/`run_launcher` para exercitar `main()` sem ffmpeg
+(lição do `AIF1`) — é o único que prova a ligação, e o M1 prova que ele de fato falha
+quando a ligação some.
+
+Continua inalcançável por fluxo real hoje (o launcher só seta `output_dir` em contexto
+batch), como o achado dizia — mas a assimetria estrutural está fechada: um `_flow_*` futuro
+que sete `output_dir` fora de batch agora bate na mesma validação da CLI, em vez de entregar
+Namespace inválido ao dispatch.
+
+Com `ALF1` e `J-b` (este último ainda aberto), a fila de findings da sessão fica: **`J-b`
+e `UF2` abertos**; todo o resto priorizado pelo usuário nesta sessão (`AJF4`/`ABF3`/`I-a`,
+`UF3`, `AQF1`, `AKF1`, `ACF2`, `ALF1`) fechado com CI real.
