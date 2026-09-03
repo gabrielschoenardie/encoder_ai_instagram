@@ -126,6 +126,8 @@ Isso vai instalar:
   ✓ rich (interface colorida)
   ✓ psutil (monitorar sistema)
   ✓ colour-science (Cineon pipeline)
+  ✓ pydantic (validação de configuração)
+  ✓ scipy (filtros de análise de imagem)
   ✓ opencv-python (análise de qualidade)
 
 ⏱️ Isso pode levar 5-10 minutos dependendo da sua internet
