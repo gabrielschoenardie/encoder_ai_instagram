@@ -3338,6 +3338,10 @@ Ordem: aplicar mutante em `cineon_pipeline.py:810`, rodar `pytest enhance/test_c
 4/4 mutantes mortos (cada um mata ao menos 1 teste). `git diff --stat -- cineon_pipeline.py` ao final do AN3: `1 file changed, 1 insertion(+), 1 deletion(-)` — só a linha do AN1, todos os mutantes revertidos.
 
 Suíte completa pós-ciclo: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q` → `461 passed` (457 baseline + 4 casos novos do AN2). Sem regressão. `--timeout=60` não aplicado localmente: `pytest-timeout` não está instalado neste ambiente (`pip show pytest-timeout` → not found); não é item do escopo AN, não instalado para não desviar do PLAN.
+## Ciclo AO
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
 | AO1 | done | `.github/workflows/ci.yml` | Linha 25: `ruff check enhance/` → `ruff check . --output-format=github`. `git diff --stat` confirma 1 arquivo, 1 linha (`1 file changed, 1 insertion(+), 1 deletion(-)`). Commit `9f895b7`. |
 | AO2 | done | `.claude/memory/STATE.md` | Matriz de mutação: 4/4 áreas com `enhance/` cego e `.` pegando. Tabela abaixo. `git status --porcelain -- '*.py'` vazio ao final. |
 
