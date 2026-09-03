@@ -76,7 +76,7 @@ def test_build_table_lists_every_job_with_its_status_symbol():
     table = build_table(jobs, eta_seconds=None)
 
     output = io.StringIO()
-    console = Console(file=output, width=120)
+    console = Console(file=output, width=120, force_terminal=False)
     console.print(table)
     text = output.getvalue()
 
@@ -89,7 +89,7 @@ def test_build_table_lists_every_job_with_its_status_symbol():
 def test_run_job_marks_success_and_keeps_log():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
     output = io.StringIO()
-    console = Console(file=output, width=120)
+    console = Console(file=output, width=120, force_terminal=False)
 
     def encode_fn():
         console.print("trabalhando...")
@@ -103,7 +103,7 @@ def test_run_job_marks_success_and_keeps_log():
 
 def test_run_job_marks_failure_and_captures_log():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
-    console = Console(file=io.StringIO())
+    console = Console(file=io.StringIO(), force_terminal=False)
 
     def encode_fn():
         console.print("preparando encode...")
@@ -118,7 +118,7 @@ def test_run_job_marks_failure_and_captures_log():
 
 def test_render_final_report_lists_failure_with_captured_log():
     output = io.StringIO()
-    console = Console(file=output, width=100)
+    console = Console(file=output, width=100, force_terminal=False)
 
     ok_job = _finished_job(3.0, input_path="ok.mp4", status="ok")
     failed_job = _finished_job(1.0, input_path="falhou.mp4", status="falha")
@@ -135,7 +135,7 @@ def test_render_final_report_lists_failure_with_captured_log():
 
 def test_render_final_report_truncates_long_logs_keeping_the_tail():
     output = io.StringIO()
-    console = Console(file=output, width=200)
+    console = Console(file=output, width=200, force_terminal=False)
 
     failed_job = _finished_job(1.0, input_path="falhou.mp4", status="falha")
     failed_job.error = "erro"
@@ -150,7 +150,7 @@ def test_render_final_report_truncates_long_logs_keeping_the_tail():
 
 def test_run_job_calls_on_tick_while_encode_runs():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
-    console = Console(file=io.StringIO())
+    console = Console(file=io.StringIO(), force_terminal=False)
     tick_count = {"n": 0}
 
     def encode_fn():
@@ -172,7 +172,7 @@ def test_build_table_shows_ticking_duration_for_running_job():
     table = build_table([job], eta_seconds=None)
 
     output = io.StringIO()
-    console = Console(file=output, width=120)
+    console = Console(file=output, width=120, force_terminal=False)
     console.print(table)
     text = output.getvalue()
 
@@ -288,7 +288,7 @@ def test_run_job_marks_interrupted_and_reraises():
     # O KeyboardInterrupt precisa vir do on_tick: ele roda na main thread dentro
     # do laco do run_job. Levantado de dentro do encode_fn morreria no worker.
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
-    console = Console(file=io.StringIO(), width=120)
+    console = Console(file=io.StringIO(), width=120, force_terminal=False)
 
     def encode_fn():
         time.sleep(1.0)
@@ -310,7 +310,7 @@ def test_build_table_renders_interrupted_symbol():
     job.finished_at = 105.0
 
     output = io.StringIO()
-    console = Console(file=output, width=120)
+    console = Console(file=output, width=120, force_terminal=False)
     console.print(build_table([job]))
     text = output.getvalue()
 
@@ -325,7 +325,7 @@ def test_render_final_report_counts_interrupted():
     stopped.finished_at = 104.0
 
     output = io.StringIO()
-    console = Console(file=output, width=120)
+    console = Console(file=output, width=120, force_terminal=False)
     render_final_report([done, stopped], console)
     text = output.getvalue()
 
