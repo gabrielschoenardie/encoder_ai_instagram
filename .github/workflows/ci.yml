@@ -61,30 +61,39 @@ jobs:
         run: python -m pytest test_render_queue.py enhance/ ui/ tools/ -v --timeout=60
 
   pester:
-    name: Pester (launcher.ps1)
+    name: Pester (${{ matrix.os }} / ${{ matrix.shell }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            shell: pwsh
+          - os: windows-latest
+            shell: pwsh
+          - os: windows-latest
+            shell: powershell
 
     steps:
       - uses: actions/checkout@v5
 
       - name: PowerShell version (diagnostico)
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: |
           $PSVersionTable | Format-List
-          Write-Host "OS matrix leg: ${{ matrix.os }}"
+          Write-Host "OS matrix leg: ${{ matrix.os }} / shell ${{ matrix.shell }}"
 
       - name: Install Pester
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: |
+          [Net.ServicePointManager]::SecurityProtocol = `
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
           Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
           Get-Module Pester -ListAvailable | Select-Object Name, Version | Format-Table
 
       - name: Run Pester
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: |
           Import-Module Pester -RequiredVersion 5.7.1
           Invoke-Pester -Path ./tests -CI
