@@ -3434,3 +3434,9 @@ M1 e M2 são mortos por testes distintos (grupo d vs. teste de CLI), confirmando
 | ID | status | arquivo tocado | resultado |
 |----|--------|-----------------|-----------|
 | AU1 | done | MANUAL_INSTALACAO.txt | Acrescentadas 2 linhas ao bloco "Isso vai instalar:" (após colour-science, antes de opencv-python): `  ✓ pydantic (validação de configuração)` e `  ✓ scipy (filtros de análise de imagem)`; `matplotlib` não adicionado; APÊNDICE A intocado; `git diff --stat` = `1 file changed, 2 insertions(+)`; commit 1f0134c |
+
+## Ciclo AV
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AV1 | done | .github/workflows/ci.yml | job `pester` revertido para o estado byte-idêntico do `main`; job `pester-winps51` adicionado (windows-latest, 3 steps com `shell: powershell` fixo + bootstrap TLS1.2/NuGet); `git diff main` mostra só o novo job (31 insertions, 12 deletions no arquivo); nenhuma chave `shell:` com `${{`; `yaml.safe_load` OK; commit 2730600, pushed a claude/ciclo-av-uf2-winps51 |
