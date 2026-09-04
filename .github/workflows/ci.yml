@@ -61,31 +61,50 @@ jobs:
         run: python -m pytest test_render_queue.py enhance/ ui/ tools/ -v --timeout=60
 
   pester:
-    name: Pester (${{ matrix.os }} / ${{ matrix.shell }})
+    name: Pester (launcher.ps1)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            shell: pwsh
-          - os: windows-latest
-            shell: pwsh
-          - os: windows-latest
-            shell: powershell
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v5
 
       - name: PowerShell version (diagnostico)
-        shell: ${{ matrix.shell }}
+        shell: pwsh
         run: |
           $PSVersionTable | Format-List
-          Write-Host "OS matrix leg: ${{ matrix.os }} / shell ${{ matrix.shell }}"
+          Write-Host "OS matrix leg: ${{ matrix.os }}"
 
       - name: Install Pester
-        shell: ${{ matrix.shell }}
+        shell: pwsh
         run: |
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
+          Get-Module Pester -ListAvailable | Select-Object Name, Version | Format-Table
+
+      - name: Run Pester
+        shell: pwsh
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          Invoke-Pester -Path ./tests -CI
+
+  pester-winps51:
+    name: Pester (Windows PowerShell 5.1)   # motor de producao do launcher.ps1 — fecha UF2
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: PowerShell version (diagnostico)
+        shell: powershell
+        run: |
+          $PSVersionTable | Format-List
+          Write-Host "Engine: Windows PowerShell 5.1 Desktop (motor de producao do launcher.ps1)"
+
+      - name: Install Pester
+        shell: powershell
+        run: |
+          # bootstrap WinPS 5.1: TLS 1.2 + provider NuGet antes do Install-Module (pwsh 7 nao precisa)
           [Net.ServicePointManager]::SecurityProtocol = `
             [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
           Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
@@ -93,7 +112,7 @@ jobs:
           Get-Module Pester -ListAvailable | Select-Object Name, Version | Format-Table
 
       - name: Run Pester
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: |
           Import-Module Pester -RequiredVersion 5.7.1
           Invoke-Pester -Path ./tests -CI
