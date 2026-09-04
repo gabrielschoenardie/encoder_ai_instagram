@@ -2261,7 +2261,7 @@ _HOLLYWOOD_LUT_FILENAME = (
 
 
 def _get_hollywood_lut_path() -> str:
-    """Valida e retorna o path absoluto da Hollywood LUT v6.7B.
+    """Valida e retorna o path absoluto da Hollywood LUT v6.8.
     Levanta FileNotFoundError se o arquivo não existir."""
     lut_path = _find_data_file(_HOLLYWOOD_LUT_FILENAME)
     if not os.path.exists(lut_path):
