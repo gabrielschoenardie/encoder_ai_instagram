@@ -1,84 +1,130 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo AU: reconciliar J-b (já corrigido) e fechar a lista irmã defasada
+# PLAN — Ciclo AV: fechar UF2 (CI não roda Windows PowerShell 5.1, o motor de produção do launcher)
 
-Data: 2026-09-03 | Ciclo: AU | Origem: `.claude/memory/FINDINGS.md` § `J-b` (Ciclo J, 2026-07-25), último da fila do usuário.
+Data: 2026-09-04 | Ciclo: AV | Origem: `.claude/memory/FINDINGS.md` § `UF2` (Ciclo U, 2026-08-15). Último item em aberto da fila; `AUF1` foi descartado pelo usuário em 2026-09-04.
 
 ## Diagnóstico
 
-Remedido hoje. O `J-b` como escopado — a lista de fallback do `APÊNDICE A`
-(`MANUAL_INSTALACAO.txt:295-309`) — **já foi corrigido**, no commit `9b6ed26`
-("fix(docs,lint): fechar J-b e I-a"), em 2026-07-25. O apêndice hoje não tem lista de
-pacotes: aponta para `pip install -e .[opencv]` e diz que as deps reais vivem no
-`pyproject.toml` — exatamente o fix que o achado recomendava. Mesmo padrão do `I-a`
-(Ciclo AO): corrigido em julho, nunca marcado fechado no `FINDINGS.md`.
+Remedido hoje contra o `ci.yml` atual. `UF2` continua valendo: o job `pester`
+(`.github/workflows/ci.yml:63-91`) tem matriz `os: [ubuntu-latest, windows-latest]` e
+**todos os steps usam `shell: pwsh`** (linhas 75, 81, 87) — PowerShell 7 Core nas duas
+pernas. Nenhuma perna roda **Windows PowerShell 5.1 (Desktop)**, que é:
 
-**Mas o achado citou o range errado.** O mesmo defeito — lista de pacotes mantida à mão,
-divergente do `pyproject.toml` — sobrevive nas linhas **121-129** do mesmo arquivo, no
-bloco "Isso vai instalar:" do PASSO 3. Medido contra as deps reais:
+- o motor de produção do `launcher.ps1` (duplo-clique / atalho no Windows do usuário final);
+- o único motor onde o `QF1` reproduzia (ver `FINDINGS.md` § Ciclo Q).
 
-| pyproject (core) | na lista 121-129? |
-|---|---|
-| rich, numpy, av, Pillow, psutil, colour-science, pymediainfo | sim |
-| **pydantic** | **não** |
-| **scipy** | **não** |
-| matplotlib | não (ver achado novo abaixo) |
-| opencv-python (extra `[opencv]`) | sim |
+Consequência: uma regressão específica de 5.1 no `launcher.ps1` passaria verde no CI hoje. A
+única evidência de que a suíte passa em 5.1 é local (máquina do usuário, Ciclo U).
 
-Faltam `pydantic` e `scipy` — **os dois pacotes exatos que o texto do `J-b` nomeia** como
-ausentes. A lista irmã é a instância viva do defeito que o achado descreve; o fix de julho
-tocou o apêndice e deixou esta passar.
+### Risco medido antes de planejar
 
-### Achado novo — `AUF1` (dep declarada e não usada)
-
-Verificando a lista contra o código: `matplotlib` está declarado em `pyproject.toml:29`
-(`"matplotlib>=3.9,<4"`) mas **não é importado em nenhum arquivo rastreado** — `git grep
-matplotlib` só acha a própria declaração no `pyproject.toml`. `scipy` (analyzers) e
-`pydantic` (`ui/config.py`) são reais e usados; `matplotlib` não. É classe diferente do
-`J-b` (dep morta no pacote, não doc defasada) e decisão do usuário — remover do
-`pyproject.toml` ou confirmar necessidade. Registrado, **não** corrigido neste ciclo, e
-**não** adicionado à lista do manual: documentar uma dep que pode ser removida
-entrincheiraria um possível erro.
+- **Sintaxe: baixo.** `grep` de construções só-pwsh-7 (`??`, ternário `? :`, `&&`/`||`,
+  `#Requires -PSEdition Core`, `ForEach-Object -Parallel`, `ConvertFrom-Json -AsHashtable`)
+  em `launcher.ps1` e nos dois arquivos de teste (`tests/launcher.Tests.ps1`,
+  `tests/launch-config.Tests.ps1`) = **zero ocorrências**. O launcher foi escrito para 5.1;
+  os testes devem passar nele. Se algum falhar em 5.1, é **achado novo** (incompatibilidade
+  real 5.1), não algo a mascarar — parar e reportar, não editar teste/launcher.
+- **Mecânica de instalar Pester em 5.1: este é o risco.** WinPS 5.1 traz PowerShellGet
+  antigo; `Install-Module Pester -RequiredVersion 5.7.1` num runner pode exigir bootstrap
+  de TLS 1.2 + provider NuGet + repo confiável, coisas que o `pwsh` 7 já resolve sozinho.
+  É onde a primeira run pode falhar; o step de instalação da perna 5.1 precisa do bootstrap.
+- **Pester 5.7.1 roda em 5.1: sim.** Pester 5.x suporta Windows PowerShell 5.1 (não é a
+  incompatibilidade da 6.x que o `UF3` discutiu). `-RequiredVersion 5.7.1` e `-CI` são
+  válidos nos dois motores.
 
 ## Desenho
 
-Corrigir a lista das linhas 121-129 acrescentando `pydantic` e `scipy`, com descrição
-honesta baseada no uso real (`pydantic` → validação de configuração da UI, `ui/config.py`;
-`scipy` → filtros de análise de imagem, `enhance/analyzers/`). Nada mais no arquivo — o
-`APÊNDICE A` já está certo, não se toca.
+> **Correção de desenho (2026-09-04, após 1ª run falhar).** A 1ª tentativa (commit `8b61ed4`)
+> pôs `shell: ${{ matrix.shell }}` numa matriz `include`. **GitHub Actions rejeita expressão
+> na chave `shell`** — `shell` em step/defaults não aceita contexto `matrix`/`job` (schema
+> `non-empty-string`, ver actions/runner#444). Resultado: "workflow file issue", 0 jobs, run
+> `failure` em 0s. Matriz-com-shell é impossível na plataforma. Desenho corrigido: **job
+> separado** com `shell: powershell` fixo (constante, sem expressão).
 
-Não substituir a lista inteira por "veja pyproject.toml" como foi feito no apêndice: aqui
-a lista tem valor de UX num manual de usuário final (descreve em português o que cada
-pacote faz). Corrigir o conteúdo, preservando a forma. Fica registrado que continua sendo
-lista mantida à mão — risco de drift inerente a doc, aceito.
+Manter o job `pester` **byte-idêntico ao `main`** (matriz `os: [ubuntu-latest,
+windows-latest]`, `shell: pwsh` — as duas pernas Core, intocadas) e **adicionar um job irmão**
+`pester-winps51`, só em `windows-latest`, com `shell: powershell` (Windows PowerShell 5.1
+Desktop) fixo em cada step. Um pouco de duplicação de corpo de job é o preço idiomático de ter
+shells diferentes por perna, já que `shell:` não pode ser templatizado.
+
+```yaml
+  pester-winps51:
+    name: Pester (Windows PowerShell 5.1)   # motor de producao do launcher.ps1 — fecha UF2
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: PowerShell version (diagnostico)
+        shell: powershell
+        run: |
+          $PSVersionTable | Format-List
+          Write-Host "Engine: Windows PowerShell 5.1 Desktop (motor de producao do launcher.ps1)"
+
+      - name: Install Pester
+        shell: powershell
+        run: |
+          # bootstrap WinPS 5.1: TLS 1.2 + provider NuGet antes do Install-Module (pwsh 7 nao precisa)
+          [Net.ServicePointManager]::SecurityProtocol = `
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser -SkipPublisherCheck
+          Get-Module Pester -ListAvailable | Select-Object Name, Version | Format-Table
+
+      - name: Run Pester
+        shell: powershell
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          Invoke-Pester -Path ./tests -CI
+```
+
+Cada step usa a constante `shell: powershell` — sem expressão, schema válido. Na hospedeira
+`windows-latest`, `powershell` é o Windows PowerShell 5.1 Desktop; `pwsh` seria o 7 Core (já
+coberto pelo job `pester`). O bootstrap TLS+NuGet fica só neste job, onde é necessário.
+
+### O que NÃO fazer
+
+- **Não** tocar no job `pester` — se a 1ª tentativa o alterou, **reverter para o estado do
+  `main`**. `UF2` é *adicionar* um job de 5.1, não mudar o `pester` existente.
+- **Não** tocar em `launcher.ps1` nem em `tests/*.Tests.ps1`. Se a perna 5.1 reprovar, é
+  achado novo — registrar em `FINDINGS.md` e parar, não editar o alvo para ficar verde.
+- **Não** mexer no `UF1` (filtro de branch/worktree) nem em `workflow_dispatch` — é outro
+  achado, fora deste ciclo.
+- **Não** tocar nos jobs `lint`, `tests`, nem no gatilho `on:`.
+- **Não** bump de versão de action (checkout@v5 etc. já estão certos do Ciclo AQ).
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|-------------------|
-| AU1 | Em `MANUAL_INSTALACAO.txt`, no bloco "Isso vai instalar:" (linhas ~121-129), acrescentar duas linhas: `pydantic` (validação de configuração) e `scipy` (filtros de análise de imagem), no mesmo formato `  ✓ nome (descrição)` das existentes. Não adicionar `matplotlib`. Não tocar no `APÊNDICE A` nem em nenhuma outra parte do arquivo. | executor | `MANUAL_INSTALACAO.txt` | `git diff` mostra só as 2 linhas adicionadas no bloco certo |
-| AU2 | Fechar `J-b` (reconciliação: corrigido em `9b6ed26` + a lista irmã fechada por este ciclo) e registrar `AUF1` (matplotlib declarado e não usado) no `FINDINGS.md`. | Orquestrador | `.claude/memory/FINDINGS.md` | — |
+| AV1 | No `ci.yml`: (a) garantir que o job `pester` está **byte-idêntico ao `main`** — se a tentativa anterior o converteu para matriz `include`, revertê-lo; (b) **adicionar** o job irmão `pester-winps51` (bloco YAML do § Desenho), `runs-on: windows-latest`, `shell: powershell` fixo nos 3 steps, com o bootstrap TLS 1.2 + `Install-PackageProvider NuGet`. Nada fora disso. | executor | `.github/workflows/ci.yml` | `git diff main` mostra **só** um job `pester-winps51` adicionado, `pester` intocado; nenhuma expressão em nenhuma chave `shell:` |
+| AV2 | Fechar `UF2` no `FINDINGS.md` com a evidência real da run (as 3 pernas verdes, e a diagnostic da perna `powershell` provando `PSVersion 5.1.x` / `PSEdition Desktop`). | Orquestrador | `.claude/memory/FINDINGS.md` | — |
 
 ## Critérios de aceite
 
-- Só `MANUAL_INSTALACAO.txt` muda, e só o bloco das linhas 121-129 — duas linhas
-  acrescentadas. `APÊNDICE A` intocado. Nenhum `.py`, nenhum `pyproject.toml`.
-- A lista passa a conter `pydantic` e `scipy`. **Não** contém `matplotlib` (pendente da
-  decisão do `AUF1`).
-- Nenhum teste muda (nada cobre o manual). Suíte Python: `467 passed`, sem regressão —
-  confirmação de que o ciclo não tocou código, não prova do fix.
-- **A prova do fix não é CI** — nada testa o conteúdo do manual. A prova é o `git diff`
-  mostrar as duas linhas certas e a lista bater com as deps core do `pyproject.toml`
-  (menos `matplotlib`, deliberado).
+- Só `.github/workflows/ci.yml` muda — **só um job novo** (`pester-winps51`); o job `pester` fica idêntico ao `main`. Nenhum `.ps1`, nenhum outro job. **Nenhuma chave `shell:` com expressão** (a causa da falha da 1ª tentativa).
+- **A prova do fecho não é "CI verde" genérico — é o job 5.1 nomeado e visível.** A aba Checks
+  passa a mostrar o job **`Pester (Windows PowerShell 5.1)`** além das duas pernas Core do
+  job `pester` (`pester (ubuntu-latest)`, `pester (windows-latest)`, ambas pwsh 7).
+- No job `Pester (Windows PowerShell 5.1)`, o step "PowerShell version (diagnostico)" imprime
+  `PSVersion` começando em `5.1` **e** `PSEdition Desktop` — prova de que é Windows
+  PowerShell 5.1 real, não pwsh 7 disfarçado. (Analogia do "verde não é prova": um job verde
+  cuja diagnostic confirma o motor certo.)
+- Esse job instala Pester 5.7.1 e roda `Invoke-Pester` **verde** — mesma contagem da perna
+  `pester (windows-latest)` (`Tests Passed: 91`, ou o que a suíte tiver no dia; o número tem
+  que bater entre os dois jobs Windows).
+- Suíte Python inalterada (o ciclo não toca Python) — os jobs `tests` seguem verdes por
+  ausência de regressão, não é prova do fix.
 
 ## Notas de execução
 
-- Este é o ciclo mais leve da fila: uma edição de doc de duas linhas. Não expandir —
-  não reescrever a lista, não mexer no apêndice, não corrigir `matplotlib` (é decisão do
-  usuário via `AUF1`).
-- Não tocar em `pyproject.toml`. O `AUF1` é registro, não conserto.
-- CI vai rodar de qualquer forma (o push dispara) e deve ficar verde, mas isso só atesta
-  ausência de regressão de código — a correção da doc se prova lendo o diff.
+- Ciclo de infra/CI: a prova vive na run, não localmente. O executor edita, faz o PR e a
+  run dispara; **o Orquestrador** observa as 3 pernas e a diagnostic 5.1. Se a perna 5.1
+  falhar na instalação do Pester (TLS/NuGet), o executor recebe instrução precisa a partir
+  do log e ajusta o bootstrap — não é falha do desenho, é o risco previsto.
+- Se a perna 5.1 falhar **no `Invoke-Pester`** (não na instalação) — teste reprovando em
+  5.1 — **parar**: é incompatibilidade real 5.1 do launcher/teste, achado novo, não algo a
+  contornar editando o alvo.
 - **Nunca `git add -A` nem `git add .`** — há arquivos não rastreados (`961576A_*.qc.*`,
-  `docs/*.md` novos, `testResults.xml`, `videos/`). Adicionar por caminho explícito.
-- Ao anexar ao `STATE.md` (se registrar algo), começar com `## Ciclo AU` e cabeçalho.
+  `docs/*.md`, `testResults.xml`, `videos/`). Adicionar por caminho explícito.
+- Ao anexar ao `STATE.md`, começar com `## Ciclo AV` e cabeçalho de tabela.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.

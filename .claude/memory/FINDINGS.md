@@ -245,6 +245,40 @@ Evidência: executor-pesado (Task 6 do plano `docs/superpowers/plans/2026-08-14-
   quebra futura de compatibilidade do Pester chegaria como falha surpresa num run que não
   mudou nada do repo. Fixar com `-MaximumVersion` ou `-RequiredVersion` resolve.
 
+### Status (2026-09-04, Ciclo AV)
+
+| ID | status | onde |
+|----|--------|------|
+| UF1 | **contornado — sem correção de infra** | PR #39 (gatilho `on.pull_request`, ver contexto acima); `ci.yml` não editado |
+| UF3 | **corrigido** | Ciclo AP (`-RequiredVersion 5.7.1` no `Install-Module`/`Import-Module` do job `pester`) |
+| UF2 | **corrigido** | Ciclo AV (PR #55, merge `d882dd7`) |
+
+**UF2 fechado (Ciclo AV, 2026-09-04).** Adicionado o job `pester-winps51` ao `ci.yml`
+(`runs-on: windows-latest`, `shell: powershell` fixo), que roda a suíte Pester em **Windows
+PowerShell 5.1 Desktop** — o motor de produção do `launcher.ps1` e o único onde o `QF1`
+reproduzia. O job `pester` (pwsh 7 Core, ubuntu+windows) ficou byte-idêntico ao `main`;
+`UF2` era *adicionar* cobertura, não trocar motor.
+
+**Prova real (run `33883523558`/`33883527589`, job `Pester (Windows PowerShell 5.1)`), não só
+"CI verde":**
+- diagnostic: `PSVersion : 5.1.26100.33296` + `PSEdition : Desktop` — motor 5.1 real,
+  confirmado, não pwsh 7 disfarçado;
+- `Install-Module Pester -RequiredVersion 5.7.1` funcionou em 5.1 graças ao bootstrap
+  TLS 1.2 + `Install-PackageProvider NuGet` (WinPS 5.1 traz PowerShellGet antigo; pwsh 7 não
+  precisa disso);
+- `Invoke-Pester`: `Tests Passed: 91, Failed: 0` — mesma contagem da perna Core Windows.
+  **Nenhuma incompatibilidade específica de 5.1 apareceu**: os testes do launcher passam no
+  motor de produção. Uma regressão futura só-de-5.1 agora reprovaria o CI, o que era
+  exatamente a lacuna do `UF2`.
+
+**Erro de desenho no caminho, registrado como lição.** A 1ª tentativa (commit `8b61ed4`)
+tentou uma matriz `include` com `shell: ${{ matrix.shell }}`. GitHub Actions **proíbe
+expressão na chave `shell`** (schema `non-empty-string`, actions/runner#444): a run falhou em
+0s com "workflow file issue" e **zero jobs criados**. `yaml.safe_load` local passou porque
+valida sintaxe YAML, não o schema de workflow — "YAML válido localmente" não é prova, só a run
+real pegou. Correção: job separado com `shell` constante (commit `2730600`). Lição para
+ciclos de CI: validar contra o schema do Actions (ex.: `actionlint`), não só `yaml.safe_load`.
+
 ## Achado — 2026-08-16 (ciclo V, regressão da fila de render) — CORRIGIDO no ciclo W
 
 Evidência: usuário reportou com captura de tela real (barra "MCTF masks" piscando linha a
@@ -1089,13 +1123,18 @@ só atesta ausência de regressão de código. A correção da doc está no `git
 linhas certas, lista batendo com as deps core do `pyproject.toml` menos `matplotlib`
 (deliberado). Suíte `467 passed`, inalterada.
 
-### Achado novo — `AUF1` (dep declarada e não usada)
+### Achado novo — `AUF1` (dep declarada e não usada) — **DESCARTADO (decisão do usuário, 2026-09-04)**
+
+**Descartado.** O usuário decidiu, em 2026-09-04, não agir sobre o `AUF1` e descartá-lo:
+`matplotlib` fica no `pyproject.toml` como está, sem ciclo de remoção nem de confirmação de
+uso. Registro mantido só para proveniência — **não reabrir**: um redescobrimento futuro do
+mesmo `matplotlib` declarado-e-não-importado é este achado, já decidido, não um novo.
 
 | ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
 |----|-----------|---------------|------------------------|------------|--------------------|
-| AUF1 | dep declarada e não usada | `pyproject.toml:29` (`"matplotlib>=3.9,<4"`) | `matplotlib` é dependência core declarada mas não importada em nenhum arquivo do repo | S4 | esperado: toda dep core tem uso; medido: `git grep matplotlib` só acha a própria declaração |
+| AUF1 | dep declarada e não usada | `pyproject.toml:29` (`"matplotlib>=3.9,<4"`) | `matplotlib` é dependência core declarada mas não importada em nenhum arquivo do repo | S4 (descartado) | esperado: toda dep core tem uso; medido: `git grep matplotlib` só acha a própria declaração |
 
-- **AUF1 (S4):** descoberto verificando a lista do manual contra o código no Ciclo AU.
+- **AUF1 (S4, descartado):** descoberto verificando a lista do manual contra o código no Ciclo AU.
   `scipy` (`enhance/analyzers/banding.py`, `detail.py`) e `pydantic` (`ui/config.py`) são
   deps reais e usadas; `matplotlib` não tem nenhum `import` em arquivo rastreado. Instala
   em todo ambiente (é dep core, entra no `pip install -e .`) sem propósito conhecido.
@@ -1115,4 +1154,6 @@ Todos os itens priorizados pelo usuário nesta sessão estão fechados com evid�
 
 - **`UF2` (S3):** nenhuma perna de CI roda Windows PowerShell 5.1, o motor de produção do
   `launcher.ps1`. Maior severidade em aberto; o único que exige mexer na matriz do CI.
-- **`AUF1` (S4):** `matplotlib` declarado e não usado (acima).
+  **Único item em aberto** — alvo do Ciclo AV.
+- **`AUF1` (S4):** `matplotlib` declarado e não usado — **descartado** pelo usuário em
+  2026-09-04 (ver acima). Fora da fila.
