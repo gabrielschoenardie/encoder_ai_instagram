@@ -3440,3 +3440,9 @@ M1 e M2 são mortos por testes distintos (grupo d vs. teste de CLI), confirmando
 | ID | status | arquivo tocado | resultado |
 |----|--------|-----------------|-----------|
 | AV1 | done | .github/workflows/ci.yml | job `pester` revertido para o estado byte-idêntico do `main`; job `pester-winps51` adicionado (windows-latest, 3 steps com `shell: powershell` fixo + bootstrap TLS1.2/NuGet); `git diff main` mostra só o novo job (31 insertions, 12 deletions no arquivo); nenhuma chave `shell:` com `${{`; `yaml.safe_load` OK; commit 2730600, pushed a claude/ciclo-av-uf2-winps51 |
+
+## Ciclo AW
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| AW1 | done | pyproject.toml, Reels_Encoder_v2_FINAL.py, HollywoodCinema_Ultimate_v6.7B-W80_1.5IRE_Instagram8bit_NeutralShadows.cube (deletado) | `git rm` do LUT órfão W80; `data-files` do pyproject reduzido a v6.8 + Portra400; docstring de `_get_hollywood_lut_path` corrigida de v6.7B para v6.8; v6.7B (plain) e Portra400 seguem no disco; TOML válido; `import Reels_Encoder_v2_FINAL` OK; suíte `test_render_queue.py enhance/ ui/ tools/` = 467 passed, exit code 0; commit 577ad7c em claude/ciclo-aw-lut-v68 |
