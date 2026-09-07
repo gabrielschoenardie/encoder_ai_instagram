@@ -243,6 +243,18 @@ lista `-ForEach`; acrescentar os 9 nomes novos (`Protect-PSLiteral`, `Test-Launc
 `Test-VenvHealthy`, `Get-RequirementsStamp`, `Read-VenvStamp`, `Write-VenvStamp`,
 `Test-FfmpegCapabilities`, `Resolve-LauncherShell`, `Build-AppCommand`).
 
+**Duas asserções sobre o config real, órfãs da `AX4` (achado da execução da `AX5`, sem tarefa
+própria até esta revisão — fechar aqui).** `It 'carrega o launch-config.json real do
+repositorio'` dentro de `Describe 'Contrato de dot-source'` (`:64-66`) faz
+`$script:Config.defaultProfile | Should -Be 'balanced'`; a homônima dentro de `Describe
+'Read-LauncherConfig'` (`:379-383`) faz o mesmo mais `@($real.profiles.PSObject.Properties.Name).Count
+| Should -Be 5`. As duas leem o `launch-config.json` real do repo, e as duas chaves saíram no
+`AX4`. Substituir pelo schema novo, sem citar `profiles`/`defaultProfile`:
+`:64-66` → `$script:Config.configVersion | Should -Be 2`;
+`:379-383` → `$real.configVersion | Should -Be 2` mais
+`@($real.paths.PSObject.Properties.Name).Count | Should -Be 6`. Não contam para os "16 testes
+que saem" do critério de aceite 2 — são asserção trocada, não teste deletado.
+
 **`Describe 'Build-SetupCommand'` (`:117-142`) — 4 testes passam sem edição.** Asseveram
 `Should -Match` sobre `--hardware-info`, o nome do script e o interpretador; nem o prefixo do
 `Set-Location` nem o export de env afetam. **Se algum reprovar, é bug do `AX1`/`AX2`/`AX11`,
