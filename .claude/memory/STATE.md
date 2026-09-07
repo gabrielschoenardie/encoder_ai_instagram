@@ -3489,3 +3489,9 @@ nesta sessao.
 
 Pendente para o usuario: autorizar `git push` da branch e abertura do PR (novo, nao empilhado —
 conforme nota de execucao do `PLAN.md`).
+
+## Ciclo AY
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AY1 | done | tools/fetch_ffmpeg.ps1 | throw fatal em LASTEXITCODE!=0 substituido por Write-Host amarelo nao-fatal; Select-String throw so retorna linha 98 (foundCount, intacto); Parser::ParseFile sem erros de sintaxe; git diff --stat toca so este arquivo (1 insercao, 1 delecao); winget real nao testado (indisponivel no ambiente, conforme nota do PLAN) |
