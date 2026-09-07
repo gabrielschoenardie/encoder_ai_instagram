@@ -260,6 +260,17 @@ que saem" do critério de aceite 2 — são asserção trocada, não teste delet
 `Set-Location` nem o export de env afetam. **Se algum reprovar, é bug do `AX1`/`AX2`/`AX11`,
 não do teste: parar e reportar, não relaxar a asserção.**
 
+**`Describe 'Resolve-Binaries'` (`:281-358`) — os 9 testes ganham 1 mock a mais nos dois
+`BeforeAll`, sem tocar asserção nenhuma (achado da execução da `AX10`, sem tarefa própria até
+esta revisão — fechar aqui).** A `AX10` faz `Resolve-Binaries` chamar `Test-FfmpegCapabilities`
+de verdade; os dois Contexts (`'todos os binarios presentes'` `:285-295` e `'Windows Terminal
+ausente'` `:330-334`) passam `$script:Config` real (com `validation.requiredEncoders`/
+`requiredFilters`) e um `-RepoRoot 'ROOT'` fictício, então a chamada tenta rodar
+`'ROOT\bin\ffmpeg.exe' -encoders` e os 9 testes reprovam com `CommandNotFoundException`.
+Acrescentar `Mock Test-FfmpegCapabilities { }` a cada um dos dois `BeforeAll` (junto de
+`Mock Test-RequiredBinary`/`Mock Test-Path`/`Mock Write-LauncherLog`, mesmo bloco). Nenhuma
+`It` muda.
+
 **`Describe 'Initialize-Environment'` (`:199-280`) — reestruturar em 5 Contexts.** O Context
 `'quando o venv ja existe'` tem hoje 5 testes, dois dos quais (`'ainda assim instala as
 dependencias (idempotente)'`, `:221`, e `'ainda assim regrava o venv.lock (diagnostico)'`,
