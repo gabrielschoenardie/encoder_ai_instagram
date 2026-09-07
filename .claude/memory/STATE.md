@@ -3489,3 +3489,16 @@ nesta sessao.
 
 Pendente para o usuario: autorizar `git push` da branch e abertura do PR (novo, nao empilhado —
 conforme nota de execucao do `PLAN.md`).
+
+## Ciclo AY
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AY1 | done | tools/fetch_ffmpeg.ps1 | throw fatal em LASTEXITCODE!=0 substituido por Write-Host amarelo nao-fatal; Select-String throw so retorna linha 98 (foundCount, intacto); Parser::ParseFile sem erros de sintaxe; git diff --stat toca so este arquivo (1 insercao, 1 delecao); winget real nao testado (indisponivel no ambiente, conforme nota do PLAN) |
+
+### Ciclo AY — verificacao real (Orquestrador, 2026-09-07)
+
+Usuario testou `AY1` na propria maquina, no cenario exato que originou o achado (FFmpeg ja
+instalado via winget de uma sessao anterior, Ciclo Q): `.\tools\fetch_ffmpeg.ps1` rodou sem
+abortar e copiou os 3 binarios para `.\bin`. Fecha o unico item nao verificavel pelo executor
+(sem winget no ambiente dele). `AY1` confirmado `done` com evidencia real, nao so sintatica.
