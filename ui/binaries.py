@@ -1,15 +1,17 @@
 """Resolve FFmpeg CLI binaries (ffmpeg / ffprobe / ffplay).
 
-Portability: end users don't need a system FFmpeg. Bundled builds dropped into
-the project-root ``bin/`` folder win; otherwise we fall back to whatever is on
-the system PATH. Pure stdlib, PyInstaller-aware (``sys.frozen``).
+Portability: end users don't need a system FFmpeg. A ``REELS_<NAME>`` env var
+(set by launcher.ps1, so the binary it validated is the binary we run) wins;
+then bundled builds dropped into the project-root ``bin/`` folder; otherwise we
+fall back to whatever is on the system PATH. Pure stdlib, PyInstaller-aware
+(``sys.frozen``).
 """
 from __future__ import annotations
 
 import os
 import shutil
 import sys
-from typing import Callable, List, Optional, Sequence
+from typing import Callable, List, Mapping, Optional, Sequence
 
 
 def _proj_dir() -> str:
@@ -34,15 +36,25 @@ def bundled_path(name: str, proj_dir: Optional[str] = None) -> Optional[str]:
     return candidate if os.path.isfile(candidate) else None
 
 
+def env_path(name: str, env: Mapping[str, str] = os.environ) -> Optional[str]:
+    """Path from ``REELS_<NAME>`` if it points at an existing file, else None."""
+    candidate = env.get("REELS_" + name.upper())
+    return candidate if candidate and os.path.isfile(candidate) else None
+
+
 def resolve_binary(
     name: str,
     which: Callable[[str], Optional[str]] = shutil.which,
     proj_dir: Optional[str] = None,
+    env: Mapping[str, str] = os.environ,
 ) -> str:
     """Resolve a binary name to an invocable path.
 
-    Order: bundled ``bin/`` -> system PATH -> bare name (last resort, so error
-    messages still read sensibly)."""
+    Order: ``REELS_<NAME>`` env var -> bundled ``bin/`` -> system PATH -> bare
+    name (last resort, so error messages still read sensibly)."""
+    e = env_path(name, env=env)
+    if e:
+        return e
     b = bundled_path(name, proj_dir=proj_dir)
     if b:
         return b
@@ -56,8 +68,11 @@ def available(
     name: str,
     which: Callable[[str], Optional[str]] = shutil.which,
     proj_dir: Optional[str] = None,
+    env: Mapping[str, str] = os.environ,
 ) -> bool:
-    """True if ``name`` is bundled in ``bin/`` or found on PATH."""
+    """True if ``name`` is pinned by env, bundled in ``bin/`` or found on PATH."""
+    if env_path(name, env=env):
+        return True
     if bundled_path(name, proj_dir=proj_dir):
         return True
     return bool(which(name) or which(_exe_name(name)))
@@ -67,9 +82,10 @@ def find_missing_binaries(
     required: Sequence[str] = ("ffmpeg", "ffprobe"),
     which: Callable[[str], Optional[str]] = shutil.which,
     proj_dir: Optional[str] = None,
+    env: Mapping[str, str] = os.environ,
 ) -> List[str]:
-    """Subset of ``required`` that is neither bundled nor on PATH."""
-    return [n for n in required if not available(n, which=which, proj_dir=proj_dir)]
+    """Subset of ``required`` that is neither pinned by env, bundled nor on PATH."""
+    return [n for n in required if not available(n, which=which, proj_dir=proj_dir, env=env)]
 
 
 # Resolved once at import; the engine threads these into every subprocess call.

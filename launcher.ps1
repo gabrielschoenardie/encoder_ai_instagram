@@ -9,7 +9,9 @@ param(
     [switch]$Debug,
     # Pula só a checagem local (Test-Path) de bin/ffmpeg.exe e bin/ffprobe.exe feita por Resolve-Binaries; não impede o encoder de usar FFmpeg do PATH via ui/binaries.py::resolve_binary (que prefere bin/ e cai pro PATH como fallback).
     [switch]$SkipValidation,
-    [switch]$SkipEnvSetup
+    [switch]$SkipEnvSetup,
+    # Reinstala as dependencias mesmo quando o stamp de requirements/pyproject confere.
+    [switch]$ForceEnvSetup
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,19 +117,50 @@ function Test-VenvExists {
 }
 
 function Resolve-SystemPython {
-    foreach ($cmd in @("py", "python")) {
+    param([string]$MinVersion = '3.11')
+    $minimum = [version]$MinVersion
+    $rejected = @()
+    foreach ($cmd in @("py", "python", "python3")) {
         $found = Get-Command $cmd -ErrorAction SilentlyContinue
-        if ($found) { return $found.Source }
+        if (-not $found) { continue }
+        $source = $found.Source
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $probe = & $source -c "import sys;print('%d.%d'%sys.version_info[:2])" 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $prevEap
+        }
+        $reported = (@($probe) -join "`n").Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($reported)) {
+            $rejected += "$source (nao respondeu a probe de versao)"
+            continue
+        }
+        $parsed = $null
+        if (-not [version]::TryParse($reported, [ref]$parsed)) {
+            $rejected += "$source (versao ilegivel: '$reported')"
+            continue
+        }
+        if ($parsed -ge $minimum) { return $source }
+        $rejected += "$source (versao $reported)"
     }
-    throw "Python nao encontrado no PATH. Instale Python 3.11+ (https://python.org) e tente novamente."
+    $detalhe = if ($rejected.Count -gt 0) {
+        "Rejeitados: " + ($rejected -join "; ") + "."
+    }
+    else {
+        "Nenhum executavel py/python/python3 foi encontrado no PATH."
+    }
+    throw "Nenhum Python >= $MinVersion encontrado no PATH. $detalhe Instale Python $MinVersion+ (https://python.org) e crie o ambiente com 'py -3.13 -m venv venv'."
 }
 
 function New-ProjectVenv {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$VenvPath
+        [Parameter(Mandatory)][string]$VenvPath,
+        [string]$MinVersion = '3.11'
     )
-    $pythonCmd = Resolve-SystemPython
+    $pythonCmd = Resolve-SystemPython -MinVersion $MinVersion
     Write-LauncherLog "Criando venv em $VenvPath ..." "Info"
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -146,13 +179,14 @@ function New-ProjectVenv {
 function Install-Requirements {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$VenvPython
+        [Parameter(Mandatory)][string]$VenvPython,
+        $Config = $null
     )
-    $reqPath = Join-Path $RepoRoot "requirements.txt"
+    $reqPath = Join-Path $RepoRoot $Config.paths.requirements
     if (-not (Test-Path $reqPath)) {
-        throw "requirements.txt nao encontrado em: $reqPath"
+        throw "Arquivo de dependencias nao encontrado em: $reqPath (chave 'paths.requirements' do launch-config.json)."
     }
-    Write-LauncherLog "Instalando dependencias (pip install -r requirements.txt) ..." "Info"
+    Write-LauncherLog "Instalando dependencias (pip install -r $reqPath) ..." "Info"
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
@@ -184,20 +218,92 @@ function Write-VenvLock {
     Write-LauncherLog "venv.lock atualizado (diagnostico, nao versionado)." "Debug"
 }
 
+function Test-VenvHealthy {
+    param([Parameter(Mandatory)][string]$VenvPython)
+    if (-not (Test-Path $VenvPython)) { return $false }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $VenvPython -c "import sys" 2>&1 | Out-Null
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Get-RequirementsStamp {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$Config
+    )
+    $parts = @()
+    foreach ($relative in @($Config.paths.requirements, "pyproject.toml")) {
+        $full = Join-Path $RepoRoot $relative
+        if (Test-Path $full) {
+            $parts += (Get-FileHash -Path $full -Algorithm SHA256).Hash
+        }
+        else {
+            $parts += "ausente"
+        }
+    }
+    return ($parts -join ":")
+}
+
+function Read-VenvStamp {
+    param([Parameter(Mandatory)][string]$VenvPath)
+    $stampFile = Join-Path $VenvPath ".launcher-stamp"
+    if (-not (Test-Path $stampFile)) { return $null }
+    $raw = Get-Content -Path $stampFile -Raw
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    return $raw.Trim()
+}
+
+function Write-VenvStamp {
+    param(
+        [Parameter(Mandatory)][string]$VenvPath,
+        [Parameter(Mandatory)][string]$Stamp
+    )
+    Set-Content -Path (Join-Path $VenvPath ".launcher-stamp") -Value $Stamp -Encoding ascii
+}
+
 function Initialize-Environment {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)][string]$VenvPath
+        [Parameter(Mandatory)][string]$VenvPath,
+        $Config = $null,
+        [switch]$Force
     )
+    $minVersion = '3.11'
+    if ($null -ne $Config -and $Config.minPythonVersion) {
+        $minVersion = [string]$Config.minPythonVersion
+    }
     if (-not (Test-VenvExists -VenvPath $VenvPath)) {
-        New-ProjectVenv -RepoRoot $RepoRoot -VenvPath $VenvPath
+        New-ProjectVenv -RepoRoot $RepoRoot -VenvPath $VenvPath -MinVersion $minVersion
     }
     else {
         Write-LauncherLog "Venv existente reaproveitado ($VenvPath)." "Info"
     }
     $venvPython = Join-Path $VenvPath "Scripts\python.exe"
-    Install-Requirements -RepoRoot $RepoRoot -VenvPython $venvPython
+
+    $stamp = $null
+    if ($null -ne $Config) {
+        $stamp = Get-RequirementsStamp -RepoRoot $RepoRoot -Config $Config
+    }
+    $healthy = Test-VenvHealthy -VenvPython $venvPython
+    if (-not $healthy) {
+        Write-LauncherLog "Venv nao respondeu a 'python -c import sys' - reinstalando dependencias." "Warn"
+    }
+    if ((-not $Force) -and $healthy -and $stamp -and ((Read-VenvStamp -VenvPath $VenvPath) -eq $stamp)) {
+        Write-LauncherLog "Dependencias ja instaladas (stamp confere) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
+        return $venvPython
+    }
+
+    Install-Requirements -RepoRoot $RepoRoot -VenvPython $venvPython -Config $Config
     Write-VenvLock -RepoRoot $RepoRoot -VenvPython $venvPython
+    if ($stamp) {
+        Write-VenvStamp -VenvPath $VenvPath -Stamp $stamp
+    }
     return $venvPython
 }
 
@@ -211,6 +317,58 @@ function Test-RequiredBinary {
         throw "$Name nao encontrado em: $Path`n$FixHint"
     }
     return $Path
+}
+
+function Test-FfmpegCapabilities {
+    param(
+        [Parameter(Mandatory)][string]$Ffmpeg,
+        [Parameter(Mandatory)]$Config
+    )
+    $encoders = @()
+    $filters = @()
+    if ($null -ne $Config) {
+        $validationProp = $Config.PSObject.Properties["validation"]
+        if ($null -ne $validationProp -and $null -ne $validationProp.Value) {
+            $encodersProp = $validationProp.Value.PSObject.Properties["requiredEncoders"]
+            if ($null -ne $encodersProp -and $null -ne $encodersProp.Value) { $encoders = @($encodersProp.Value) }
+            $filtersProp = $validationProp.Value.PSObject.Properties["requiredFilters"]
+            if ($null -ne $filtersProp -and $null -ne $filtersProp.Value) { $filters = @($filtersProp.Value) }
+        }
+    }
+    if ($encoders.Count -eq 0 -and $filters.Count -eq 0) { return }
+
+    $missing = @()
+    if ($encoders.Count -gt 0) {
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $encoderList = & $Ffmpeg -hide_banner -encoders 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $prevEap
+        }
+        $encoderText = (@($encoderList) -join "`n")
+        foreach ($name in $encoders) {
+            if ($encoderText -notmatch ("\b" + [regex]::Escape($name) + "\b")) { $missing += "encoder '$name'" }
+        }
+    }
+    if ($filters.Count -gt 0) {
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $filterList = & $Ffmpeg -hide_banner -filters 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $prevEap
+        }
+        $filterText = (@($filterList) -join "`n")
+        foreach ($name in $filters) {
+            if ($filterText -notmatch ("\b" + [regex]::Escape($name) + "\b")) { $missing += "filtro '$name'" }
+        }
+    }
+    if ($missing.Count -gt 0) {
+        throw "FFmpeg em '$Ffmpeg' nao tem: $($missing -join ', '). Rode .\tools\fetch_ffmpeg.ps1 para baixar um build completo."
+    }
 }
 
 function Resolve-Binaries {
@@ -229,6 +387,8 @@ function Resolve-Binaries {
     $ffprobe = Join-Path $RepoRoot $Config.paths.ffprobeExe
     Test-RequiredBinary -Path $ffprobe -Name "ffprobe.exe" `
         -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+
+    Test-FfmpegCapabilities -Ffmpeg $ffmpeg -Config $Config
 
     $wtPath = Join-Path $RepoRoot $Config.paths.windowsTerminalExe
     $wtAvailable = Test-Path $wtPath
@@ -257,12 +417,20 @@ function Build-SetupCommand {
         [Parameter(Mandatory)][string]$VenvPython,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)]$Config,
-        [AllowEmptyString()][string]$WorkingDirectory = ''
+        [AllowEmptyString()][string]$WorkingDirectory = '',
+        [AllowEmptyString()][string]$Ffmpeg = '',
+        [AllowEmptyString()][string]$Ffprobe = ''
     )
     $script = Join-Path $RepoRoot $Config.paths.encoderScript
     $prefix = ''
     if ($WorkingDirectory) {
         $prefix = "Set-Location $(Protect-PSLiteral -Value $WorkingDirectory); "
+    }
+    if ($Ffmpeg) {
+        $prefix += "`$env:REELS_FFMPEG=$(Protect-PSLiteral -Value $Ffmpeg); "
+    }
+    if ($Ffprobe) {
+        $prefix += "`$env:REELS_FFPROBE=$(Protect-PSLiteral -Value $Ffprobe); "
     }
     return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --hardware-info"
 }
@@ -272,12 +440,20 @@ function Build-AppCommand {
         [Parameter(Mandatory)][string]$VenvPython,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)]$Config,
-        [AllowEmptyString()][string]$WorkingDirectory = ''
+        [AllowEmptyString()][string]$WorkingDirectory = '',
+        [AllowEmptyString()][string]$Ffmpeg = '',
+        [AllowEmptyString()][string]$Ffprobe = ''
     )
     $script = Join-Path $RepoRoot $Config.paths.encoderScript
     $prefix = ''
     if ($WorkingDirectory) {
         $prefix = "Set-Location $(Protect-PSLiteral -Value $WorkingDirectory); "
+    }
+    if ($Ffmpeg) {
+        $prefix += "`$env:REELS_FFMPEG=$(Protect-PSLiteral -Value $Ffmpeg); "
+    }
+    if ($Ffprobe) {
+        $prefix += "`$env:REELS_FFPROBE=$(Protect-PSLiteral -Value $Ffprobe); "
     }
     return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --ui"
 }
@@ -336,6 +512,10 @@ function Open-LauncherTabs {
 
 if ($MyInvocation.InvocationName -ne '.') {
     try {
+        if ($SkipEnvSetup -and $ForceEnvSetup) {
+            throw "-SkipEnvSetup e -ForceEnvSetup sao mutuamente exclusivos: escolha pular o setup do venv ou forcar a reinstalacao."
+        }
+
         $configPath = Join-Path $Script:RepoRoot "launch-config.json"
         $config = Read-LauncherConfig -Path $configPath
         Test-LauncherConfig -Config $config
@@ -350,7 +530,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             }
         }
         else {
-            $venvPython = Initialize-Environment -RepoRoot $Script:RepoRoot -VenvPath $venvPath
+            $venvPython = Initialize-Environment -RepoRoot $Script:RepoRoot -VenvPath $venvPath `
+                -Config $config -Force:$ForceEnvSetup
         }
 
         if ($SkipValidation) {
@@ -359,6 +540,8 @@ if ($MyInvocation.InvocationName -ne '.') {
             $wtPath = Join-Path $Script:RepoRoot $config.paths.windowsTerminalExe
             $binaries = [PSCustomObject]@{
                 VenvPython  = $venvPython
+                Ffmpeg      = ''
+                Ffprobe     = ''
                 WtPath      = $wtPath
                 WtAvailable = (Test-Path $wtPath)
             }
@@ -368,9 +551,9 @@ if ($MyInvocation.InvocationName -ne '.') {
         }
 
         $setupCmd = Build-SetupCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
-            -WorkingDirectory $Script:RepoRoot
+            -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
         $encodeCmd = Build-AppCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
-            -WorkingDirectory $Script:RepoRoot
+            -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
 
         $launcherShell = Resolve-LauncherShell -Config $config
         $useNoProfile = $true
