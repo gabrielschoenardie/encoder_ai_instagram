@@ -3508,3 +3508,9 @@ abortar e copiou os 3 binarios para `.\bin`. Fecha o unico item nao verificavel 
 | ID | status | arquivo tocado | resultado |
 |----|--------|----------------|-----------|
 | AZ1 | done | launcher.ps1 | Escapado `;` -> `\;` so no valor entregue ao wt (setupCmdForWt/encodeCmdForWt); separador @(";") entre abas e ramo fallback intocados; Parser::ParseFile sem erros; Pester local: 94/94 verdes (nao 110 - divergencia de contagem do PLAN vs suite atual, nao relacionada a este fix); verificacao real do wt em ambiente com Windows Terminal fica para o usuario |
+
+## Ciclo BA
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| BA1 | done | launcher.ps1 | Adicionado `& $VenvPython -m pip check` em `Test-VenvHealthy` apos guard de `import sys` (short-circuit se exit != 0); `Select-String 'pip check'` retorna 1 linha; Parser::ParseFile sem erros; Pester `tests/` 110/110 verdes sem editar teste |
