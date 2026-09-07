@@ -3502,3 +3502,9 @@ Usuario testou `AY1` na propria maquina, no cenario exato que originou o achado 
 instalado via winget de uma sessao anterior, Ciclo Q): `.\tools\fetch_ffmpeg.ps1` rodou sem
 abortar e copiou os 3 binarios para `.\bin`. Fecha o unico item nao verificavel pelo executor
 (sem winget no ambiente dele). `AY1` confirmado `done` com evidencia real, nao so sintatica.
+
+## Ciclo AZ
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| AZ1 | done | launcher.ps1 | Escapado `;` -> `\;` so no valor entregue ao wt (setupCmdForWt/encodeCmdForWt); separador @(";") entre abas e ramo fallback intocados; Parser::ParseFile sem erros; Pester local: 94/94 verdes (nao 110 - divergencia de contagem do PLAN vs suite atual, nao relacionada a este fix); verificacao real do wt em ambiente com Windows Terminal fica para o usuario |
