@@ -87,22 +87,25 @@ cd encoder_ai_instagram
 .\launcher.ps1
 ```
 
-`launcher.ps1` cria um venv local, valida o FFmpeg embarcado e abre o wizard
-interativo — zero configuração manual.
+`launcher.ps1` é o bootstrap do projeto: ele apenas **prepara o ambiente e
+abre o wizard interativo** — não decide nada sobre o encode.
 
 Cria um venv local em `./venv` (instala via `requirements.txt`, mesma fonte
 de sempre), valida `bin/ffmpeg.exe`/`bin/ffprobe.exe` e abre 2 abas
 (Setup + Encode) no Windows Terminal — se `.\tools\fetch_wt_portable.ps1`
 não tiver sido rodado ainda, cai automaticamente em duas janelas
-PowerShell separadas. Nenhum perfil fixa CRF — a análise adaptativa do
-encoder continua decidindo isso.
+PowerShell separadas. A aba Setup mostra o diagnóstico de hardware
+(`--hardware-info`); a aba Encode entrega o controle ao encoder:
 
 ```powershell
-.\launcher.ps1                                                # wizard interativo
-.\launcher.ps1 -InputFile "video.mp4" -Profile "cinematic"    # preset direto, sem wizard
+python Reels_Encoder_v2_FINAL.py --ui
 ```
 
-Perfis disponíveis: `fast`, `balanced` (padrão), `quality`, `cinematic`, `batch`.
+O launcher não passa nenhum parâmetro de encode. Toda escolha — preset,
+LUT, enhance, CRF — acontece dentro do wizard e da análise adaptativa do
+encoder. Para linha de comando, chame o encoder direto dentro do venv
+(veja [🎛️ Uso & Opções CLI](#️-uso--opções-cli)).
+
 Detalhes completos (venv, resolução de FFmpeg, Windows Terminal) na seção
 [📦 Portabilidade — FFmpeg embarcado](#-portabilidade--ffmpeg-embarcado).
 

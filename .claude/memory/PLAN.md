@@ -243,10 +243,33 @@ lista `-ForEach`; acrescentar os 9 nomes novos (`Protect-PSLiteral`, `Test-Launc
 `Test-VenvHealthy`, `Get-RequirementsStamp`, `Read-VenvStamp`, `Write-VenvStamp`,
 `Test-FfmpegCapabilities`, `Resolve-LauncherShell`, `Build-AppCommand`).
 
+**Duas asserções sobre o config real, órfãs da `AX4` (achado da execução da `AX5`, sem tarefa
+própria até esta revisão — fechar aqui).** `It 'carrega o launch-config.json real do
+repositorio'` dentro de `Describe 'Contrato de dot-source'` (`:64-66`) faz
+`$script:Config.defaultProfile | Should -Be 'balanced'`; a homônima dentro de `Describe
+'Read-LauncherConfig'` (`:379-383`) faz o mesmo mais `@($real.profiles.PSObject.Properties.Name).Count
+| Should -Be 5`. As duas leem o `launch-config.json` real do repo, e as duas chaves saíram no
+`AX4`. Substituir pelo schema novo, sem citar `profiles`/`defaultProfile`:
+`:64-66` → `$script:Config.configVersion | Should -Be 2`;
+`:379-383` → `$real.configVersion | Should -Be 2` mais
+`@($real.paths.PSObject.Properties.Name).Count | Should -Be 6`. Não contam para os "16 testes
+que saem" do critério de aceite 2 — são asserção trocada, não teste deletado.
+
 **`Describe 'Build-SetupCommand'` (`:117-142`) — 4 testes passam sem edição.** Asseveram
 `Should -Match` sobre `--hardware-info`, o nome do script e o interpretador; nem o prefixo do
 `Set-Location` nem o export de env afetam. **Se algum reprovar, é bug do `AX1`/`AX2`/`AX11`,
 não do teste: parar e reportar, não relaxar a asserção.**
+
+**`Describe 'Resolve-Binaries'` (`:281-358`) — os 9 testes ganham 1 mock a mais nos dois
+`BeforeAll`, sem tocar asserção nenhuma (achado da execução da `AX10`, sem tarefa própria até
+esta revisão — fechar aqui).** A `AX10` faz `Resolve-Binaries` chamar `Test-FfmpegCapabilities`
+de verdade; os dois Contexts (`'todos os binarios presentes'` `:285-295` e `'Windows Terminal
+ausente'` `:330-334`) passam `$script:Config` real (com `validation.requiredEncoders`/
+`requiredFilters`) e um `-RepoRoot 'ROOT'` fictício, então a chamada tenta rodar
+`'ROOT\bin\ffmpeg.exe' -encoders` e os 9 testes reprovam com `CommandNotFoundException`.
+Acrescentar `Mock Test-FfmpegCapabilities { }` a cada um dos dois `BeforeAll` (junto de
+`Mock Test-RequiredBinary`/`Mock Test-Path`/`Mock Write-LauncherLog`, mesmo bloco). Nenhuma
+`It` muda.
 
 **`Describe 'Initialize-Environment'` (`:199-280`) — reestruturar em 5 Contexts.** O Context
 `'quando o venv ja existe'` tem hoje 5 testes, dois dos quais (`'ainda assim instala as

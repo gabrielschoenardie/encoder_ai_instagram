@@ -1157,3 +1157,56 @@ Todos os itens priorizados pelo usuário nesta sessão estão fechados com evid�
   **Único item em aberto** — alvo do Ciclo AV.
 - **`AUF1` (S4):** `matplotlib` declarado e não usado — **descartado** pelo usuário em
   2026-09-04 (ver acima). Fora da fila.
+
+## Achado — 2026-09-06 (ciclo AX, auditoria `launcher.ps1` + `launch-config.json`) — FECHADO no próprio ciclo AX
+
+Auditoria motivada pela correção de arquitetura do usuário (2026-09-06): a aba Encode do
+launcher deixa de montar comandos de encode e passa a só abrir `Reels_Encoder_v2_FINAL.py --ui`
+(wizard interativo). Isso torna 7 dos 16 achados abaixo órfãos — evaporam com a remoção dos
+perfis, sem correção de código. Os outros 9 viraram tarefa (`AX1`-`AX11`, `AX13`).
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| AXF1 | perda de dados | `launcher.ps1:252-268` (`Open-LauncherTabs`) | `wt`/`Start-Process` abrem sem diretório de trabalho; máscaras MCTF e mapas de preflight caem no CWD da aba, não no repo | S1 | esperado: `enhance_maps/` nasce na raiz do repo; medido: caminho relativo resolve contra o CWD do terminal, variável por atalho/perfil |
+| AXF2 | injeção de argumento | `launcher.ps1:213` | `--batch <pasta>` injetado sem aspas: pasta com espaço vira dois argumentos | S2 | esperado: pasta com espaço funciona; medido: `Reels_Encoder_v2_FINAL.py:4463` recebe args quebrados e morre |
+| AXF3 | injeção de argumento | `launcher.ps1:225,244` | caminhos interpolados em aspas simples sem escapar apóstrofo | S3 | esperado: repo em `C:\Users\Gabriel's PC\...` funciona; medido: comando das duas abas quebra |
+| AXF4 | lógica de dispatch | `launcher.ps1:237-249` vs `Reels_Encoder_v2_FINAL.py:4440,4446` | `-Profile X` sem `-InputFile` monta comando sem posicional; encoder abre a UI e descarta as flags do perfil em silêncio | S2 | esperado: erro claro ou fallback documentado; medido: perfil escolhido é ignorado sem aviso |
+| AXF5 | validação ausente | (ausência) | `-InputFile` nunca passa por `Test-Path`; `-Profile batch` não checa `-PathType Container` | S3 | esperado: erro no launcher antes de invocar o encoder; medido: erro genérico do encoder, sem contexto |
+| AXF6 | robustez de rede | `launcher.ps1:148,119-134` | `Install-Requirements` roda em todo lançamento; `throw` derruba o launch se a rede cair, mesmo com venv correto | S3 | esperado: segundo lançamento não depende de rede; medido: falha de rede = launch bloqueado |
+| AXF7 | validação de ambiente | `launcher.ps1:66-72` (`Resolve-SystemPython`) | devolve o primeiro `py`/`python` do PATH sem checar versão; `pyproject.toml:10` exige `>=3.11` | S3 | esperado: erro nomeando a versão exigida; medido: venv criado com Python incompatível, falha adiante e sem contexto |
+| AXF8 | validação ausente | `launcher.ps1:48-59` | `launch-config.json` parseado, nunca validado | S4 | esperado: erro nomeando a chave ausente; medido: `Join-Path` de `:280` estoura com erro de binding genérico se `paths.venv` faltar |
+| AXF9 | drift de binário (residual `QF2`) | `launcher.ps1:174-180` vs `ui/binaries.py:37-52` | binário validado (`bin/ffmpeg.exe`) não é o binário que o processo filho resolve sozinho | S4 | esperado: binário testado = binário usado; medido: validação e resolução em runtime são independentes |
+| AXF10 | shadowing de variável | `launcher.ps1:10` | `[string]$Profile` sombreia a variável automática `$PROFILE` do PowerShell | S4 | esperado: nomes de parâmetro não colidem com automáticas; medido: colisão silenciosa |
+| AXF11 | shell incorreto | `launcher.ps1:261,265,266` | `powershell` hardcoded (nunca `pwsh` 7) e sem `-NoProfile` | S4 | esperado: usa `pwsh` quando disponível, perfil do usuário não interfere; medido: sempre Windows PowerShell 5.1, perfil carregado |
+| AXC1 | config inconsistente | `launch-config.json:6` (`fast`) | declara `--enhance off` mas herda `--enhance-ai on`/`--mctf on` | S4 | esperado: preview sem aviso para o perfil `fast`; medido: aviso amarelo em todo preview |
+| AXC2 | config inconsistente | `launch-config.json:14` (`quality`) | herda `--enhance-ai on`/`--mctf on` implicitamente, sem declaração explícita | S4 | esperado: config explícita; medido: herança implícita não documentada |
+| AXC3 | config inconsistente | `launch-config.json:18` (`cinematic`) | herda `--performance balanced` num pipeline PyAV de 5-15 fps | S4 | esperado: performance coerente com o pipeline do perfil; medido: `balanced` incoerente com Cineon Mode |
+| AXC4 | config morta | `launcher.ps1:100` | `paths.requirements` declarado no JSON, nunca lido — `Install-Requirements` hardcoda o literal | S4 | esperado: `paths.requirements` controla o caminho; medido: campo decorativo |
+| AXD1 | doc defasada | `README.md:101-102` | documenta `.\launcher.ps1 -InputFile "video.mp4" -Profile "cinematic"` | S4 | esperado: doc reflete a CLI real; medido: exemplo referencia flags que deixam de existir |
+
+| ID | status | onde |
+|----|--------|------|
+| AXF2 | **resolvido por remoção** | `AX3` (commit `b7f866a`) — `Build-ProfileArgs`/`Build-EncodeCommand` deletadas, não há mais `--batch` montado pelo launcher |
+| AXF4 | **resolvido por remoção** | `AX3` (`b7f866a`) — não há mais `-Profile` a descartar |
+| AXF5 | **resolvido por remoção** | `AX3` (`b7f866a`) — não há mais `-InputFile`; `ask_path` do wizard valida |
+| AXF10 | **resolvido por remoção** | `AX3` (`b7f866a`) — `$Profile` fora do `param()` |
+| AXC1 | **resolvido por remoção** | `AX4` (`b7f866a`) — perfil `fast` não existe mais no config |
+| AXC2 | **resolvido por remoção** | `AX4` (`b7f866a`) — idem, `quality` |
+| AXC3 | **resolvido por remoção** | `AX4` (`b7f866a`) — idem, `cinematic` |
+| AXF1 | **corrigido** | `AX1` (`b7f866a`) — `-WorkingDirectory` em `Build-SetupCommand`/`Build-AppCommand`/`Open-LauncherTabs`, `Set-Location` na string + `--startingDirectory`/`-WorkingDirectory` nativos |
+| AXF3 | **corrigido** | `AX2` (`b7f866a`) — `Protect-PSLiteral` em todo caminho interpolado |
+| AXF6 | **corrigido** | `AX7` (`6b94a8e`) — cache de deps por stamp SHA256, `Install-Requirements` só roda quando stamp diverge ou venv não-saudável |
+| AXF7 | **corrigido** | `AX9` (`6b94a8e`) — `Resolve-SystemPython -MinVersion`, rejeita citando a versão medida |
+| AXF8 | **corrigido** | `AX5` (`b7f866a`) — `Test-LauncherConfig`, mensagem nomeia a chave |
+| AXF9 | **corrigido** | `AX11` (`6b94a8e`) — `REELS_FFMPEG`/`REELS_FFPROBE` exportados na string do comando; `ui/binaries.py` consulta env antes de `bin/` |
+| AXF11 | **corrigido** | `AX6` (`b7f866a`) — `Resolve-LauncherShell` + `-Shell`/`-NoProfile` |
+| AXC4 | **corrigido** | `AX8` (`6b94a8e`) — `Install-Requirements -Config` usa `paths.requirements` |
+| AXD1 | **corrigido** | `AX13` (`3bab104`) — README descreve o launcher como bootstrap, sem `-InputFile`/`-Profile` |
+
+Verificação: suíte Pester subiu de 91 para 110 testes (`AX12`, commit `e80ccf4`), verde em
+pwsh 7.5.1 e Windows PowerShell 5.1; `pytest ui/` 157 passed; `ruff check .` limpo. Duas
+lacunas que a spec original da `AX12` não cobria foram encontradas durante a própria execução
+do ciclo (testes que ainda liam `defaultProfile`/`profiles` do config real, e um `Describe
+'Resolve-Binaries'` que passou a invocar `Test-FfmpegCapabilities` de verdade) — corrigidas por
+emenda ao `PLAN.md` (commits `dc942e6`, `5af1554`) antes da `AX12` rodar, não como achado
+residual pós-fechamento.

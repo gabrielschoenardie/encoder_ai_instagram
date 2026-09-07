@@ -1,15 +1,16 @@
 <#
     Testes das funcoes de launcher.ps1.
 
-    O arquivo e carregado por dot-source. launcher.ps1:270 tem o guard
+    O arquivo e carregado por dot-source. launcher.ps1:513 tem o guard
     "if ($MyInvocation.InvocationName -ne '.')": sob dot-source a condicao e
-    falsa, entao as 14 funcoes sao definidas e NADA do bootstrap roda (nenhum
+    falsa, entao as 21 funcoes sao definidas e NADA do bootstrap roda (nenhum
     venv criado, nenhum pip, nenhuma janela aberta).
 
     Superficies deliberadamente NAO cobertas aqui (ver o spec
     docs/superpowers/specs/2026-08-14-pester-launcher-design.md
     § "Superficies nao-testaveis"): New-ProjectVenv, Install-Requirements,
-    Write-VenvLock e o ramo wt.exe de Open-LauncherTabs usam
+    Write-VenvLock, Test-FfmpegCapabilities, Test-VenvHealthy real,
+    Resolve-SystemPython real e o ramo wt.exe de Open-LauncherTabs usam
     "& $variavelComCaminho". O Mock do Pester engancha em NOMES de comando; um
     caminho vindo de variavel resolve como Application em runtime e nunca passa
     pelo mock. A evidencia dessas superficies e execucao real registrada em
@@ -44,17 +45,24 @@ Describe 'Contrato de dot-source' {
     It 'define a funcao <_>' -ForEach @(
         'Write-LauncherLog'
         'Read-LauncherConfig'
+        'Test-LauncherConfig'
         'Test-VenvExists'
         'Resolve-SystemPython'
         'New-ProjectVenv'
         'Install-Requirements'
         'Write-VenvLock'
+        'Test-VenvHealthy'
+        'Get-RequirementsStamp'
+        'Read-VenvStamp'
+        'Write-VenvStamp'
         'Initialize-Environment'
         'Test-RequiredBinary'
+        'Test-FfmpegCapabilities'
         'Resolve-Binaries'
-        'Build-ProfileArgs'
+        'Protect-PSLiteral'
         'Build-SetupCommand'
-        'Build-EncodeCommand'
+        'Build-AppCommand'
+        'Resolve-LauncherShell'
         'Open-LauncherTabs'
     ) {
         Get-Command $_ -CommandType Function -ErrorAction SilentlyContinue |
@@ -62,7 +70,7 @@ Describe 'Contrato de dot-source' {
     }
 
     It 'carrega o launch-config.json real do repositorio' {
-        $script:Config.defaultProfile | Should -Be 'balanced'
+        $script:Config.configVersion | Should -Be 2
     }
 
     It 'sabe em qual SO esta rodando' {
@@ -70,47 +78,49 @@ Describe 'Contrato de dot-source' {
     }
 }
 
-Describe 'Build-ProfileArgs' {
+Describe 'Protect-PSLiteral' {
 
-    It 'monta as flags exatas do perfil <Name>' -ForEach @(
-        @{ Name = 'fast';      Expected = '--performance speed --enhance off' }
-        @{ Name = 'balanced';  Expected = '--performance balanced --enhance on --enhance-ai on' }
-        @{ Name = 'quality';   Expected = '--performance quality --mode 2pass --enhance on' }
-        @{ Name = 'cinematic'; Expected = '--cineon-pipeline on --exposure-offset +0.2 --saturation 1.05 --mode 2pass' }
-    ) {
-        $result = Build-ProfileArgs -ProfileName $Name -Config $script:Config
-        ($result -join ' ') | Should -Be $Expected
+    It 'envolve uma string simples em aspas simples' {
+        Protect-PSLiteral -Value 'abc' | Should -Be "'abc'"
     }
 
-    It 'lanca para um perfil que nao existe' {
-        { Build-ProfileArgs -ProfileName 'inexistente' -Config $script:Config } |
-            Should -Throw -ExpectedMessage "*Perfil 'inexistente' nao existe*"
+    It 'dobra a aspa simples embutida' {
+        # O caso real: um repo em "C:\Users\Gabriel's PC\encoder" fecharia o
+        # literal no meio do caminho e quebraria o comando das duas abas.
+        Protect-PSLiteral -Value "Gabriel's" | Should -Be "'Gabriel''s'"
     }
 
-    It 'lista os perfis validos na mensagem de erro' {
-        { Build-ProfileArgs -ProfileName 'inexistente' -Config $script:Config } |
-            Should -Throw -ExpectedMessage '*fast, balanced, quality, cinematic, batch*'
+    It 'preserva espacos sem escapar nada mais' {
+        Protect-PSLiteral -Value 'C:\Meus Reels\clipes' | Should -Be "'C:\Meus Reels\clipes'"
     }
 
-    It 'lanca quando o perfil batch e usado sem pasta de entrada' {
-        { Build-ProfileArgs -ProfileName 'batch' -Config $script:Config } |
-            Should -Throw -ExpectedMessage '*exige uma pasta de entrada*'
+    It 'aceita string vazia e devolve um literal vazio' {
+        Protect-PSLiteral -Value '' | Should -Be "''"
+    }
+}
+
+Describe 'Test-LauncherConfig' {
+
+    It 'aceita o launch-config.json real do repositorio' {
+        { Test-LauncherConfig -Config $script:Config } | Should -Not -Throw
     }
 
-    It 'prefixa --batch/--output-dir quando o perfil batch recebe -BatchDir' {
-        # MYCLIPS e um token sem separador de path de proposito: a string e
-        # repassada literalmente pela funcao, entao o teste roda igual nos
-        # dois SOs sem depender de "/" vs "\".
-        $result = Build-ProfileArgs -ProfileName 'batch' -Config $script:Config -BatchDir 'MYCLIPS'
-        ($result -join ' ') | Should -Be '--batch MYCLIPS --output-dir MYCLIPS --enhance on'
+    It 'lanca nomeando a chave quando paths.venv esta ausente' {
+        $cfg = '{ "paths": { "ffmpegExe": "a", "ffprobeExe": "b", "windowsTerminalExe": "c", "requirements": "d", "encoderScript": "e" } }' |
+            ConvertFrom-Json
+        { Test-LauncherConfig -Config $cfg } | Should -Throw -ExpectedMessage '*paths.venv*'
     }
 
-    It 'nenhum perfil produz --crf' {
-        foreach ($n in @('fast', 'balanced', 'quality', 'cinematic')) {
-            Build-ProfileArgs -ProfileName $n -Config $script:Config | Should -Not -Contain '--crf'
-        }
-        Build-ProfileArgs -ProfileName 'batch' -Config $script:Config -BatchDir 'MYCLIPS' |
-            Should -Not -Contain '--crf'
+    It 'lanca nomeando a chave quando paths.venv e uma string vazia' {
+        $cfg = '{ "paths": { "venv": "", "ffmpegExe": "a", "ffprobeExe": "b", "windowsTerminalExe": "c", "requirements": "d", "encoderScript": "e" } }' |
+            ConvertFrom-Json
+        { Test-LauncherConfig -Config $cfg } | Should -Throw -ExpectedMessage '*paths.venv*'
+    }
+
+    It 'lanca quando minPythonVersion nao e parseavel como [version]' {
+        $cfg = '{ "minPythonVersion": "tres-ponto-onze", "paths": { "venv": "venv", "ffmpegExe": "a", "ffprobeExe": "b", "windowsTerminalExe": "c", "requirements": "d", "encoderScript": "e" } }' |
+            ConvertFrom-Json
+        { Test-LauncherConfig -Config $cfg } | Should -Throw -ExpectedMessage '*minPythonVersion*'
     }
 }
 
@@ -140,59 +150,82 @@ Describe 'Build-SetupCommand' {
     }
 }
 
-Describe 'Build-EncodeCommand' {
+Describe 'Build-AppCommand' {
 
-    It 'sem perfil, abre o wizard interativo (--ui)' {
-        $cmd = Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile '' -ProfileName $null
-        $cmd | Should -Match '--ui'
+    It 'entrega o wizard e nada mais (termina em --ui)' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Match '--ui$'
+    }
+
+    It 'referencia o script do encoder e o interpretador recebido' {
+        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config
         $cmd | Should -Match 'Reels_Encoder_v2_FINAL\.py'
+        $cmd | Should -Match 'PY'
     }
 
-    It 'sem perfil, nao inclui flags de perfil' {
-        Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile '' -ProfileName $null |
-            Should -Not -Match '--performance'
+    It 'nao pre-decide nenhum parametro de encode (<_>)' -ForEach @(
+        '--performance'
+        '--batch'
+        '--mode'
+        '--enhance'
+        '--cineon-pipeline'
+        '--crf'
+    ) {
+        # Regra de Ouro (skill instagram-reels-encoder): rate control e decisao
+        # de pipeline vem da analise adaptativa do encoder, nunca do launcher.
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match $_
     }
 
-    It 'com perfil e input, inclui o arquivo de entrada' {
-        Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile 'video.mp4' -ProfileName 'fast' |
-            Should -Match 'video\.mp4'
-    }
-
-    It 'com perfil e input, inclui as flags do perfil e nao abre o wizard' {
-        $cmd = Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile 'video.mp4' -ProfileName 'fast'
-        $cmd | Should -Match '--performance speed'
-        $cmd | Should -Match '--enhance off'
-        $cmd | Should -Not -Match '--ui'
-    }
-
-    It 'perfil cinematic monta a cadeia Cineon completa' {
-        $cmd = Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile 'video.mp4' -ProfileName 'cinematic'
-        $cmd | Should -Match '--cineon-pipeline on'
-        $cmd | Should -Match '--exposure-offset \+0\.2'
-        $cmd | Should -Match '--saturation 1\.05'
-        $cmd | Should -Match '--mode 2pass'
-    }
-
-    It 'perfil batch usa --batch/--output-dir e OMITE o arquivo de entrada' {
-        $cmd = Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -InputFile 'MYCLIPS' -ProfileName 'batch'
-        $cmd | Should -Match '--batch MYCLIPS'
-        $cmd | Should -Match '--output-dir MYCLIPS'
-        # no modo batch a pasta vai so nas flags; nunca como argumento
-        # posicional entre aspas simples logo depois do script.
-        $cmd | Should -Not -Match "'MYCLIPS'"
-    }
-
-    It 'nenhum comando montado contem --crf' {
+    It 'nao cita nome de perfil nenhum' {
+        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config
         foreach ($n in @('fast', 'balanced', 'quality', 'cinematic')) {
-            Build-EncodeCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-                -InputFile 'video.mp4' -ProfileName $n | Should -Not -Match '--crf'
+            $cmd | Should -Not -Match $n
         }
+    }
+
+    It 'prefixa Set-Location quando recebe -WorkingDirectory' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory 'WD' |
+            Should -Match '^Set-Location ''WD''; '
+    }
+
+    It 'nao prefixa Set-Location quando -WorkingDirectory fica vazio' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match 'Set-Location'
+    }
+
+    It 'exporta REELS_FFMPEG e REELS_FFPROBE dentro da string' {
+        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
+            -Ffmpeg 'FF' -Ffprobe 'FP'
+        $cmd | Should -Match '\$env:REELS_FFMPEG=''FF'''
+        $cmd | Should -Match '\$env:REELS_FFPROBE=''FP'''
+    }
+
+    It 'monta na ordem Set-Location -> $env: -> &' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
+            -WorkingDirectory 'WD' -Ffmpeg 'FF' -Ffprobe 'FP' |
+            Should -Match '^Set-Location ''WD''; \$env:REELS_FFMPEG=''FF''; \$env:REELS_FFPROBE=''FP''; & '
+    }
+
+    It 'protege caminho com aspa simples' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory "Gabriel's" |
+            Should -Match '^Set-Location ''Gabriel''''s''; '
+    }
+}
+
+Describe 'Resolve-LauncherShell' {
+
+    It 'devolve powershell quando terminal.preferPwsh e false' {
+        # Sem consultar o PATH: o proprio runner desta suite tem pwsh instalado
+        # (o CI roda em pwsh 7 no leg ubuntu), entao "powershell" so pode sair
+        # do curto-circuito da preferencia.
+        $cfg = '{ "terminal": { "preferPwsh": false } }' | ConvertFrom-Json
+        Resolve-LauncherShell -Config $cfg | Should -Be 'powershell'
+    }
+
+    It 'devolve um shell valido quando preferPwsh e true' {
+        $cfg = '{ "terminal": { "preferPwsh": true } }' | ConvertFrom-Json
+        Resolve-LauncherShell -Config $cfg | Should -BeIn @('pwsh', 'powershell')
     }
 }
 
@@ -200,58 +233,119 @@ Describe 'Initialize-Environment' {
 
     # Pester 5 consegue mockar funcoes definidas por dot-source na mesma
     # sessao. E isso que permite testar a DECISAO do orquestrador (criar venv
-    # vs. reaproveitar) sem criar venv nenhum, sem rede e sem pip - as funcoes
-    # que de fato invocam "& $python" ficam substituidas por no-ops.
+    # vs. reaproveitar, rodar pip vs. pular pelo stamp) sem criar venv nenhum,
+    # sem rede e sem pip - as funcoes que de fato invocam "& $python" ficam
+    # substituidas por no-ops.
 
-    Context 'quando o venv ja existe' {
+    Context 'venv existe, saudavel, stamp confere' {
 
         BeforeAll {
-            Mock Test-VenvExists     { return $true }
-            Mock New-ProjectVenv     { }
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
             Mock Install-Requirements { }
-            Mock Write-VenvLock      { }
-            Mock Write-LauncherLog   { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
         }
 
         It 'nao recria o venv' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
             Should -Invoke New-ProjectVenv -Times 0 -Exactly
         }
 
-        It 'ainda assim instala as dependencias (idempotente)' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
-            Should -Invoke Install-Requirements -Times 1 -Exactly
+        It 'nao roda pip (o stamp confere)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Install-Requirements -Times 0 -Exactly
         }
 
-        It 'ainda assim regrava o venv.lock (diagnostico)' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
-            Should -Invoke Write-VenvLock -Times 1 -Exactly
+        It 'nao regrava o venv.lock (pip nao rodou)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Write-VenvLock -Times 0 -Exactly
         }
 
         It 'retorna o caminho do python dentro do venv informado' {
-            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV'
+            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config
             # Join-Path 'VENV' 'Scripts\python.exe' muda de forma entre SOs;
             # asseveramos os dois pedacos estaveis, nunca o caminho inteiro.
             $py | Should -Match 'python'
             $py | Should -Match 'VENV'
         }
+    }
+
+    Context 'venv existe, saudavel, stamp difere' {
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'OUTRO' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'reinstala as dependencias' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+
+        It 'regrava o venv.lock (diagnostico)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Write-VenvLock -Times 1 -Exactly
+        }
+
+        It 'grava o stamp novo depois do pip' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Write-VenvStamp -Times 1 -Exactly
+        }
 
         It 'passa adiante o mesmo interpretador para install e lock' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
             Should -Invoke Install-Requirements -Times 1 -Exactly -ParameterFilter {
                 $VenvPython -match 'python'
             }
         }
     }
 
+    Context 'venv existe mas nao esta saudavel' {
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $false }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'reinstala mesmo com o stamp conferindo' {
+            # Venv orfao de repo movido (pyvenv.cfg com "home" obsoleto): pular
+            # o pip pelo stamp esconderia o problema.
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+    }
+
     Context 'quando o venv nao existe' {
 
         BeforeAll {
-            Mock Test-VenvExists     { return $false }
-            Mock New-ProjectVenv     { }
+            Mock Test-VenvExists      { return $false }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Read-VenvStamp       { return $null }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
             Mock Install-Requirements { }
-            Mock Write-VenvLock      { }
-            Mock Write-LauncherLog   { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
         }
 
         It 'cria o venv exatamente uma vez' {
@@ -276,6 +370,26 @@ Describe 'Initialize-Environment' {
             $py | Should -Match 'python'
         }
     }
+
+    Context 'com -Force' {
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'reinstala mesmo com venv saudavel e stamp conferindo' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config -Force | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+    }
 }
 
 Describe 'Resolve-Binaries' {
@@ -287,6 +401,10 @@ Describe 'Resolve-Binaries' {
             # mockado, devolve o proprio caminho, como faz o original quando o
             # arquivo existe.
             Mock Test-RequiredBinary { return $Path }
+            # Test-FfmpegCapabilities real invocaria "& 'ROOT\bin\ffmpeg.exe'
+            # -encoders" com um -RepoRoot ficticio; mockado, e no-op. A prova
+            # dessa funcao e execucao real, nao Pester (ver cabecalho).
+            Mock Test-FfmpegCapabilities { }
             # Filtro estreito de proposito: mockar Test-Path sem filtro
             # substituiria a chamada para QUALQUER caminho, inclusive de codigo
             # que nao e o alvo do teste.
@@ -329,6 +447,7 @@ Describe 'Resolve-Binaries' {
 
         BeforeAll {
             Mock Test-RequiredBinary { return $Path }
+            Mock Test-FfmpegCapabilities { }
             Mock Test-Path { return $false } -ParameterFilter { $Path -match 'wt\.exe' }
             Mock Write-LauncherLog { }
         }
@@ -378,8 +497,8 @@ Describe 'Read-LauncherConfig' {
 
     It 'carrega o launch-config.json real do repositorio' {
         $real = Read-LauncherConfig -Path (Join-Path $script:RepoRootDir 'launch-config.json')
-        $real.defaultProfile | Should -Be 'balanced'
-        @($real.profiles.PSObject.Properties.Name).Count | Should -Be 5
+        $real.configVersion | Should -Be 2
+        @($real.paths.PSObject.Properties.Name).Count | Should -Be 6
     }
 }
 
@@ -471,6 +590,36 @@ Describe 'Open-LauncherTabs — fallback sem Windows Terminal' {
         Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
         Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
             $Message -match 'fallback'
+        }
+    }
+
+    It 'usa o shell recebido em -Shell' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false -Shell 'pwsh'
+        Should -Invoke Start-Process -Times 2 -Exactly -ParameterFilter {
+            $FilePath -eq 'pwsh'
+        }
+    }
+
+    It 'passa -NoProfile no ArgumentList por padrao' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false
+        Should -Invoke Start-Process -Times 2 -Exactly -ParameterFilter {
+            $ArgumentList -contains '-NoProfile'
+        }
+    }
+
+    It 'omite -NoProfile quando -NoProfile e false' {
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false -NoProfile $false
+        Should -Invoke Start-Process -Times 0 -Exactly -ParameterFilter {
+            $ArgumentList -contains '-NoProfile'
+        }
+    }
+
+    It 'passa o diretorio de trabalho ao Start-Process' {
+        # AXF1: sem isso, enhance_maps/ (caminho relativo em
+        # Reels_Encoder_v2_FINAL.py e enhance_visualizer.py) nasce no CWD da aba.
+        Open-LauncherTabs -SetupCmd 'SETUP' -EncodeCmd 'ENCODE' -WtPath 'WT' -WtAvailable $false -WorkingDirectory 'ROOT'
+        Should -Invoke Start-Process -Times 2 -Exactly -ParameterFilter {
+            $WorkingDirectory -eq 'ROOT'
         }
     }
 }

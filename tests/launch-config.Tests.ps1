@@ -11,7 +11,6 @@ BeforeAll {
     $script:ConfigPath  = Join-Path $script:RepoRootDir 'launch-config.json'
     $script:Raw         = Get-Content -Path $script:ConfigPath -Raw
     $script:Config      = $script:Raw | ConvertFrom-Json
-    $script:ProfileNames = @($script:Config.profiles.PSObject.Properties.Name)
 }
 
 Describe 'launch-config.json — estrutura' {
@@ -24,72 +23,60 @@ Describe 'launch-config.json — estrutura' {
         { $script:Raw | ConvertFrom-Json } | Should -Not -Throw
     }
 
-    It 'declara as tres chaves de topo' {
+    It 'declara as cinco chaves de topo' {
         $top = @($script:Config.PSObject.Properties.Name)
-        $top | Should -Contain 'defaultProfile'
-        $top | Should -Contain 'profiles'
-        $top | Should -Contain 'paths'
+        foreach ($k in @('configVersion', 'minPythonVersion', 'terminal', 'validation', 'paths')) {
+            $top | Should -Contain $k
+        }
+    }
+
+    It 'nao declara profiles nem defaultProfile' {
+        $top = @($script:Config.PSObject.Properties.Name)
+        $top | Should -Not -Contain 'profiles' -Because 'o wizard do encoder (ui/launcher.py PRESETS) e a unica fonte de fluxo'
+        $top | Should -Not -Contain 'defaultProfile' -Because 'nao ha perfil para ser padrao'
+    }
+
+    It 'nao contem nenhum parametro de encode no texto cru' {
+        # Antes o guarda garantia que nenhum perfil fixava rate control; agora
+        # garante que NAO HA ONDE fixar. Regra de Ouro (skill
+        # instagram-reels-encoder § "Regras de Ouro — Nunca Violar"): CRF,
+        # maxrate, bufsize e preset sao derivados da analise adaptativa do
+        # encoder, nunca fixados em configuracao.
+        $script:Raw |
+            Should -Not -Match '--crf|--maxrate|--bufsize|--preset|--x264-params|--performance|--mode' `
+                -Because 'o launcher e bootstrap de ambiente; nenhuma decisao de encode vive aqui'
     }
 }
 
-Describe 'launch-config.json — perfis' {
+Describe 'launch-config.json — ambiente' {
 
-    It 'defaultProfile aponta para um perfil que existe' {
-        $script:Config.defaultProfile | Should -Not -BeNullOrEmpty
-        $script:ProfileNames | Should -Contain $script:Config.defaultProfile
+    It 'configVersion e um inteiro >= 2' {
+        # Windows PowerShell 5.1 desserializa o inteiro do JSON como Int32;
+        # pwsh 7 como Int64. Assertar [int] reprovaria so no leg ubuntu.
+        $script:Config.configVersion.GetType().Name | Should -BeIn @('Int32', 'Int64')
+        $script:Config.configVersion | Should -BeGreaterOrEqual 2
     }
 
-    It 'define exatamente 5 perfis' {
-        $script:ProfileNames.Count | Should -Be 5
+    It 'minPythonVersion e parseavel como [version]' {
+        $parsed = $null
+        [version]::TryParse([string]$script:Config.minPythonVersion, [ref]$parsed) |
+            Should -BeTrue -Because "recebido: '$($script:Config.minPythonVersion)'"
     }
 
-    It 'define o perfil <_>' -ForEach @('fast', 'balanced', 'quality', 'cinematic', 'batch') {
-        $script:ProfileNames | Should -Contain $_
+    It 'terminal.<_> e booleano' -ForEach @('preferPwsh', 'noProfile') {
+        $script:Config.terminal.$_ | Should -BeOfType [bool]
     }
 
-    It 'perfil <Name> tem flags nao-vazias e um campo description' -ForEach @(
-        @{ Name = 'fast' }
-        @{ Name = 'balanced' }
-        @{ Name = 'quality' }
-        @{ Name = 'cinematic' }
-        @{ Name = 'batch' }
-    ) {
-        $def = $script:Config.profiles.$Name
-        $def | Should -Not -BeNullOrEmpty
-        @($def.flags).Count | Should -BeGreaterThan 0
-
-        # 'description' e verificado so por PRESENCA, nunca por valor. Os
-        # valores tem acentos ("Preview rapido", "Padrao recomendado",
-        # "Maxima qualidade") e o arquivo e UTF-8 SEM BOM; Windows PowerShell
-        # 5.1 le arquivo sem BOM como ANSI e entrega o texto mojibake.
-        # Comparar o valor daria falso negativo so no leg windows da matriz.
-        @($def.PSObject.Properties.Name) | Should -Contain 'description'
+    It 'validation.requiredEncoders contem libx264' {
+        # O pipeline e libx264 puro: "grep -il nvenc" sobre todo .py do repo
+        # retorna zero arquivos.
+        @($script:Config.validation.requiredEncoders) | Should -Contain 'libx264'
     }
 
-    It 'nenhum perfil define --crf' {
-        # Regra de Ouro do projeto (skill instagram-reels-encoder): CRF e
-        # decidido pela analise adaptativa do encoder, nunca fixado por preset.
-        # Esta asseracao teria pego o bug do rascunho original do launcher, que
-        # propunha "--crf 18/23/28" - flag que nem existe no argparse do
-        # encoder (ver docs/superpowers/specs/2026-08-13-launcher-portavel-design.md
-        # § "Divergencias do rascunho original", item 1).
-        $allFlags = @()
-        foreach ($n in $script:ProfileNames) {
-            $allFlags += @($script:Config.profiles.$n.flags)
-        }
-        $allFlags | Should -Not -Contain '--crf'
-    }
-
-    It 'apenas o perfil batch declara requiresBatchDir' {
-        foreach ($n in $script:ProfileNames) {
-            $requires = [bool]$script:Config.profiles.$n.requiresBatchDir
-            if ($n -eq 'batch') {
-                $requires | Should -BeTrue -Because 'o perfil batch processa uma pasta inteira'
-            }
-            else {
-                $requires | Should -BeFalse -Because "o perfil '$n' recebe um arquivo, nao uma pasta"
-            }
-        }
+    It 'validation.requiredFilters contem <_>' -ForEach @('lut3d', 'zscale') {
+        # zscale aparece 13x em Reels_Encoder_v2_FINAL.py + cineon_pipeline.py e
+        # exige libzimg, ausente em muitos builds de FFmpeg.
+        @($script:Config.validation.requiredFilters) | Should -Contain $_
     }
 }
 
