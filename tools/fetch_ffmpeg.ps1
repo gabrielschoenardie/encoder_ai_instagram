@@ -29,7 +29,7 @@ Write-Host "Instalando FFmpeg 6.1 via winget..." -ForegroundColor Cyan
     --accept-package-agreements
 
 if ($LASTEXITCODE -ne 0) {
-    throw "Falha ao instalar FFmpeg via winget. Codigo de saida: $LASTEXITCODE"
+    Write-Host "AVISO: winget retornou codigo de saida $LASTEXITCODE (pode indicar que o FFmpeg ja esta instalado). Prosseguindo para localizar os binarios..." -ForegroundColor Yellow
 }
 
 $exes = @(
