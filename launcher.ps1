@@ -225,6 +225,8 @@ function Test-VenvHealthy {
     $ErrorActionPreference = "Continue"
     try {
         & $VenvPython -c "import sys" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        & $VenvPython -m pip check 2>&1 | Out-Null
     }
     finally {
         $ErrorActionPreference = $prevEap
