@@ -1,27 +1,13 @@
 {
-  "defaultProfile": "balanced",
-  "profiles": {
-    "fast": {
-      "description": "Preview rápido",
-      "flags": ["--performance", "speed", "--enhance", "off"]
-    },
-    "balanced": {
-      "description": "Padrão recomendado",
-      "flags": ["--performance", "balanced", "--enhance", "on", "--enhance-ai", "on"]
-    },
-    "quality": {
-      "description": "Máxima qualidade",
-      "flags": ["--performance", "quality", "--mode", "2pass", "--enhance", "on"]
-    },
-    "cinematic": {
-      "description": "Film emulation (Cineon + Portra 400)",
-      "flags": ["--cineon-pipeline", "on", "--exposure-offset", "+0.2", "--saturation", "1.05", "--mode", "2pass"]
-    },
-    "batch": {
-      "description": "Processar pasta inteira (-InputFile aponta pra pasta)",
-      "flags": ["--enhance", "on"],
-      "requiresBatchDir": true
-    }
+  "configVersion": 2,
+  "minPythonVersion": "3.11",
+  "terminal": {
+    "preferPwsh": true,
+    "noProfile": true
+  },
+  "validation": {
+    "requiredEncoders": ["libx264"],
+    "requiredFilters": ["lut3d", "zscale"]
   },
   "paths": {
     "venv": "venv",

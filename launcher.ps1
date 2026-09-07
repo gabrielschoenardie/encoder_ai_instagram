@@ -6,8 +6,6 @@
 #>
 
 param(
-    [string]$InputFile,
-    [string]$Profile,
     [switch]$Debug,
     # Pula só a checagem local (Test-Path) de bin/ffmpeg.exe e bin/ffprobe.exe feita por Resolve-Binaries; não impede o encoder de usar FFmpeg do PATH via ui/binaries.py::resolve_binary (que prefere bin/ e cai pro PATH como fallback).
     [switch]$SkipValidation,
@@ -55,6 +53,59 @@ function Read-LauncherConfig {
     }
     catch {
         throw "launch-config.json invalido (JSON malformado): $($_.Exception.Message)"
+    }
+}
+
+function Test-LauncherConfig {
+    param([Parameter(Mandatory)]$Config)
+
+    if ($null -eq $Config) {
+        throw "launch-config.json invalido: conteudo vazio."
+    }
+
+    $pathsProp = $Config.PSObject.Properties["paths"]
+    if ($null -eq $pathsProp -or $null -eq $pathsProp.Value) {
+        throw "launch-config.json invalido: chave 'paths' ausente."
+    }
+    foreach ($key in @("venv", "ffmpegExe", "ffprobeExe", "windowsTerminalExe", "requirements", "encoderScript")) {
+        $keyProp = $pathsProp.Value.PSObject.Properties[$key]
+        if ($null -eq $keyProp) {
+            throw "launch-config.json invalido: chave 'paths.$key' ausente."
+        }
+        if (($keyProp.Value -isnot [string]) -or [string]::IsNullOrWhiteSpace($keyProp.Value)) {
+            throw "launch-config.json invalido: 'paths.$key' deve ser uma string nao-vazia."
+        }
+    }
+
+    $minPyProp = $Config.PSObject.Properties["minPythonVersion"]
+    if ($null -ne $minPyProp -and $null -ne $minPyProp.Value) {
+        $parsed = $null
+        if (-not [version]::TryParse([string]$minPyProp.Value, [ref]$parsed)) {
+            throw "launch-config.json invalido: 'minPythonVersion' nao e uma versao valida (recebido: '$($minPyProp.Value)'). Use algo como '3.11'."
+        }
+    }
+
+    $terminalProp = $Config.PSObject.Properties["terminal"]
+    if ($null -ne $terminalProp -and $null -ne $terminalProp.Value) {
+        foreach ($flag in @("preferPwsh", "noProfile")) {
+            $flagProp = $terminalProp.Value.PSObject.Properties[$flag]
+            if ($null -ne $flagProp -and $flagProp.Value -isnot [bool]) {
+                throw "launch-config.json invalido: 'terminal.$flag' deve ser booleano (true/false)."
+            }
+        }
+    }
+
+    $validationProp = $Config.PSObject.Properties["validation"]
+    if ($null -ne $validationProp -and $null -ne $validationProp.Value) {
+        foreach ($listName in @("requiredEncoders", "requiredFilters")) {
+            $listProp = $validationProp.Value.PSObject.Properties[$listName]
+            if ($null -eq $listProp -or $null -eq $listProp.Value) { continue }
+            foreach ($item in @($listProp.Value)) {
+                if (($item -isnot [string]) -or [string]::IsNullOrWhiteSpace($item)) {
+                    throw "launch-config.json invalido: 'validation.$listName' deve conter apenas strings nao-vazias."
+                }
+            }
+        }
     }
 }
 
@@ -194,59 +245,56 @@ function Resolve-Binaries {
     }
 }
 
-function Build-ProfileArgs {
+function Protect-PSLiteral {
     param(
-        [Parameter(Mandatory)][string]$ProfileName,
-        [Parameter(Mandatory)]$Config,
-        [string]$BatchDir
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Value
     )
-    if (-not ($Config.profiles.PSObject.Properties.Name -contains $ProfileName)) {
-        $known = ($Config.profiles.PSObject.Properties.Name) -join ", "
-        throw "Perfil '$ProfileName' nao existe em launch-config.json. Perfis disponiveis: $known"
-    }
-    $profileDef = $Config.profiles.$ProfileName
-    $profileArgs = @($profileDef.flags)
-    if ($profileDef.requiresBatchDir) {
-        if (-not $BatchDir) {
-            throw "Perfil '$ProfileName' exige uma pasta de entrada: use -InputFile <pasta>."
-        }
-        $profileArgs = @("--batch", $BatchDir, "--output-dir", $BatchDir) + $profileArgs
-    }
-    return $profileArgs
+    return "'" + $Value.Replace("'", "''") + "'"
 }
 
 function Build-SetupCommand {
     param(
         [Parameter(Mandatory)][string]$VenvPython,
         [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)]$Config
+        [Parameter(Mandatory)]$Config,
+        [AllowEmptyString()][string]$WorkingDirectory = ''
     )
     $script = Join-Path $RepoRoot $Config.paths.encoderScript
-    return "& '$VenvPython' '$script' --hardware-info"
+    $prefix = ''
+    if ($WorkingDirectory) {
+        $prefix = "Set-Location $(Protect-PSLiteral -Value $WorkingDirectory); "
+    }
+    return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --hardware-info"
 }
 
-function Build-EncodeCommand {
+function Build-AppCommand {
     param(
         [Parameter(Mandatory)][string]$VenvPython,
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)]$Config,
-        [string]$InputFile,
-        [string]$ProfileName
+        [AllowEmptyString()][string]$WorkingDirectory = ''
     )
     $script = Join-Path $RepoRoot $Config.paths.encoderScript
-    if (-not $ProfileName) {
-        return "& '$VenvPython' '$script' --ui"
+    $prefix = ''
+    if ($WorkingDirectory) {
+        $prefix = "Set-Location $(Protect-PSLiteral -Value $WorkingDirectory); "
     }
-    $isBatch = [bool]$Config.profiles.$ProfileName.requiresBatchDir
-    $batchDir = if ($isBatch) { $InputFile } else { $null }
-    $profileArgs = Build-ProfileArgs -ProfileName $ProfileName -Config $Config -BatchDir $batchDir
+    return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --ui"
+}
 
-    $cmdParts = @("& '$VenvPython'", "'$script'")
-    if (-not $isBatch -and $InputFile) {
-        $cmdParts += "'$InputFile'"
+function Resolve-LauncherShell {
+    param([Parameter(Mandatory)]$Config)
+    $prefer = $true
+    if ($null -ne $Config) {
+        $terminalProp = $Config.PSObject.Properties["terminal"]
+        if ($null -ne $terminalProp -and $null -ne $terminalProp.Value) {
+            $preferProp = $terminalProp.Value.PSObject.Properties["preferPwsh"]
+            if ($null -ne $preferProp -and $preferProp.Value -eq $false) { $prefer = $false }
+        }
     }
-    $cmdParts += $profileArgs
-    return ($cmdParts -join " ")
+    if (-not $prefer) { return "powershell" }
+    if (Get-Command pwsh -ErrorAction SilentlyContinue) { return "pwsh" }
+    return "powershell"
 }
 
 function Open-LauncherTabs {
@@ -254,16 +302,35 @@ function Open-LauncherTabs {
         [Parameter(Mandatory)][string]$SetupCmd,
         [Parameter(Mandatory)][string]$EncodeCmd,
         [Parameter(Mandatory)][string]$WtPath,
-        [Parameter(Mandatory)][bool]$WtAvailable
+        [Parameter(Mandatory)][bool]$WtAvailable,
+        [AllowEmptyString()][string]$WorkingDirectory = '',
+        [string]$Shell = 'powershell',
+        [bool]$NoProfile = $true
     )
+    $shellArgs = @()
+    if ($NoProfile) { $shellArgs += "-NoProfile" }
+    $shellArgs += "-NoExit"
+    $shellArgs += "-Command"
+
     if ($WtAvailable) {
         Write-LauncherLog "Abrindo Windows Terminal (2 abas: Setup, Encode) ..." "Info"
-        & $WtPath new-tab --title "Setup" powershell -NoExit -Command $SetupCmd `; new-tab --title "Encode" powershell -NoExit -Command $EncodeCmd
+        $setupTab = @("new-tab", "--title", "Setup")
+        $encodeTab = @("new-tab", "--title", "Encode")
+        if ($WorkingDirectory) {
+            $setupTab += @("--startingDirectory", $WorkingDirectory)
+            $encodeTab += @("--startingDirectory", $WorkingDirectory)
+        }
+        $setupTab += @($Shell) + $shellArgs + @($SetupCmd)
+        $encodeTab += @($Shell) + $shellArgs + @($EncodeCmd)
+        $wtArgs = $setupTab + @(";") + $encodeTab
+        & $WtPath @wtArgs
     }
     else {
         Write-LauncherLog "Abrindo janelas PowerShell separadas (fallback) ..." "Info"
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", $SetupCmd
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", $EncodeCmd
+        $extra = @{}
+        if ($WorkingDirectory) { $extra["WorkingDirectory"] = $WorkingDirectory }
+        Start-Process -FilePath $Shell -ArgumentList ($shellArgs + @($SetupCmd)) @extra
+        Start-Process -FilePath $Shell -ArgumentList ($shellArgs + @($EncodeCmd)) @extra
     }
 }
 
@@ -271,11 +338,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     try {
         $configPath = Join-Path $Script:RepoRoot "launch-config.json"
         $config = Read-LauncherConfig -Path $configPath
-
-        $wantsDirectRun = $PSBoundParameters.ContainsKey('InputFile') -or $PSBoundParameters.ContainsKey('Profile')
-        $effectiveProfile = if ($wantsDirectRun) {
-            if ($Profile) { $Profile } else { $config.defaultProfile }
-        } else { $null }
+        Test-LauncherConfig -Config $config
 
         $venvPath = Join-Path $Script:RepoRoot $config.paths.venv
 
@@ -304,10 +367,18 @@ if ($MyInvocation.InvocationName -ne '.') {
             $binaries = Resolve-Binaries -RepoRoot $Script:RepoRoot -VenvPython $venvPython -Config $config
         }
 
-        $setupCmd = Build-SetupCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config
-        $encodeCmd = Build-EncodeCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config -InputFile $InputFile -ProfileName $effectiveProfile
+        $setupCmd = Build-SetupCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
+            -WorkingDirectory $Script:RepoRoot
+        $encodeCmd = Build-AppCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
+            -WorkingDirectory $Script:RepoRoot
 
-        Open-LauncherTabs -SetupCmd $setupCmd -EncodeCmd $encodeCmd -WtPath $binaries.WtPath -WtAvailable $binaries.WtAvailable
+        $launcherShell = Resolve-LauncherShell -Config $config
+        $useNoProfile = $true
+        if ($null -ne $config.terminal -and $config.terminal.noProfile -eq $false) { $useNoProfile = $false }
+
+        Open-LauncherTabs -SetupCmd $setupCmd -EncodeCmd $encodeCmd -WtPath $binaries.WtPath `
+            -WtAvailable $binaries.WtAvailable -WorkingDirectory $Script:RepoRoot `
+            -Shell $launcherShell -NoProfile $useNoProfile
     }
     catch {
         $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -Debug para ver o stack trace completo." }
