@@ -496,8 +496,10 @@ function Open-LauncherTabs {
             $setupTab += @("--startingDirectory", $WorkingDirectory)
             $encodeTab += @("--startingDirectory", $WorkingDirectory)
         }
-        $setupTab += @($Shell) + $shellArgs + @($SetupCmd)
-        $encodeTab += @($Shell) + $shellArgs + @($EncodeCmd)
+        $setupCmdForWt = $SetupCmd -replace ';', '\;'
+        $encodeCmdForWt = $EncodeCmd -replace ';', '\;'
+        $setupTab += @($Shell) + $shellArgs + @($setupCmdForWt)
+        $encodeTab += @($Shell) + $shellArgs + @($encodeCmdForWt)
         $wtArgs = $setupTab + @(";") + $encodeTab
         & $WtPath @wtArgs
     }
