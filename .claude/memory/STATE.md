@@ -3540,3 +3540,15 @@ para depois do push/PR, conforme criterio de aceite 6 do `PLAN.md` (nao testavel
 
 Pendente para o usuario: autorizar `git push` da branch `claude/launcher-encoder-architecture-jzyyu8`
 e abertura do PR (novo, nao empilhado — conforme nota de execucao do `PLAN.md`).
+
+### Ciclo BB — fechamento (Orquestrador, 2026-09-08)
+
+PR #64 mergeado manualmente pelo usuario (`79c20f2`, 2026-09-08T14:38:21Z). CI real (3 jobs)
+verde no merge commit: `CI` (2m13s) e `Pylint` (44s), ambos `success` (`gh run list --branch
+main`). Branch `claude/launcher-encoder-architecture-jzyyu8` apagada local e remota (unico
+commit nao mesclado era vazio, so para disparar CI apos um push cujo commit-topo tinha `[skip
+ci]`). `main` local sincronizado (`79c20f2`).
+
+Usuario confirmou verificacao manual em maquina real (criterio de aceite 6 do `PLAN.md`, unico
+item nao testavel em CI): launcher funcionando corretamente. Fecha o Ciclo BB por completo —
+`BAF1`, `BAF2`, `BAF3` corrigidos e confirmados em uso real, nao so por CI/teste sintetico.
