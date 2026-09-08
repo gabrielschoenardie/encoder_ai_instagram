@@ -3514,3 +3514,29 @@ abortar e copiou os 3 binarios para `.\bin`. Fecha o unico item nao verificavel 
 | ID | status | arquivo tocado | resultado |
 |----|--------|----------------|-----------|
 | BA1 | done | launcher.ps1 | Adicionado `& $VenvPython -m pip check` em `Test-VenvHealthy` apos guard de `import sys` (short-circuit se exit != 0); `Select-String 'pip check'` retorna 1 linha; Parser::ParseFile sem erros; Pester `tests/` 110/110 verdes sem editar teste |
+
+## Ciclo BB
+
+Auditoria do Orquestrador sobre o `main` pos-Ciclo BA (`982d8f8`) encontrou 3 achados
+(`BAF1`-`BAF3`, ver `FINDINGS.md`): `pip check` dentro de `Test-VenvHealthy` era gate do cache
+de dependencias em vez de pos-condicao, custando tempo no caminho rapido e podendo travar o
+cache desligado para sempre se pip instalar com conflito nao resolvido pela reinstalacao.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| BB1 | done | launcher.ps1 | commit `99cb486` — `Test-VenvHealthy` volta a rodar so `import sys`; nova `Test-VenvConsistent` isolada com `pip check`, devolve `[PSCustomObject]@{Ok; Report}`; `Initialize-Environment` chama `Test-VenvConsistent` como pos-condicao apos `Write-VenvStamp`, emite `Warn` (nao fatal) com o relatorio quando reprova |
+| BB2 | done | tests/launcher.Tests.ps1 | commit `03866ff` — mock de `Test-VenvConsistent` nos 5 Contexts existentes + 4 asserções novas + Context novo "pip check reprova depois do install" com as 4 asserções que fecham `BAF1`/`BAF2`/`BAF3`; suite 119/119 verde (Pester 5.7.1 local, era 110) |
+| BB3 | done | FINDINGS.md, STATE.md | `BAF1`-`BAF3` registrados e fechados apontando para `99cb486`/`03866ff`; este registro |
+
+Verificacao: `Select-String 'pip check' launcher.ps1` retorna 2 linhas (invocacao em
+`Test-VenvConsistent` + texto da mensagem `Warn` exigido pela propria asserção da `BAF3`) —
+diverge do resumo da tabela de tarefas do `PLAN.md` (que previa 1), mas bate literalmente com
+o bloco de codigo de `§ Desenho` do mesmo `PLAN.md`; imprecisao do resumo, nao desvio de
+implementacao (confirmado por leitura do diff pelo Orquestrador). `Test-VenvHealthy` sem `pip`
+confirmado por grep. Parser sem erros nos dois arquivos. `git diff main --stat` toca so
+`launcher.ps1` e `tests/launcher.Tests.ps1`. Nenhuma construção so-pwsh-7 no diff. Verificacao
+real de CI (3 jobs Pester + lint) e verificacao manual de lancamento consecutivo rapido ficam
+para depois do push/PR, conforme criterio de aceite 6 do `PLAN.md` (nao testavel em CI).
+
+Pendente para o usuario: autorizar `git push` da branch `claude/launcher-encoder-architecture-jzyyu8`
+e abertura do PR (novo, nao empilhado — conforme nota de execucao do `PLAN.md`).
