@@ -1210,3 +1210,30 @@ do ciclo (testes que ainda liam `defaultProfile`/`profiles` do config real, e um
 'Resolve-Binaries'` que passou a invocar `Test-FfmpegCapabilities` de verdade) — corrigidas por
 emenda ao `PLAN.md` (commits `dc942e6`, `5af1554`) antes da `AX12` rodar, não como achado
 residual pós-fechamento.
+
+## Achado — 2026-09-07 (auditoria do Orquestrador sobre o `main` pós-Ciclo BA, `982d8f8`) — FECHADO no Ciclo BB
+
+Ciclo BA (`982d8f8`) acrescentou `pip check` dentro de `Test-VenvHealthy`, que é o gate do
+cache de dependências da `AX7` — chamado incondicionalmente antes da comparação de stamp.
+Três consequências:
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| BAF1 | custo no caminho rápido | `launcher.ps1:295` | `pip check` roda em todo lançamento, inclusive no caminho rápido de ~2s que a `AX7` existia para preservar | S3 | esperado: caminho rápido sem invocação nativa extra; medido: `pip check` sempre executa, mesmo com stamp válido |
+| BAF2 | cache desligado permanentemente | `launcher.ps1:295-308` | se `pip check` reporta conflito que `pip install -r requirements.txt` não resolve, `$healthy` fica `$false` para sempre → `Install-Requirements`/`Write-VenvLock` rodam em todo lançamento e o stamp gravado nunca é consultado | S2 | esperado: cache converge após reinstalar; medido: laço eterno com dependências como `opencv-python`+`numpy`+`matplotlib`+`scipy`, onde pip instala com aviso de resolução (exit 0) e `pip check` reclama para sempre |
+| BAF3 | mensagem de diagnóstico errada | `launcher.ps1:297` | mensagem nomeia só a causa "`import sys` falhou", mas cobre também a causa "`pip check` reprovou" — aponta correção (reinstalar) que não resolve esse segundo caso | S4 | esperado: mensagem nomeia a causa real; medido: mesma mensagem para duas causas com remédios diferentes |
+
+| ID | status | onde |
+|----|--------|------|
+| BAF1 | **corrigido** | `BB1` (`99cb486`) — `Test-VenvHealthy` volta a rodar só `import sys`; `pip check` isolado em `Test-VenvConsistent`, chamada só depois do install, nunca no caminho rápido. Fechado pela asserção `Should -Invoke Test-VenvConsistent -Times 0 -Exactly` no Context "stamp confere" (`BB2`, `03866ff`) |
+| BAF2 | **corrigido** | `BB1` (`99cb486`) — `Test-VenvConsistent` não influencia `$healthy`, o stamp ou a decisão de reinstalar; stamp gravado por `Write-VenvStamp` antes da checagem de consistência. Fechado pela asserção "instala exatamente uma vez (sem laço)" no Context novo "pip check reprova depois do install" (`BB2`, `03866ff`) |
+| BAF3 | **corrigido** | `BB1` (`99cb486`) — mensagem do `import sys` ganhou `(orfao ou corrompido)`; nova mensagem dedicada em `Warn` cita o relatório do `pip check` quando `Test-VenvConsistent.Ok` é `$false`. Fechado pela asserção "avisa com o relatorio do pip check" (`BB2`, `03866ff`) |
+
+Verificação: suíte Pester subiu de 110 para 119 testes (`BB2`, commit `03866ff`), verde local
+(Pester 5.7.1); `pytest`/CI de 3 jobs fica para depois do push. `Select-String 'pip check'
+launcher.ps1` retorna **2** linhas (não 1, como o resumo da tabela de tarefas do `PLAN.md`
+previa) — uma na invocação dentro de `Test-VenvConsistent`, outra na mensagem de `Warn` que a
+própria asserção de fechamento da `BAF3` exige (`$Message -match 'pip check'`). O código bate
+literalmente com o bloco de `§ Desenho` do mesmo `PLAN.md`; o critério de aceite nº2 (tabela) é
+uma imprecisão de resumo do próprio plano, não um desvio de implementação — verificado por
+leitura do diff pelo Orquestrador antes deste fechamento.
