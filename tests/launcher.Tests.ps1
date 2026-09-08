@@ -10,7 +10,8 @@
     docs/superpowers/specs/2026-08-14-pester-launcher-design.md
     § "Superficies nao-testaveis"): New-ProjectVenv, Install-Requirements,
     Write-VenvLock, Test-FfmpegCapabilities, Test-VenvHealthy real,
-    Test-VenvConsistent real, Resolve-SystemPython real e o ramo wt.exe de
+    Test-VenvConsistent real, Get-VenvPythonVersion real, Test-ExecutableRuns
+    real, Resolve-SystemPython real e o ramo wt.exe de
     Open-LauncherTabs usam
     "& $variavelComCaminho". O Mock do Pester engancha em NOMES de comando; um
     caminho vindo de variavel resolve como Application em runtime e nunca passa
@@ -244,6 +245,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
@@ -288,6 +290,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'OUTRO' }
@@ -331,6 +334,9 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $false }
+            # Inofensivo: o gate de versao so roda quando o venv responde. Se
+            # alguem inverter a ordem, o teste abaixo pega.
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
@@ -352,6 +358,13 @@ Describe 'Initialize-Environment' {
             Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
             Should -Invoke Test-VenvConsistent -Times 1 -Exactly
         }
+
+        It 'nao chama Get-VenvPythonVersion quando o venv nao esta saudavel' {
+            # Perguntar a versao a um interpretador que nem inicia nao produz
+            # resposta util: o gate de versao so roda depois da checagem de saude.
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Get-VenvPythonVersion -Times 0 -Exactly
+        }
     }
 
     Context 'quando o venv nao existe' {
@@ -359,6 +372,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $false }
             Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Read-VenvStamp       { return $null }
             Mock Get-RequirementsStamp { return 'S' }
@@ -402,6 +416,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
@@ -423,6 +438,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
             Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $false; Report = 'foo 1.0 requires bar>=2, but you have bar 1.5.' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'OUTRO' }
@@ -455,6 +471,50 @@ Describe 'Initialize-Environment' {
             $py | Should -Match 'python'
         }
     }
+
+    Context 'Python do venv abaixo do minimo' {
+
+        # launch-config.json real exige minPythonVersion 3.11.
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.9.0' }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'lanca excecao' {
+            { Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config } |
+                Should -Throw
+        }
+
+        It 'nao instala nada (nao tenta corrigir sozinho)' {
+            # Reinstalar pacotes nao troca o interpretador: o launcher para e
+            # devolve uma instrucao, nunca mexe no disco por conta propria.
+            { Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config } |
+                Should -Throw
+            Should -Invoke Install-Requirements -Times 0 -Exactly
+        }
+
+        It 'a mensagem de erro nomeia a versao encontrada e a minima' {
+            $captured = $null
+            try {
+                Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            }
+            catch {
+                $captured = $_.Exception.Message
+            }
+            $captured | Should -Match '3\.9\.0'
+            $captured | Should -Match '3\.11'
+        }
+    }
 }
 
 Describe 'Resolve-Binaries' {
@@ -470,6 +530,8 @@ Describe 'Resolve-Binaries' {
             # -encoders" com um -RepoRoot ficticio; mockado, e no-op. A prova
             # dessa funcao e execucao real, nao Pester (ver cabecalho).
             Mock Test-FfmpegCapabilities { }
+            # Mesma razao: Test-ExecutableRuns real chamaria "& $Path -version".
+            Mock Test-ExecutableRuns { }
             # Filtro estreito de proposito: mockar Test-Path sem filtro
             # substituiria a chamada para QUALQUER caminho, inclusive de codigo
             # que nao e o alvo do teste.
@@ -513,6 +575,7 @@ Describe 'Resolve-Binaries' {
         BeforeAll {
             Mock Test-RequiredBinary { return $Path }
             Mock Test-FfmpegCapabilities { }
+            Mock Test-ExecutableRuns { }
             Mock Test-Path { return $false } -ParameterFilter { $Path -match 'wt\.exe' }
             Mock Write-LauncherLog { }
         }
@@ -538,6 +601,57 @@ Describe 'Resolve-Binaries' {
                 $Level -eq 'Warn'
             }
         }
+    }
+
+    Context 'ffmpeg nao consegue iniciar' {
+
+        BeforeAll {
+            Mock Test-RequiredBinary { return $Path }
+            Mock Test-FfmpegCapabilities { }
+            Mock Test-ExecutableRuns { }
+            Mock Test-ExecutableRuns { throw "FFmpeg nao conseguiu iniciar." } -ParameterFilter {
+                $Name -eq 'FFmpeg'
+            }
+            Mock Test-Path { return $true } -ParameterFilter { $Path -match 'wt\.exe' }
+            Mock Write-LauncherLog { }
+        }
+
+        It 'propaga a excecao' {
+            # Binario presente no disco mas quebrado (DLL faltando, download
+            # truncado): existir nao e o mesmo que executar.
+            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+                Should -Throw
+        }
+
+        It 'nao chega a checar capacidades' {
+            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+                Should -Throw
+            Should -Invoke Test-FfmpegCapabilities -Times 0 -Exactly
+        }
+    }
+}
+
+Describe 'Test-RequiredBinary' {
+
+    # Sem mock: e logica pura de Test-Path sobre um filesystem real (TestDrive:).
+
+    It 'aceita um arquivo existente' {
+        $file = Join-Path $TestDrive 'fake.exe'
+        New-Item -ItemType File -Path $file | Out-Null
+        { Test-RequiredBinary -Path $file -Name 'x' -FixHint 'y' } | Should -Not -Throw
+    }
+
+    It 'rejeita um diretorio com nome de executavel' {
+        # bin/ffmpeg.exe criado como pasta por um unzip pela metade: Test-Path
+        # sozinho diria que "existe".
+        $dir = Join-Path $TestDrive 'pasta.exe'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        { Test-RequiredBinary -Path $dir -Name 'x' -FixHint 'y' } | Should -Throw
+    }
+
+    It 'rejeita caminho inexistente' {
+        $missing = Join-Path $TestDrive 'nao-existe.exe'
+        { Test-RequiredBinary -Path $missing -Name 'x' -FixHint 'y' } | Should -Throw
     }
 }
 
@@ -598,10 +712,10 @@ Describe 'Write-LauncherLog' {
         Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match 'CANARIO-123' }
     }
 
-    It 'suprime o nivel Debug quando -Debug nao foi passado' {
-        # launcher.ps1 NAO declara [CmdletBinding()] (deliberado: evita colidir
-        # com o [switch]$Debug explicito do param block). Logo $Debug e um
-        # switch comum e, sob dot-source sem argumentos, vale $false.
+    It 'suprime o nivel Debug quando -DebugMode nao foi passado' {
+        # O switch chama-se $DebugMode, nao $Debug: o rename elimina a colisao
+        # com a common parameter -Debug do PowerShell. Sob dot-source sem
+        # argumentos, $DebugMode vale $false.
         Write-LauncherLog -Message 'nao deve aparecer' -Level 'Debug'
         Should -Invoke Write-Host -Times 0 -Exactly
     }
