@@ -225,13 +225,27 @@ function Test-VenvHealthy {
     $ErrorActionPreference = "Continue"
     try {
         & $VenvPython -c "import sys" 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { return $false }
-        & $VenvPython -m pip check 2>&1 | Out-Null
     }
     finally {
         $ErrorActionPreference = $prevEap
     }
     return ($LASTEXITCODE -eq 0)
+}
+
+function Test-VenvConsistent {
+    param([Parameter(Mandatory)][string]$VenvPython)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & $VenvPython -m pip check 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    return [PSCustomObject]@{
+        Ok     = ($LASTEXITCODE -eq 0)
+        Report = (@($out) -join "`n").Trim()
+    }
 }
 
 function Get-RequirementsStamp {
@@ -294,7 +308,7 @@ function Initialize-Environment {
     }
     $healthy = Test-VenvHealthy -VenvPython $venvPython
     if (-not $healthy) {
-        Write-LauncherLog "Venv nao respondeu a 'python -c import sys' - reinstalando dependencias." "Warn"
+        Write-LauncherLog "Venv nao respondeu a 'python -c import sys' (orfao ou corrompido) - reinstalando dependencias." "Warn"
     }
     if ((-not $Force) -and $healthy -and $stamp -and ((Read-VenvStamp -VenvPath $VenvPath) -eq $stamp)) {
         Write-LauncherLog "Dependencias ja instaladas (stamp confere) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
@@ -305,6 +319,10 @@ function Initialize-Environment {
     Write-VenvLock -RepoRoot $RepoRoot -VenvPython $venvPython
     if ($stamp) {
         Write-VenvStamp -VenvPath $VenvPath -Stamp $stamp
+    }
+    $consistency = Test-VenvConsistent -VenvPython $venvPython
+    if (-not $consistency.Ok) {
+        Write-LauncherLog "pip check encontrou dependencias inconsistentes (o encoder pode falhar em runtime). Use -ForceEnvSetup depois de ajustar o pyproject.toml:`n$($consistency.Report)" "Warn"
     }
     return $venvPython
 }
