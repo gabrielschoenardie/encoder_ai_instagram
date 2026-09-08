@@ -3575,3 +3575,16 @@ inteiro, bate com o `§ Desenho` do `PLAN.md` sem desvio nao-documentado. `Selec
 
 Pendente: push da branch `claude/launcher-encoder-architecture-jzyyu8` e abertura do PR ficam
 para autorizacao explicita do usuario (nao pre-autorizados neste ciclo, diferente da BB).
+
+### Ciclo BC — fechamento (Orquestrador, 2026-09-08)
+
+PR #65 aberto, CI real verde nos 10 checks (`Lint`, `build` 3.11/3.12, `Pester` ubuntu/windows/
+Windows PowerShell 5.1, `Tests` ubuntu/windows x 3.11/3.12) e mergeado pelo usuario
+(`572f0bd`, 2026-09-08T15:54:59Z). `main` local sincronizado; branch
+`claude/launcher-encoder-architecture-jzyyu8` apagada local e remota.
+
+Usuario confirmou verificacao manual em maquina real: `.\launcher.ps1` e `.\launcher.ps1
+-DebugMode` funcionam corretamente. Fecha o unico criterio de aceite nao testavel em CI.
+Ciclo BC completo — os 15 objetivos do pedido do usuario endurecidos, as duas decisoes de
+desenho (manter fix da BB; erro claro sem auto-recriar venv) preservadas exatamente como
+resolvido antes da implementacao.
