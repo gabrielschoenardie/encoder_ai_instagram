@@ -6,7 +6,7 @@
 #>
 
 param(
-    [switch]$Debug,
+    [switch]$DebugMode,
     # Pula só a checagem local (Test-Path) de bin/ffmpeg.exe e bin/ffprobe.exe feita por Resolve-Binaries; não impede o encoder de usar FFmpeg do PATH via ui/binaries.py::resolve_binary (que prefere bin/ e cai pro PATH como fallback).
     [switch]$SkipValidation,
     [switch]$SkipEnvSetup,
@@ -27,7 +27,7 @@ function Write-LauncherLog {
         [ValidateSet("Info", "Success", "Warn", "Error", "Debug")]
         [string]$Level = "Info"
     )
-    if ($Level -eq "Debug" -and -not $Debug) { return }
+    if ($Level -eq "Debug" -and -not $DebugMode) { return }
     $color = switch ($Level) {
         "Success" { "Green" }
         "Warn"    { "Yellow" }
@@ -232,6 +232,23 @@ function Test-VenvHealthy {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Get-VenvPythonVersion {
+    param([Parameter(Mandatory)][string]$VenvPython)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & $VenvPython -c "import sys;print('%d.%d.%d'%sys.version_info[:3])" 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($LASTEXITCODE -ne 0) { return $null }
+    $reported = (@($out) -join "`n").Trim()
+    $parsed = $null
+    if (-not [version]::TryParse($reported, [ref]$parsed)) { return $null }
+    return $parsed
+}
+
 function Test-VenvConsistent {
     param([Parameter(Mandatory)][string]$VenvPython)
     $prevEap = $ErrorActionPreference
@@ -310,6 +327,14 @@ function Initialize-Environment {
     if (-not $healthy) {
         Write-LauncherLog "Venv nao respondeu a 'python -c import sys' (orfao ou corrompido) - reinstalando dependencias." "Warn"
     }
+    else {
+        $venvVersion = Get-VenvPythonVersion -VenvPython $venvPython
+        if ($null -eq $venvVersion -or $venvVersion -lt [version]$minVersion) {
+            $found = if ($null -ne $venvVersion) { $venvVersion.ToString() } else { "desconhecida" }
+            throw "Python do venv incompativel.`nEncontrado: $found`nMinimo exigido: $minVersion`nApague a pasta '$VenvPath' e rode o launcher novamente para recria-la com um Python compativel."
+        }
+        Write-LauncherLog "Python do venv: $venvVersion" "Success"
+    }
     if ((-not $Force) -and $healthy -and $stamp -and ((Read-VenvStamp -VenvPath $VenvPath) -eq $stamp)) {
         Write-LauncherLog "Dependencias ja instaladas (stamp confere) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
         return $venvPython
@@ -324,6 +349,9 @@ function Initialize-Environment {
     if (-not $consistency.Ok) {
         Write-LauncherLog "pip check encontrou dependencias inconsistentes (o encoder pode falhar em runtime). Use -ForceEnvSetup depois de ajustar o pyproject.toml:`n$($consistency.Report)" "Warn"
     }
+    else {
+        Write-LauncherLog "pip check: ambiente consistente." "Success"
+    }
     return $venvPython
 }
 
@@ -333,10 +361,29 @@ function Test-RequiredBinary {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$FixHint
     )
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path $Path -PathType Leaf)) {
         throw "$Name nao encontrado em: $Path`n$FixHint"
     }
     return $Path
+}
+
+function Test-ExecutableRuns {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Name
+    )
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Path -hide_banner -version 2>&1 | Out-Null
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name foi encontrado em '$Path', mas nao conseguiu iniciar (exit $LASTEXITCODE)."
+    }
+    Write-LauncherLog "$Name executavel." "Success"
 }
 
 function Test-FfmpegCapabilities {
@@ -370,6 +417,7 @@ function Test-FfmpegCapabilities {
         $encoderText = (@($encoderList) -join "`n")
         foreach ($name in $encoders) {
             if ($encoderText -notmatch ("\b" + [regex]::Escape($name) + "\b")) { $missing += "encoder '$name'" }
+            else { Write-LauncherLog "Encoder '$name' disponivel." "Success" }
         }
     }
     if ($filters.Count -gt 0) {
@@ -384,6 +432,7 @@ function Test-FfmpegCapabilities {
         $filterText = (@($filterList) -join "`n")
         foreach ($name in $filters) {
             if ($filterText -notmatch ("\b" + [regex]::Escape($name) + "\b")) { $missing += "filtro '$name'" }
+            else { Write-LauncherLog "Filtro '$name' disponivel." "Success" }
         }
     }
     if ($missing.Count -gt 0) {
@@ -403,10 +452,14 @@ function Resolve-Binaries {
     $ffmpeg = Join-Path $RepoRoot $Config.paths.ffmpegExe
     Test-RequiredBinary -Path $ffmpeg -Name "ffmpeg.exe" `
         -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+    Write-LauncherLog "FFmpeg encontrado." "Success"
+    Test-ExecutableRuns -Path $ffmpeg -Name "FFmpeg"
 
     $ffprobe = Join-Path $RepoRoot $Config.paths.ffprobeExe
     Test-RequiredBinary -Path $ffprobe -Name "ffprobe.exe" `
         -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+    Write-LauncherLog "FFprobe encontrado." "Success"
+    Test-ExecutableRuns -Path $ffprobe -Name "FFprobe"
 
     Test-FfmpegCapabilities -Ffmpeg $ffmpeg -Config $Config
 
@@ -586,9 +639,9 @@ if ($MyInvocation.InvocationName -ne '.') {
             -Shell $launcherShell -NoProfile $useNoProfile
     }
     catch {
-        $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -Debug para ver o stack trace completo." }
+        $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Erro sem mensagem (possivel stderr de comando nativo promovido a erro terminante). Rode com -DebugMode para ver o stack trace completo." }
         Write-LauncherLog $errMsg "Error"
-        if ($Debug) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
+        if ($DebugMode) { Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray }
         exit 1
     }
 }

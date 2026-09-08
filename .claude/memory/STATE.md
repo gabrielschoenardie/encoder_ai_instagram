@@ -3552,3 +3552,26 @@ ci]`). `main` local sincronizado (`79c20f2`).
 Usuario confirmou verificacao manual em maquina real (criterio de aceite 6 do `PLAN.md`, unico
 item nao testavel em CI): launcher funcionando corretamente. Fecha o Ciclo BB por completo —
 `BAF1`, `BAF2`, `BAF3` corrigidos e confirmados em uso real, nao so por CI/teste sintetico.
+
+## Ciclo BC
+
+Pedido direto do usuario (nao auditoria do Orquestrador): hardening final do bootstrap em 15
+pontos, via `/superpowers:brainstorming`. Duas decisoes de desenho resolvidas com o usuario
+antes do PLAN.md (registradas la, `§ Decisoes`): (1) manter o fix do Ciclo BB — `pip check`
+nunca entra no gate do caminho rapido, mesmo o pedido original descrevendo essa ordem; (2)
+Python do venv abaixo do minimo -> erro claro e para, launcher nunca apaga/recria o venv
+sozinho.
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| BC1 | done | launcher.ps1 | commit `8784c5e` — `$Debug` renomeado para `$DebugMode` (inclusive uma referencia na mensagem do catch global que o proprio grep do PLAN.md nao pegava, corrigida pelo executor); `Get-VenvPythonVersion` (nova) le a versao do Python do venv existente; `Initialize-Environment` lanca excecao imediata se a versao for menor que `minPythonVersion`, antes de qualquer decisao de Force/stamp; `Test-ExecutableRuns` (nova, compartilhada) valida que ffmpeg/ffprobe realmente iniciam (`-hide_banner -version`), nao so que existem; `Test-RequiredBinary` usa `-PathType Leaf` (distingue arquivo de diretorio homonimo); `Test-FfmpegCapabilities` e o pos-condicao do `pip check` ganharam log `[OK]` por item que passa |
+| BC2 | done | tests/launcher.Tests.ps1 | commits `382f58c` + `d3a4414` — Context novo "Python do venv abaixo do minimo" (fecha o Caso 5: nao reutiliza, nao tenta corrigir sozinho); Context novo "ffmpeg nao consegue iniciar" (propaga excecao, nunca chega a checar capacidades); `Describe 'Test-RequiredBinary'` novo com `TestDrive:` real (arquivo vs. diretorio, sem mock); contrato de dot-source completado com as 2 funcoes novas (`d3a4414`, correcao pos-revisao do Orquestrador — omissao do PLAN.md, nao do executor); suite 119 -> 128 -> 130, verde em pwsh 7.5 e Windows PowerShell 5.1. Executor validou com teste de mutacao: desativar o gate de versao derruba exatamente os 3 testes do Context novo; mover `Test-ExecutableRuns` pra depois de `Test-FfmpegCapabilities` derruba a asserçao "nao chega a checar capacidades" |
+| BC3 | done | STATE.md | este registro |
+
+Verificacao (Orquestrador, leitura do diff antes deste registro): `git diff origin/main --stat`
+toca so `launcher.ps1` (63 linhas) e `tests/launcher.Tests.ps1` (126 linhas); diff revisado
+inteiro, bate com o `§ Desenho` do `PLAN.md` sem desvio nao-documentado. `Select-String
+'\$Debug\b'` -> 0; `PathType Leaf` -> 1. Nenhuma construcao so-pwsh-7 no diff.
+
+Pendente: push da branch `claude/launcher-encoder-architecture-jzyyu8` e abertura do PR ficam
+para autorizacao explicita do usuario (nao pre-autorizados neste ciclo, diferente da BB).
