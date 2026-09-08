@@ -10,7 +10,8 @@
     docs/superpowers/specs/2026-08-14-pester-launcher-design.md
     § "Superficies nao-testaveis"): New-ProjectVenv, Install-Requirements,
     Write-VenvLock, Test-FfmpegCapabilities, Test-VenvHealthy real,
-    Resolve-SystemPython real e o ramo wt.exe de Open-LauncherTabs usam
+    Test-VenvConsistent real, Resolve-SystemPython real e o ramo wt.exe de
+    Open-LauncherTabs usam
     "& $variavelComCaminho". O Mock do Pester engancha em NOMES de comando; um
     caminho vindo de variavel resolve como Application em runtime e nunca passa
     pelo mock. A evidencia dessas superficies e execucao real registrada em
@@ -52,6 +53,7 @@ Describe 'Contrato de dot-source' {
         'Install-Requirements'
         'Write-VenvLock'
         'Test-VenvHealthy'
+        'Test-VenvConsistent'
         'Get-RequirementsStamp'
         'Read-VenvStamp'
         'Write-VenvStamp'
@@ -242,6 +244,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
             Mock Write-VenvStamp      { }
@@ -266,6 +269,11 @@ Describe 'Initialize-Environment' {
             Should -Invoke Write-VenvLock -Times 0 -Exactly
         }
 
+        It 'nao roda pip check no caminho rapido' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Test-VenvConsistent -Times 0 -Exactly
+        }
+
         It 'retorna o caminho do python dentro do venv informado' {
             $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config
             # Join-Path 'VENV' 'Scripts\python.exe' muda de forma entre SOs;
@@ -280,6 +288,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'OUTRO' }
             Mock Write-VenvStamp      { }
@@ -310,6 +319,11 @@ Describe 'Initialize-Environment' {
                 $VenvPython -match 'python'
             }
         }
+
+        It 'roda pip check uma vez depois do install' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Test-VenvConsistent -Times 1 -Exactly
+        }
     }
 
     Context 'venv existe mas nao esta saudavel' {
@@ -317,6 +331,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $false }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
             Mock Write-VenvStamp      { }
@@ -332,6 +347,11 @@ Describe 'Initialize-Environment' {
             Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
             Should -Invoke Install-Requirements -Times 1 -Exactly
         }
+
+        It 'roda pip check depois de reinstalar' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Test-VenvConsistent -Times 1 -Exactly
+        }
     }
 
     Context 'quando o venv nao existe' {
@@ -339,6 +359,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $false }
             Mock Test-VenvHealthy     { return $true }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Read-VenvStamp       { return $null }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Write-VenvStamp      { }
@@ -365,6 +386,11 @@ Describe 'Initialize-Environment' {
             Should -Invoke Install-Requirements -Times 1 -Exactly
         }
 
+        It 'roda pip check depois da primeira instalacao' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' | Out-Null
+            Should -Invoke Test-VenvConsistent -Times 1 -Exactly
+        }
+
         It 'retorna o caminho do python mesmo no caminho de criacao' {
             $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV'
             $py | Should -Match 'python'
@@ -376,6 +402,7 @@ Describe 'Initialize-Environment' {
         BeforeAll {
             Mock Test-VenvExists      { return $true }
             Mock Test-VenvHealthy     { return $true }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $true; Report = '' } }
             Mock Get-RequirementsStamp { return 'S' }
             Mock Read-VenvStamp       { return 'S' }
             Mock Write-VenvStamp      { }
@@ -388,6 +415,44 @@ Describe 'Initialize-Environment' {
         It 'reinstala mesmo com venv saudavel e stamp conferindo' {
             Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config -Force | Out-Null
             Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+    }
+
+    Context 'pip check reprova depois do install' {
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $false; Report = 'foo 1.0 requires bar>=2, but you have bar 1.5.' } }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'OUTRO' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'instala exatamente uma vez (sem laco)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
+
+        It 'grava o stamp mesmo assim' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Write-VenvStamp -Times 1 -Exactly
+        }
+
+        It 'avisa com o relatorio do pip check' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Warn' -and $Message -match 'pip check' -and $Message -match 'bar>=2'
+            }
+        }
+
+        It 'ainda devolve o interpretador' {
+            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config
+            $py | Should -Match 'python'
         }
     }
 }
