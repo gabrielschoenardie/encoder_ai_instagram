@@ -37,7 +37,7 @@ COMPARAÇÃO:
 ┌────────────────────────────────────────────────────────────┐
 │ MODO FFMPEG (default, v1.4.1):                            │
 │ • Performance: ~30-60 fps (GPU filters)                    │
-│ • Qualidade: Excelente (float + LUT v6.6)                  │
+│ • Qualidade: Excelente (float + LUT)                       │
 │ • Uso: Produção rápida, batch processing                   │
 ├────────────────────────────────────────────────────────────┤
 │ MODO CINEON (novo, v2.0):                                  │
@@ -1999,11 +1999,7 @@ def _build_metadata_args(
     elif not lut_enabled:
         pipeline_tag = "NoLUT"
     else:
-        _lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
-        if _lut_version_match:
-            pipeline_tag = f"HollywoodLUT_v{_lut_version_match.group(1)}"
-        else:
-            pipeline_tag = f"HollywoodLUT_{os.path.splitext(_HOLLYWOOD_LUT_FILENAME)[0]}"
+        pipeline_tag = f"HollywoodLUT_{_HOLLYWOOD_LUT_VERSION}"
 
     if mode == "crf":
         comment = f"{pipeline_tag} VBV:{vbv_preset_name} crf:18 max:{vbv_maxrate}k buf:{vbv_bufsize}k"
@@ -2114,7 +2110,7 @@ def build_scene_referred_hdr_pipeline(
     Pipeline CORRETO para HDR sources: Scene-Referred Processing SEM LUT.
 
     FILOSOFIA:
-    - Hollywood Cinema LUT v6.6 foi construída para SDR inputs (Rec.709/sRGB)
+    - Hollywood Cinema LUT foi construída para SDR inputs (Rec.709/sRGB)
     - LUT espera coordenadas display-referred (gamma space), não HDR
     - Para HDR: TONEMAP apenas (sem LUT)
 
@@ -2134,7 +2130,7 @@ def build_scene_referred_hdr_pipeline(
         tonemap_algorithm: Algoritmo de tone mapping (mobius, hable, reinhard)
     """
     console.print(f"[bold magenta]🌟 PIPELINE HDR DETECTADO (TONEMAP: {tonemap_algorithm.upper()})[/bold magenta]")
-    console.print("[dim]   LUT v6.6 não é aplicada em HDR (coordenadas SDR apenas)[/dim]")
+    console.print(f"[dim]   LUT {_HOLLYWOOD_LUT_VERSION} não é aplicada em HDR (coordenadas SDR apenas)[/dim]")
 
     parts = []
 
@@ -2203,7 +2199,7 @@ def build_scene_referred_hdr_pipeline(
     parts.append(tonemap_stage)
     console.print(f"[green]✓ Tonemap:[/green] HDR → SDR ({config['description']})")
     console.print("[dim]   Ajustado para evitar highlights estourados[/dim]")
-    console.print("[yellow]⚠ LUT v6.6 NÃO aplicada:[/yellow] Construída para SDR inputs apenas")
+    console.print(f"[yellow]⚠ LUT {_HOLLYWOOD_LUT_VERSION} NÃO aplicada:[/yellow] Construída para SDR inputs apenas")
 
     # STAGE 4: Sharpen em SDR SPACE (após tonemap)
     parts.append("cas=strength=0.35")
@@ -2213,7 +2209,10 @@ def build_scene_referred_hdr_pipeline(
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
         parts.append(_build_dither(0.5))
-        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização HDR (c0s=4, temporal)")
+        console.print(
+            "[green]✓ Dither:[/green] ruído uniforme temporal no luma, "
+            "pós-quantização HDR (±2 códigos)"
+        )
 
     parts.append("format=yuv420p")
     console.print("[green]✓ YUV420P:[/green] Conversão final para entrega")
@@ -2258,6 +2257,13 @@ _HOLLYWOOD_LUT_FILENAME = (
     "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube"
 )
 
+_lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
+_HOLLYWOOD_LUT_VERSION = (
+    f"v{_lut_version_match.group(1)}"
+    if _lut_version_match
+    else os.path.splitext(_HOLLYWOOD_LUT_FILENAME)[0]
+)
+
 
 def _get_hollywood_lut_path() -> str:
     """Valida e retorna o path absoluto da Hollywood LUT v6.8.
@@ -2285,30 +2291,24 @@ def build_sdr_float_pipeline(
     Pipeline SDR com 32-bit float (DaVinci Intermediate Simulado).
 
     FILOSOFIA:
-    - Mantém color science Rec.709 (como LUT v6.6 espera)
+    - Mantém color science Rec.709 (como a LUT espera)
     - Aumenta precisão matemática (32-bit float)
-    - Elimina banding via float processing + high-end dither
+    - Elimina banding via float processing + dither
 
     Pipeline:
-        [SCALE] → IDT (32-bit) → CAS 0.30 → [LUT v6.6] → ODT (dither) → CROP
-                  ↑ gbrpf32le  ↑          ↑            ↑ zscale+yuv420p ↑
-
-    AJUSTE v1.4.1:
-    - CAS reduzido de 0.45 → 0.30 (conservador, anti-banding)
-    - Float permite ser mais suave sem perder definição
-    - Sharpen forte + gradientes = banding artifacts
+        [SCALE] → IDT (32-bit) → [LUT] → ODT (dither) → CROP
+                  ↑ gbrpf32le  ↑        ↑ zscale+yuv420p ↑
 
     Benefícios:
     - Zero banding (float elimina quantização)
     - Cores corretas (mantém Rec.709)
-    - Sharpen suave (0.30 evita artifacts)
     - Compatível com LUT atual
     - Performance: ~10-20% mais lento (aceitável)
 
     Args:
         scale_filter: Filtro de downscale (opcional)
         target_resolution: Resolução alvo para crop (opcional)
-        lut_enabled: Aplicar LUT v6.7 (default: True)
+        lut_enabled: Aplicar a Hollywood Cinema LUT (default: True)
     """
     parts = []
 
@@ -2321,23 +2321,26 @@ def build_sdr_float_pipeline(
     parts.append("format=gbrpf32le")
     console.print("[green]✓ IDT:[/green] 8-bit → 32-bit float planar (gbrpf32le)")
 
-    # STAGE 4: LUT v6.7B em Float Space (CONDICIONAL)
+    # STAGE 3: LUT em Float Space (CONDICIONAL)
     if lut_enabled:
         _get_hollywood_lut_path()   # valida existência — levanta FileNotFoundError se ausente
         parts.append(f"lut3d=file={_HOLLYWOOD_LUT_FILENAME}:interp=trilinear")
         console.print(
-            f"[green]✓ LUT v6.8:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
+            f"[green]✓ LUT {_HOLLYWOOD_LUT_VERSION}:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
         )
     else:
         console.print("[dim]○ LUT desativada (--lut off)[/dim]")
 
-    # STAGE 5: ODT - Output Device Transform (32-bit float → 8-bit com dither)
+    # STAGE 4: ODT - Output Device Transform (32-bit float → 8-bit com dither)
     parts.append("zscale=t=bt709:m=bt709:r=tv:p=bt709")
 
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
         parts.append(_build_dither(0.5))
-        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização (c0s=4, temporal)")
+        console.print(
+            "[green]✓ Dither:[/green] ruído uniforme temporal no luma, "
+            "pós-quantização (±2 códigos)"
+        )
     parts.append("format=yuv420p")
     console.print("[green]✓ ODT:[/green] 32-bit float → 8-bit YUV420p")
     # STAGE 6: Crop final (remove macroblock padding)
@@ -2380,7 +2383,7 @@ def build_video_filter_auto(
     - Pipeline SDR Float (32-bit)
 
     IMPORTANTE:
-    - Hollywood Cinema LUT v6.6 foi construída para SDR inputs (Rec.709/sRGB)
+    - Hollywood Cinema LUT foi construída para SDR inputs (Rec.709/sRGB)
     - LUT espera coordenadas display-referred, não HDR
     - HDR sources: TONEMAP apenas (sem LUT)
     - SDR sources: LUT aplicada (pipeline tradicional ou float)
@@ -2389,7 +2392,7 @@ def build_video_filter_auto(
         is_hdr: True = source HDR (tonemap, sem LUT); False = source SDR
         scale_filter: Filtro de downscale (opcional)
         target_resolution: Resolução alvo para crop (opcional)
-        lut_enabled: Aplicar LUT v6.6 (APENAS para SDR sources)
+        lut_enabled: Aplicar a Hollywood Cinema LUT (APENAS para SDR sources)
         tonemap_algorithm: Algoritmo de tone mapping para HDR (mobius, hable, reinhard)
 
     Returns:
@@ -2401,7 +2404,7 @@ def build_video_filter_auto(
             f"[bold cyan]🎯 Modo: HDR Source (Tonemap: {tonemap_algorithm.upper()})[/bold cyan]"
         )
         console.print(
-            "[yellow]⚠ LUT v6.6 desativada:[/yellow] Construída para SDR inputs apenas"
+            f"[yellow]⚠ LUT {_HOLLYWOOD_LUT_VERSION} desativada:[/yellow] Construída para SDR inputs apenas"
         )
         return build_scene_referred_hdr_pipeline(
             scale_filter=scale_filter,
@@ -2491,9 +2494,9 @@ def run_ffmpeg(
     Função principal de encoding - Hollywood LUT Transport.
 
     Pipeline ultra-simplificado sem denoise standalone/grain.
-    Confia 100% na Hollywood Cinema LUT v6.6 para qualidade.
+    Confia 100% na Hollywood Cinema LUT para qualidade.
 
-    NOVO v1.4: Suporta 32-bit float processing (DaVinci Intermediate simulado)
+    Suporta 32-bit float processing (DaVinci Intermediate simulado).
     """
     if mode == "crf":
         console.rule("[bold yellow]🎬 Encode CRF 18 - Hollywood LUT Transport")
@@ -4048,14 +4051,15 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 f"[yellow]⚠ MCTF falhou: {_mctf_exc} — usando consensus masks[/yellow]"
             )
-    # ── Blue-noise dither flag ────────────────────────────────────────────────
+    # ── Dither flag ───────────────────────────────────────────────────────────
     _dither_arg    = getattr(args, "dither", "auto")
     # Pipeline SDR é sempre 32-bit float → 8-bit, então o ODT sempre se beneficia
     # do dither anti-banding. auto = ativo (salvo --dither off explícito).
     _dither_active = _dither_arg != "off"
     if _dither_active:
         console.print(
-            "[cyan]🎲 Dither:[/cyan] Blue-noise ativado — quebra coerência de banding pré-quantização"
+            "[cyan]🎲 Dither:[/cyan] ruído uniforme temporal no luma ativado "
+            "— quebra coerência de banding pós-quantização"
         )
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -4144,7 +4148,7 @@ def build_parser() -> argparse.ArgumentParser:
             """Exemplos de uso:
 
 MODO FFMPEG (default, rápido):
-  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT v6.7B
+  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT
   python Reels_Encoder_v2_FINAL.py 4k_video.mp4                        # 4K 60fps → 1080p 30fps (auto)
   python Reels_Encoder_v2_FINAL.py input.mp4 --mode 2pass              # 2-Pass + Loudnorm
   python Reels_Encoder_v2_FINAL.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
@@ -4191,7 +4195,8 @@ COMPARAÇÃO:
         "--lut",
         choices=["on", "off"],
         default="on",
-        help="Aplicar Hollywood Cinema LUT v6.7B (default: on). off = apenas scale/HDR/sharpen",
+        help=f"Aplicar Hollywood Cinema LUT {_HOLLYWOOD_LUT_VERSION} (default: on). "
+             "off = apenas scale/HDR/sharpen",
     )
     parser.add_argument(
         "--loudnorm",
@@ -4307,11 +4312,11 @@ COMPARAÇÃO:
         "--dither",
         choices=["on", "off", "auto"],
         default="auto",
-        help="Blue-noise dithering antes da quantização final. "
-             "'auto' = ativado quando --enhance on (banding detectado pelo enhance). "
+        help="Ruído uniforme temporal no luma (±2 códigos), aplicado depois da "
+             "conversão para 8-bit, antes da quantização final. "
+             "'auto' equivale a 'on' (só 'off' desativa). "
              "Quebra a coerência espacial de banding que sobrevive ao re-encoding do Instagram. "
-             "Técnica usada em DCP, DaVinci Resolve, Unreal Engine. "
-             "Amplitude: ~1.5 LSBs @ 8-bit (imperceptível). Default: auto.",
+             "Default: auto.",
     )
     parser.add_argument(
         "--enhance-ai",

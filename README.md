@@ -45,7 +45,7 @@
 | Problema comum | Como este encoder resolve |
 | --- | --- |
 | Vídeo fica borrado no Instagram | VBV presets otimizados para cada duração |
-| Cores lavadas após upload | LUT HollywoodCinema v6.7B + pipeline Cineon |
+| Cores lavadas após upload | LUT HollywoodCinema v6.8 + pipeline Cineon |
 | Banding visível em gradientes | AI detecta e aplica deband adaptativo |
 | Áudio muito alto/baixo | Normalização automática EBU R128 (2-pass) |
 | 4K fica pesado demais | Downscale automático para 1080p |
@@ -163,7 +163,7 @@ python Reels_Encoder_v2_FINAL.py video.mp4 --enhance on --enhance-ai on
 | Python | 3.11+ | ✅ |
 | FFmpeg | 4.4+ | ✅ |
 | pymediainfo | 1.0.0+ | ✅ |
-| av (PyAV) | 11.0.0+ | ✅ (modo Cineon) |
+| av (PyAV) | 17.0.0+ | ✅ (modo Cineon) |
 | numpy | 1.24.0+ | ✅ |
 | scipy | 1.10+ | ✅ |
 | Pillow | 10.0.0+ | ✅ |
@@ -213,7 +213,7 @@ O encoder localiza cada binário do FFmpeg por um **resolvedor de 3 níveis** (`
 | **Linux** | `sudo apt install ffmpeg` | copie um build estático para `bin/` |
 
 > Se faltar `ffmpeg`/`ffprobe`, a UI mostra um card de dependência ausente com as duas rotas de correção.
-
+>
 > Caminho de entrada recomendado no Windows (`launcher.ps1`, venv + wizard
 > zero-config): veja [⚡ Início Rápido](#-início-rápido).
 
@@ -281,26 +281,26 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 | --- | --- | --- | --- |
 | `--cineon-pipeline` | `on/off` | `off` | Ativa pipeline DWG/Cineon film emulation |
 | `--cineon-lut` | caminho | `FilmLook_Portra400...cube` | LUT .cube para o modo Cineon |
-| `--mode` | `crf/2pass` | `crf` | Modo de encoding |
+| `--mode` | `crf/2pass` | `crf` | Modo de encoding. No pipeline Cineon, `2pass` renderiza os 5 nós do pipeline duas vezes (uma por passe) |
 
 #### 🎨 Grading & Cor
 
 | Argumento | Valores | Padrão | Descrição |
 | --- | --- | --- | --- |
-| `--lut` | `on/off` | `on` | Aplica HollywoodCinema LUT v6.7B |
+| `--lut` | `on/off` | `on` | Aplica HollywoodCinema LUT v6.8 |
 | `--exposure-offset` | `-2.0` a `+2.0` | `0.0` | Ajuste de exposição em stops (EV) |
 | `--saturation` | `0.0` a `2.0` | `1.0` | Ajuste de saturação |
 | `--hdr` | `auto/off` | `auto` | Conversão HDR→SDR automática |
-| `--tonemap` | `mobius/reinhard/hable/bt2390` | `mobius` | Algoritmo tone mapping HDR |
+| `--tonemap` | `mobius/reinhard/hable` | `mobius` | Algoritmo tone mapping HDR |
 
 #### 🤖 IA & Enhancement
 
 | Argumento | Valores | Padrão | Descrição |
 | --- | --- | --- | --- |
 | `--enhance` | `on/off` | `on` | Ativa Enhancement Engine |
-| `--enhance-ai` | `on/off` | `on` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
-| `--dither` | `on/off/auto` | `auto` | Blue-noise dithering anti-banding |
-| `--mctf` | `on/off` | `on` | Máscara MCTF com optical flow anti-flicker |
+| `--enhance-ai` | `on/off` | `off` | Usa MockCNN para decisões de filtro (requer `--enhance on`) |
+| `--dither` | `on/off/auto` | `auto` | Ruído uniforme temporal no luma (pós-8-bit), anti-banding; `auto` equivale a `on` |
+| `--mctf` | `on/off` | `off` | Máscara MCTF com optical flow anti-flicker |
 
 #### ⚙️ Qualidade & Vídeo
 
@@ -370,7 +370,7 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 │  PIPELINE 1 — FFmpeg Nativo (padrão)                                │
 │                                                                      │
 │  Input ──► Análise AI ──► Filtros FFmpeg ──► libx264 ──► Output     │
-│             (5 frames)     deband → denoise → sharpen → LUT v6.7B   │
+│             (5 frames)     deband → denoise → sharpen → LUT v6.8    │
 │                                                                      │
 │  Performance: ~30-60 fps (GPU)  |  Bitrate: 6.5–12 Mbps             │
 └─────────────────────────────────────────────────────────────────────┘
