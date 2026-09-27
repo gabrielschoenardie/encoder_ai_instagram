@@ -94,3 +94,47 @@ def test_build_video_filter_auto_sdr_ignores_input_color():
         input_color=("bt709", "bt709", "bt709"),
     )
     assert "setparams=" not in vf
+
+
+# ── bt2390 removido da superfície (BD6) ──────────────────────────────────────
+
+def test_bt2390_removed_from_tonemap_algorithms():
+    assert "bt2390" not in R.TONEMAP_ALGORITHMS
+
+
+def test_bt2390_rejected_by_cli():
+    parser = R.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["input.mp4", "--tonemap", "bt2390"])
+
+
+def test_bt2390_rejected_by_encode_config():
+    from pydantic import ValidationError
+
+    from ui.config import EncodeConfig
+
+    with pytest.raises(ValidationError):
+        EncodeConfig(tonemap="bt2390")
+
+
+def test_tonemap_choices_consistent_across_surfaces():
+    from ui.config import _CHOICES
+
+    parser = R.build_parser()
+    cli_choices = None
+    for action in parser._actions:
+        if action.option_strings and "--tonemap" in action.option_strings:
+            cli_choices = set(action.choices)
+            break
+    assert cli_choices is not None
+    assert set(R.TONEMAP_ALGORITHMS) == cli_choices == _CHOICES["tonemap"]
+
+
+def test_build_scene_referred_hdr_pipeline_raises_on_unknown_algorithm():
+    with pytest.raises(ValueError):
+        R.build_scene_referred_hdr_pipeline(
+            scale_filter=None,
+            target_resolution=(1080, 1920),
+            tonemap_algorithm="bt2390",
+            input_color=None,
+        )

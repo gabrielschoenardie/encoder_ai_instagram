@@ -350,7 +350,6 @@ TONEMAP_ALGORITHMS = {
     "mobius": "Highlights suaves, melhor para skin tones (recomendado)",
     "reinhard": "Suave, preserva sombras",
     "hable": "Contraste cinematográfico (Uncharted 2)",
-    "bt2390": "ITU standard para broadcast",
 }
 
 # =============================================================================
@@ -2197,8 +2196,7 @@ def build_scene_referred_hdr_pipeline(
 
     # Validar algoritmo
     if tonemap_algorithm not in tonemap_configs:
-        console.print(f"[yellow]⚠ Tonemap '{tonemap_algorithm}' inválido, usando 'mobius'[/yellow]")
-        tonemap_algorithm = "mobius"
+        raise ValueError(f"Tonemap algorithm '{tonemap_algorithm}' desconhecido")
 
     config = tonemap_configs[tonemap_algorithm]
     tonemap_stage = f"tonemap={tonemap_algorithm}:{config['params']},zscale=t=bt709:m=bt709:r=tv:p=bt709"
@@ -4223,7 +4221,7 @@ COMPARAÇÃO:
     )
     parser.add_argument(
         "--tonemap",
-        choices=["mobius", "reinhard", "hable", "bt2390"],
+        choices=["mobius", "reinhard", "hable"],
         default="mobius",
         help="Algoritmo de tone mapping HDR→SDR (default: mobius). mobius=skin tones, hable=cinema",
     )

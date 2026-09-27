@@ -203,7 +203,7 @@ def _flow_advanced(con, base: Optional[EncodeConfig] = None) -> Optional[EncodeC
         cfg.lut = ask_toggle(con, "Aplicar Hollywood LUT?", default_on=cfg.lut == "on")
     cfg.hdr = ask_select(con, "HDR→SDR", ["auto", "off"], cfg.hdr)
     cfg.tonemap = ask_select(con, "Tonemap",
-                             ["mobius", "reinhard", "hable", "bt2390"], cfg.tonemap)
+                             ["mobius", "reinhard", "hable"], cfg.tonemap)
 
     # AUDIO
     con.print(C.tab_bar(SECTIONS, active=2, console=con))
