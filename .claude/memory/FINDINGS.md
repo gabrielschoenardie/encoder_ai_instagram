@@ -1237,3 +1237,48 @@ própria asserção de fechamento da `BAF3` exige (`$Message -match 'pip check'`
 literalmente com o bloco de `§ Desenho` do mesmo `PLAN.md`; o critério de aceite nº2 (tabela) é
 uma imprecisão de resumo do próprio plano, não um desvio de implementação — verificado por
 leitura do diff pelo Orquestrador antes deste fechamento.
+
+## Achados — 2026-09-27 (auditoria do Orquestrador sobre o `main` pós-Ciclo BC, `07d14d3`)
+
+Evidência medida nesta sessão, não presumida: FFmpeg estático 4.2.2, 6.0.1 e 7.0.2 (johnvansickle,
+com `zscale`), PyAV 12.0.0–18.1.0, Python 3.11.15 / 3.12.3 / 3.13.12 (Linux). Carta de 5 patches
+(vermelho, verde, azul, pele 0.8/0.6/0.5, cinza 50%) lida de volta como `yuv420p` cru, sem conversão
+na leitura. Scripts de sonda no scratchpad da sessão (não commitados).
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| BDF1 | matriz de cor (saída) | `Reels_Encoder_v2_FINAL.py` `run_ffmpeg_with_cineon` (comando do pipe `rgb24`) | Conversão RGB→YUV do pipe Cineon usa BT.601; arquivo sai marcado BT.709 | S2 | esperado: vermelho Y=63 Cb=102 Cr=240 (709 TV); medido: Y=81 Cb=90 (601), idêntico em 4.2.2, 6.0.1 e 7.0.2 |
+| BDF2 | matriz de cor (entrada) | idem, `frame.to_ndarray(format="rgb24")` | Decode YUV→RGB depende da versão do PyAV: 12–16 usam BT.601 em fonte BT.709 | S2 | esperado: vermelho 709 → (255,0,0); medido: PyAV 12–16 → (232,0,1), 17–18 → (254,0,0). Args explícitos em 13–16 são ignorados quando `src_range == dst_range` (fonte full-range continua 601) |
+| BDF3 | temporização (A/V) | idem, loop `for frame in container.decode(...)` | Cineon não converte fps: escreve todo frame decodificado num pipe declarado `-r output_fps` | S1 | fonte 60 fps + `--fps 30` (padrão): vídeo 4,0 s × áudio 2,0 s (câmera lenta 2×, dessincronizado); fonte 24 fps: vídeo 1,6 s × áudio 2,0 s |
+| BDF4 | crash de plataforma | idem, `ffmpeg_process.communicate(timeout=60)` após `stdin.close()` | Em Linux/macOS com Python 3.11/3.12 todo encode Cineon quebra no fim | S2 | esperado: remux do `colr` e fim normal; medido: `ValueError: flush of closed file` (3.11.15 e 3.12.3); 3.13 e Windows não afetados |
+| BDF5 | rate control (2-pass) | idem, Pass 1 via CLI nativo | Pass 1 mede o vídeo nativo; Pass 2 codifica pixels com grade Cineon, enhance e dither | S3 | esperado: stats do Pass 1 sobre os mesmos pixels do Pass 2; medido: conteúdo diferente; com fps ≠ origem as contagens de frames divergem (BDF3) |
+| BDF6 | opção morta | `Reels_Encoder_v2_FINAL.py:352,4246`, `ui/config.py:35`, `ui/launcher.py:206` | `--tonemap bt2390` aceito na CLI e no wizard, sem implementação | S3 | esperado: opção funciona ou não existe; medido: builder cai em mobius com aviso; o filtro `tonemap` do FFmpeg não implementa BT.2390 |
+| BDF7 | defaults experimentais | `Reels_Encoder_v2_FINAL.py` (`--enhance-ai`, `--mctf`), `ui/config.py:86-87` | Todo encode padrão roda MockCNN não treinado e gera vídeos de máscara MCTF do clipe inteiro | S3 | esperado: padrão determinístico e barato; medido: pesos sintéticos decidem filtros; MCTF grava centenas de MB em `enhance_maps/` do CWD (211 MB + 513 MB no Ciclo W) |
+| BDF8 | documentação desatualizada | 22 strings em `Reels_Encoder_v2_FINAL.py`, README, launcher | LUT citada como v6.6/v6.7/v6.7B (em uso: v6.8); dither descrito como "blue-noise pré-quantização" | S4 | esperado: texto descreve o comportamento; medido: versão errada; `--dither auto` na prática ≡ `on`; `noise` uniforme aplicado depois da quantização |
+| BDF9 | teto de ingestão | `Reels_Encoder_v2_FINAL.py:1824-1841` (`_adaptive_2pass_x264_params`) | 2-pass em clipe ≤15s estoura o teto do Instagram (Regra de Ouro 6) | S2 | esperado: média ≤ 12000k, maxrate ≤ 15000k; medido: `mean_q=16` → 13799k / 15178k; `mean_q=20` → 12960k / 14256k |
+| BDF10 | skill × código | `SKILL.md` (perfis, template) × `VBV_PRESETS` / comandos | Perfis de VBV, level e teto de keyint divergem entre skill e encoder | S3 | skill: ≤30s 10000/11200/15000, Level 4.0, keyint ≤ 60; código: ≤15s 12000/13000/17550, 15–30s 9800/11000/14850, Level 4.1, keyint 120 a 60 fps |
+| BDF11 | "dither" do caminho FFmpeg | `enhance/ffmpeg_filters.py:133-161` (`noise=c0s=4:c0f=t+u`) | Ruído só no luma, aplicado depois da quantização 8-bit, com viés DC negativo | S3 | esperado: dither pré-quantização, média zero; medido: `c0s=4` gera {−2,−1,0,+1} → média −0,54 código (cinza chapado, 512×512×30); `c0s=5` → −0,04. O `zscale` quantiza antes, com `dither=none` |
+| BDF12 | tonemap HDR | `Reels_Encoder_v2_FINAL.py:2178-2195` | `peak=` recebe nits, mas o `tonemap` espera múltiplos do branco linear (1,0 = `npl`=200 nits) | S3 | com `peak=1000` (atual), mobius põe 100/203/500/1000 nits em 74/92/98/99% — funciona por acaso; hable 43/64/84/92% (escuro). `peak=5` (unidade coerente) estoura: mobius 1000 nits → 102%, hable → 109%. Corrigir exige re-calibrar `npl`/`peak`/`param` com A/B visual |
+| BDF13 | enhance seletivo | `Reels_Encoder_v2_FINAL.py:4029-4072`, `enhance_visualizer.py:152-310` | `--enhance-ai on` sem `--mctf on` aplica máscaras estáticas de 3 frames ao vídeo inteiro | S3 | esperado: máscara acompanha o conteúdo; medido: PNG de consenso em `-stream_loop -1` — só correto em plano fixo |
+| BDF14 | domínio do Cineon | `Reels_Encoder_v2_FINAL.py` `run_ffmpeg_with_cineon` | Fonte HDR (PQ/HLG) entra no Cineon sem tonemap e sem aviso | S2 | esperado: recusa ou tonemap; medido: nenhum guard — código PQ/HLG tratado como Rec.709 display-referred |
+
+**Controle negativo (não é bug — registrar para não reabrir):** os caminhos FFmpeg SDR (com e sem
+dither) e HDR produzem BT.709 correto. O `zscale ... m=bt709` negocia saída `yuv420p` direto porque
+os filtros seguintes (`noise`, `cas`, `format=yuv420p`) compartilham a lista de formatos; a variante
+com `format=yuv420p` fixado logo após o `zscale` dá resultado idêntico ao da cadeia atual. Essa
+correção depende da negociação, não de uma conversão explícita: um filtro que aceite RGB entre o
+`zscale` e o `format` voltaria a conversão para o `swscale` com a matriz padrão — por isso o Ciclo
+BD põe um teste de guarda nas duas cadeias.
+
+### Status (2026-09-27, planejamento do Ciclo BD)
+
+| ID | status | onde |
+|----|--------|------|
+| BDF1, BDF2, BDF14 | **corrigindo no Ciclo BD** | BD1 (saída), BD2 (entrada + recusa de HDR) |
+| BDF3 | **corrigindo no Ciclo BD** | BD3 — entrou fora da lista do usuário: mesmo loop que o item 7 reescreve, defeito de correção sem componente criativo, e o 2-pass depende de contagem determinística |
+| BDF4, BDF5 | **corrigindo no Ciclo BD** | BD4 |
+| BDF6 | **corrigindo no Ciclo BD** | BD6 |
+| BDF7 | **corrigindo no Ciclo BD** | BD7 |
+| BDF8 | **corrigindo no Ciclo BD** | BD8 (VALIDATION.md regenerado pelo `validador` na BD10) |
+| BDF9, BDF10 | **aberto — próximo ciclo** | itens 2 e 4 do resumo; o usuário priorizou 1, 3, 5, 6 e 7 primeiro |
+| BDF11, BDF12, BDF13 | **aberto — exige A/B com o usuário** | mudam a imagem de todo encode (dither, tonemap, enhance seletivo); não entram sem medição de VMAF/bitrate/banding e aprovação visual |

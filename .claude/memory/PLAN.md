@@ -1,298 +1,256 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo BC: hardening final do bootstrap (`launcher.ps1`)
+# PLAN — Ciclo BD: cor, fps e 2-pass do Cineon + superfície de opções e docs
 
-Data: 2026-09-08 | Ciclo: BC | Origem: pedido direto do usuário (15 objetivos de hardening,
-via `/superpowers:brainstorming`), não uma auditoria do Orquestrador. Ciclo anterior: BB
-(fechado, PR #64, CI verde, verificação manual confirmada). Duas decisões de desenho foram
-resolvidas com o usuário antes deste PLAN — ver § Decisões.
+Data: 2026-09-27 | Ciclo: BD | Origem: pedido do usuário após o resumo do encoder — corrigir os
+itens 1, 3, 5, 6 e 7 "tomando as decisões corretas". Itens 2 (teto do 2-pass, `BDF9`) e 4 (skill ×
+código, `BDF10`) ficam para o próximo ciclo por decisão do usuário. Ciclo anterior: BC (fechado).
+Evidência de cada achado: `.claude/memory/FINDINGS.md` § "Achados — 2026-09-27".
 
-## Diagnóstico
+## Diagnóstico (medido, não presumido)
 
-O usuário pediu um hardening cirúrgico do `launcher.ps1` (GUI-only bootstrap) em 15 pontos.
-Treze são aditivos e sem conflito com o código atual. Dois exigiram decisão do usuário porque
-colidiam com trabalho já fechado ou mudavam o raio de ação de uma correção:
+| achado | item do usuário | medido |
+|--------|-----------------|--------|
+| `BDF1` saída RGB→YUV do Cineon em BT.601, marcada BT.709 | 1 | vermelho Y=81 (601) em vez de 63 (709) — FFmpeg 4.2.2, 6.0.1, 7.0.2 |
+| `BDF2` entrada YUV→RGB do Cineon depende do PyAV | 1 | PyAV 12–16 decodificam BT.709 com matriz 601; 17–18 corretos |
+| `BDF14` fonte HDR entra no Cineon sem tonemap | 1 | nenhum guard |
+| `BDF3` Cineon não converte fps | — (novo) | 60 fps + `--fps 30`: vídeo 4,0 s × áudio 2,0 s; 24 fps: 1,6 s × 2,0 s |
+| `BDF4` crash no fim do Cineon em Linux/macOS, Python 3.11/3.12 | — (novo) | `communicate()` após `stdin.close()` → `ValueError: flush of closed file` |
+| `BDF5` Pass 1 do Cineon mede pixels diferentes do Pass 2 | 7 | Pass 1 = vídeo nativo via CLI |
+| `BDF6` `--tonemap bt2390` sem implementação | 3 | cai em mobius com aviso |
+| `BDF7` defaults `--enhance-ai on` + `--mctf on` | 5 | MockCNN não treinado + vídeos de máscara do clipe inteiro no CWD |
+| `BDF8` documentação desatualizada | 6 | LUT citada v6.6/v6.7/v6.7B (em uso v6.8); dither descrito como não é |
 
-1. **Conflito com o Ciclo BB.** O pedido original (item 3) descrevia a ordem
-   `python inicia → versão OK → pip check OK → stamp confere → pula install`, com `pip check`
-   **dentro do gate**, rodando em todo lançamento. Isso reabriria `BAF1` (custo do `pip check`
-   no caminho rápido de ~2s que a `AX7` existia para preservar) e `BAF2` (se `pip check`
-   reprovar por algo que reinstalar não resolve, o venv fica "não-saudável" para sempre e o
-   launcher reinstala em todo lançamento, indefinidamente) — os dois achados que o Ciclo BB
-   fechou nesta mesma manhã (`.claude/memory/FINDINGS.md` § "Achado — 2026-09-07 ... FECHADO
-   no Ciclo BB"). **Decisão do usuário: manter o fix da BB.** `pip check` nunca entra no gate
-   do caminho rápido; continua rodando só como pós-condição depois de qualquer reinstalação.
-2. **Python do venv abaixo do mínimo.** O pedido oferecia duas saídas ("erro claro" OU
-   "recriar o ambiente, se já for a arquitetura atual"). Hoje o launcher **nunca** recria um
-   venv existente automaticamente — um venv "não-saudável" só tem os pacotes reinstalados,
-   nunca o interpretador substituído. Recriar seria comportamento novo (apagar diretório
-   sozinho). **Decisão do usuário: erro claro, sem tocar no disco** — consistente com
-   `Resolve-SystemPython`/`New-ProjectVenv`, que já falham assim (mensagem acionável, nunca
-   correção automática).
+Controle negativo: os caminhos FFmpeg SDR e HDR já produzem BT.709 correto (o `zscale m=bt709`
+negocia `yuv420p` direto). Não mexer neles; só guardar com teste (BD1).
 
-## Decisões
+## Decisões (Orquestrador, com a autorização do usuário para decidir)
 
-| # | pergunta | resposta do usuário |
-|---|----------|----------------------|
-| 1 | ordem do gate (`pip check` dentro ou fora do caminho rápido) | **manter o fix da BB** — `pip check` nunca no caminho rápido |
-| 2 | Python do venv abaixo do mínimo: erro ou recriar sozinho | **erro claro, para** — não mexe no disco |
+1. **Item 1 corrige as duas pontas do Cineon.** Corrigir só a saída pioraria quem está em PyAV
+   12–16: hoje 601→601 quase se cancela; saída 709 com entrada 601 deixaria o erro visível. Saída com
+   `scale` explícito; entrada com `reformat` explícito e piso `av>=17.0.0` (13–16 ignoram os args
+   explícitos quando `src_range == dst_range`, medido).
+2. **Cineon recusa fonte HDR** com erro acionável (usar o pipeline FFmpeg, que faz tonemap). Não
+   criar tonemap no Cineon.
+3. **`BDF3` e `BDF4` entram neste ciclo** embora não estivessem na lista: estão no loop que o item 7
+   reescreve, são defeitos de correção sem componente criativo, e o 2-pass exige contagem de frames
+   determinística entre os passes.
+4. **Item 7: o pipeline Cineon é renderizado nos dois passes** (padrão de mercado — HandBrake e
+   Resolve rodam os filtros em ambos os passes). Custo ~2× só em `--mode 2pass` (opt-in; o padrão
+   continua CRF). Dither com semente fixa por passe → Pass 1 e Pass 2 recebem bytes idênticos.
+5. **Item 3: `bt2390` sai de toda a superfície.** O builder passa a levantar `ValueError` em
+   algoritmo desconhecido — sem fallback silencioso.
+6. **Item 5: `--enhance-ai off` e `--mctf off` por padrão** (CLI e wizard). `--enhance on` continua
+   (heurístico, determinístico, 5 frames). Opt-in explícito segue funcionando igual.
+7. **Item 6: a documentação passa a descrever o comportamento real, sem mudar comportamento.**
+   Versão da LUT de fonte única; dither descrito como é. `VALIDATION.md` é regenerado pelo
+   `validador` na BD10.
+8. **Fora do ciclo** (FINDINGS): `BDF9`, `BDF10`, e os que mudam a imagem de todo encode e exigem A/B
+   com o usuário — `BDF11` (viés do dither), `BDF12` (unidade do `peak` do tonemap), `BDF13` (máscara
+   estática do enhance-ai).
+
+Conhecimento de encoder: `skill: instagram-reels-encoder` § "Regras de Ouro" (BT.709, `yuv420p`),
+`references/cineon-pipeline.md` (nós, quantização RPDF), `references/color-pipeline.md`. Não
+transcrever — carregar a skill.
 
 ## Desenho
 
-### BC1 — `launcher.ps1`
+### BD1 — saída RGB→YUV do Cineon (`BDF1`)
 
-**(a) `$Debug` → `$DebugMode`.** Rename mecânico. Ocorrências: `param()` (linha 9),
-`Write-LauncherLog` (linha 30, condição do nível `Debug`), catch global (linha 591,
-`if ($Debug) { ... }`). Nenhuma outra referência existe (confirmado por grep antes deste
-PLAN). Não adicionar `[CmdletBinding()]` — fora de escopo, ninguém pediu.
+- Constante de módulo em `Reels_Encoder_v2_FINAL.py`:
+  `_CINEON_RGB_TO_YUV709_VF = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_inp,format=yuv420p"`
+  (string medida: carta sai 63/102/240 no vermelho em 6.0.1 e 7.0.2).
+- Usada como `-vf` no comando do pipe `rgb24` (depois dos `-map`, antes de `-c:v`).
+- Testes novos em `enhance/test_color_matrix.py`. Pulam (`pytest.skip`) se o FFmpeg resolvido por
+  `ui.binaries` não executar (`<ffmpeg> -version` falha ou binário inexistente); os de cadeia pulam
+  também se `zscale` não aparecer em `ffmpeg -filters`:
+  - `test_cineon_output_vf_is_bt709`: carta RGB de 5 patches (vermelho, verde, azul, pele
+    0.8/0.6/0.5, cinza 50%) via `-f rawvideo -pix_fmt rgb24 -i - -vf <constante> -f rawvideo
+    -pix_fmt yuv420p -` → Y/Cb/Cr do centro de cada patch a ±1 do BT.709 TV teórico.
+  - `test_sdr_chain_is_bt709`: `build_sdr_float_pipeline(None, None, lut_enabled=False,
+    dither_enabled=False)` sobre carta `yuv420p` BT.709 marcada → identidade ±1.
+  - `test_hdr_chain_final_conversion_is_zscale`: cadeia de `build_scene_referred_hdr_pipeline(...)`
+    sobre fonte PQ/BT.2020 sintética == mesma cadeia com `format=yuv420p` inserido logo após
+    `zscale=t=bt709:m=bt709:r=tv:p=bt709` (bytes idênticos). Guarda a negociação.
 
-**(b) `Get-VenvPythonVersion` (nova função).** Só lê a versão do Python **já existente** no
-venv — não decide nada:
+### BD2 — entrada YUV→RGB do Cineon (`BDF2`) + recusa de HDR (`BDF14`)
 
-```powershell
-function Get-VenvPythonVersion {
-    param([Parameter(Mandatory)][string]$VenvPython)
-    $prevEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $out = & $VenvPython -c "import sys;print('%d.%d.%d'%sys.version_info[:3])" 2>&1
-    }
-    finally {
-        $ErrorActionPreference = $prevEap
-    }
-    if ($LASTEXITCODE -ne 0) { return $null }
-    $reported = (@($out) -join "`n").Trim()
-    $parsed = $null
-    if (-not [version]::TryParse($reported, [ref]$parsed)) { return $null }
-    return $parsed
-}
-```
+- `pyproject.toml`: `"av>=17.0.0"`.
+- Helper de módulo `_pyav_frame_to_rgb24(frame) -> np.ndarray`:
+  `frame.reformat(format="rgb24", src_colorspace=<cs>, src_color_range=<rng>, dst_color_range="JPEG").to_ndarray()`.
+  `frame.colorspace` (AVColorSpace): 1→`"ITU709"`; 5 e 6→`"ITU601"`; 4→`"FCC"`;
+  7→`"SMPTE240M"`; qualquer outro (inclui 2 = não especificado)→`"ITU709"` (mesma política do
+  caminho FFmpeg para fonte sem tag). `frame.color_range`: 2→`"JPEG"`; outro→`"MPEG"`.
+- O loop do Cineon usa o helper no lugar de `frame.to_ndarray(format="rgb24")`.
+- Em `run_ffmpeg_with_cineon`, logo após `probe_video` (o guard `_validate_cineon_constants`
+  continua a primeira instrução — teste `test_cineon_constants_guard.py` guarda isso):
+  `if _probe.is_hdr: raise RuntimeError(...)` com mensagem acionável (nomeia o tipo HDR e manda usar
+  `--cineon-pipeline off`, que faz tonemap). Antes de abrir container, LUT ou FFmpeg.
+- Testes em `enhance/test_cineon_color_io.py` — sem FFmpeg; frames sintéticos via
+  `av.VideoFrame.from_ndarray(..., format="yuv420p")` com `colorspace`/`color_range` atribuídos
+  (atributos graváveis em PyAV 17+, medido):
+  - vermelho BT.709 TV (63,102,240) → RGB (255,0,0) ±2; o mesmo vermelho em full-range → idem;
+    frame sem tag (colorspace=2) tratado como 709; pele e cinza ±2.
+  - HDR recusado antes de qualquer I/O de vídeo (monkeypatch de `probe_video` com `is_hdr=True`;
+    `av.open` e `subprocess.Popen` monkeypatched para falhar se chamados).
 
-Guard `$ErrorActionPreference = "Continue"` + `finally`, como toda invocação nativa desde a
-`AX`. **Não** refatorar `Resolve-SystemPython` para compartilhar essa lógica — é uma pequena
-duplicação (~5 linhas) aceita em troca de zero risco sobre uma função já testada e em
-produção. Duas funções, dois propósitos (uma escolhe um Python do sistema; a outra só lê o
-que já está no venv).
+### BD3 — conversão CFR no Cineon (`BDF3`)
 
-**(c) `Initialize-Environment` — novo trecho entre a checagem de saúde e a decisão do caminho
-rápido** (a partir da atual linha 309):
+- Gerador de módulo `_cfr_resample(frames, out_fps)` → yields `(frame, is_repeat)`, semântica do
+  filtro `fps` do FFmpeg com `round=near`:
+  - slot = floor((t − t0)·out_fps + ½), aritmética exata com `Fraction(frame.pts) * frame.time_base`;
+    empate exato arredonda para cima; dentro do mesmo slot vence o último frame; slot vazio repete
+    o anterior. `pts` ausente → tempo anterior + 1/fps de entrada.
+  - Fim: o último frame cobre até `t_last + dur_last` (`frame.duration × time_base` quando > 0,
+    senão 1/fps de entrada); total de slots = floor((t_end − t0)·out_fps + ½).
+  - Streaming: guarda só o frame pendente.
+- No loop: só frames emitidos são convertidos e processados; `is_repeat=True` reescreve os bytes do
+  último frame processado (não reprocessa). HUD: total = `round(duration * output_fps)`.
+- Testes puros em `enhance/test_cineon_cfr.py` com frames falsos (`pts`, `time_base`, `duration`):
+  60→30 escolhe os frames pares e dá 60 slots em 2 s; 24→30 dá 60 slots com 12 repetições
+  distribuídas; 30→30 identidade; 30000/1001→30 ≈ 1 repetição a cada 1000; jitter VFR de ±2 ms sem
+  drop/dup espúrio; total = duração × fps.
 
-```powershell
-$healthy = Test-VenvHealthy -VenvPython $venvPython
-if (-not $healthy) {
-    Write-LauncherLog "Venv nao respondeu a 'python -c import sys' (orfao ou corrompido) - reinstalando dependencias." "Warn"
-}
-else {
-    $venvVersion = Get-VenvPythonVersion -VenvPython $venvPython
-    if ($null -eq $venvVersion -or $venvVersion -lt [version]$minVersion) {
-        $found = if ($null -ne $venvVersion) { $venvVersion.ToString() } else { "desconhecida" }
-        throw "Python do venv incompativel.`nEncontrado: $found`nMinimo exigido: $minVersion`nApague a pasta '$VenvPath' e rode o launcher novamente para recria-la com um Python compativel."
-    }
-    Write-LauncherLog "Python do venv: $venvVersion" "Success"
-}
-if ((-not $Force) -and $healthy -and $stamp -and ((Read-VenvStamp -VenvPath $VenvPath) -eq $stamp)) {
-    Write-LauncherLog "Dependencias ja instaladas (stamp confere) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
-    return $venvPython
-}
-```
+### BD4 — 2-pass do Cineon nos mesmos pixels (`BDF5`) + fim de processo sem `communicate()` (`BDF4`)
 
-O `throw` roda **antes** da decisão do caminho rápido e **independe** de `-Force` ou do
-stamp — reinstalar pacotes não conserta um interpretador abaixo da versão mínima, então não
-há cenário em que vale a pena tentar. Isso fecha o Caso 5 do usuário ("não deve simplesmente
-reutilizar o ambiente"). `$healthy -and (...)` continua suficiente na condição do caminho
-rápido: quando `$healthy` é `$true`, ou a função já lançou (versão ruim) ou `$venvVersion` já
-foi validada — não precisa de uma terceira variável.
+- A análise de enhance sobe para ANTES de qualquer passe (o Pass 1 renderiza com enhance).
+- Sai o Pass 1 atual via CLI nativo (e o `-vf` de escala dele).
+- Um construtor de comando do pipe, parametrizado por passe:
+  - CRF: como hoje (com BD1).
+  - Pass 1: `-b:v <base>`, `-x264-params` base de `_x264_params_string`, `-pass 1 -passlogfile
+    <LOG>`, sem input nem mapa de áudio, `-an -f null DEVNULL_FF`.
+  - Pass 2: `-b:v <adaptado>`, params de `_adaptive_2pass_x264_params`, `-pass 2 -passlogfile
+    <LOG>`, áudio + metadados + output.
+  - Nos três: mesmo `-f rawvideo -pix_fmt rgb24 -s -r`, mesmo `_CINEON_RGB_TO_YUV709_VF`, mesmo
+    keyint (os dois builders de x264 já garantem).
+- Uma função de passe (aninhada ou de módulo, a critério do executor) que: abre o container;
+  `Popen(stdin=PIPE, stdout=DEVNULL, stderr=PIPE)`; `_register_ffmpeg`; HUD; thread de stderr que
+  guarda as últimas 50 linhas (`collections.deque`); loop CFR (BD3) com `_pyav_frame_to_rgb24`
+  (BD2); fecha o stdin; `wait(timeout=60)` (kill no timeout); `join` da thread; returncode ≠ 0 →
+  `CalledProcessError` com as linhas guardadas. **Nunca chamar `communicate()` depois de fechar o
+  stdin.** KeyboardInterrupt e erro de processamento: mesma semântica de hoje (terminate + re-raise
+  / `RuntimeError`).
+- Dither: `np.random.default_rng(_CINEON_DITHER_SEED)` (constante de módulo) criado no início de cada
+  passe.
+- Metadados do 2-pass Cineon com os overrides do Pass 2 (`vbv_maxrate_override`,
+  `vbv_bufsize_override`), como o caminho FFmpeg já faz.
+- Logs do 2-pass (`-0.log`, `-0.log.mbtree`) removidos em `finally` — sucesso, erro e interrupção.
+- Remux do `colr` e validação ffprobe: só depois do passe final, sem mudança.
+- Testes e2e em `enhance/test_cineon_e2e.py` (pulam sem ffmpeg **e** ffprobe executáveis). Fonte
+  sintética em `tmp_path`: lavfi `testsrc2` 90×160 + `sine` 48 kHz, 1 s.
+  `run_ffmpeg_with_cineon(..., target_fps="30", scale_mode="off", loudnorm_enabled=False,
+  enhance_enabled=False, show_hardware=False)`:
+  - fonte 60 fps, CRF: `nb_frames == 30`, duração do vídeo = duração do áudio ±1 frame, sem exceção
+    (em Python 3.11/3.12 POSIX isso reprova antes do fix — `BDF4`).
+  - fonte 60 fps, 2pass: idem + nenhum log do 2-pass no disco ao final.
+  - fonte 24 fps, CRF: `nb_frames == 30`.
+  - todo comando FFmpeg que recebe o pipe contém `-vf` + `_CINEON_RGB_TO_YUV709_VF` (capturar via
+    wrapper de `subprocess.Popen` que registra os args e delega ao original).
 
-**Depois de `Write-VenvStamp`, no trecho de pós-condição já existente da BB**, adicionar o log
-de sucesso simétrico ao aviso que já existe:
+### BD5 — o CI passa a rodar os testes que dependem de FFmpeg
 
-```powershell
-$consistency = Test-VenvConsistent -VenvPython $venvPython
-if (-not $consistency.Ok) {
-    Write-LauncherLog "pip check encontrou dependencias inconsistentes (o encoder pode falhar em runtime). Use -ForceEnvSetup depois de ajustar o pyproject.toml:`n$($consistency.Report)" "Warn"
-}
-else {
-    Write-LauncherLog "pip check: ambiente consistente." "Success"
-}
-```
+- `.github/workflows/ci.yml`, job `tests`: step `Install FFmpeg (Linux)` com
+  `if: runner.os == 'Linux'`, rodando `sudo apt-get update && sudo apt-get install -y
+  --no-install-recommends ffmpeg` e depois `ffmpeg -version`, antes de `Run tests`. Windows segue
+  sem FFmpeg (esses testes pulam lá).
 
-**(d) `Test-ExecutableRuns` (nova função, compartilhada ffmpeg+ffprobe).** Valida que o binário
-não só existe mas também inicia:
+### BD6 — item 3 (`BDF6`)
 
-```powershell
-function Test-ExecutableRuns {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$Name
-    )
-    $prevEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        & $Path -hide_banner -version 2>&1 | Out-Null
-    }
-    finally {
-        $ErrorActionPreference = $prevEap
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Name foi encontrado em '$Path', mas nao conseguiu iniciar (exit $LASTEXITCODE)."
-    }
-    Write-LauncherLog "$Name executavel." "Success"
-}
-```
+- Remover `bt2390` de `TONEMAP_ALGORITHMS`, do `choices` do `--tonemap`, de `ui/config.py` e da lista
+  do `ask_select` em `ui/launcher.py`.
+- `build_scene_referred_hdr_pipeline`: algoritmo desconhecido → `ValueError` (remover o fallback
+  para mobius).
+- Testes: `bt2390` rejeitado pela CLI (`SystemExit`) e pelo `EncodeConfig`; `set(TONEMAP_ALGORITHMS)
+  == choices da CLI == choices do `EncodeConfig` == algoritmos do builder`; builder levanta em
+  algoritmo desconhecido.
 
-**(e) `Test-RequiredBinary`** — `Test-Path $Path` → `Test-Path $Path -PathType Leaf` (linha
-336). Uma linha; cobre os 3 call sites (python do venv, ffmpeg, ffprobe) sem tocar nas
-mensagens de erro existentes.
+### BD7 — item 5 (`BDF7`)
 
-**(f) `Test-FfmpegCapabilities`** — dentro dos dois `foreach` existentes (encoders e filtros),
-logar sucesso por item, mantendo o `throw` combinado no fim para o que faltar:
+- `--enhance-ai` e `--mctf` com default `"off"` (argparse e textos de help); `EncodeConfig.enhance_ai`
+  e `EncodeConfig.mctf` = `"off"`.
+- `ui/test_config.py:39-40` atualizado. Teste novo: `build_parser().parse_args(["x.mp4"])` →
+  `enhance == "on"`, `enhance_ai == "off"`, `mctf == "off"`.
 
-```powershell
-foreach ($name in $encoders) {
-    if ($encoderText -notmatch ("\b" + [regex]::Escape($name) + "\b")) { $missing += "encoder '$name'" }
-    else { Write-LauncherLog "Encoder '$name' disponivel." "Success" }
-}
-# idem para $filters, com "Filtro '$name' disponivel."
-```
+### BD8 — item 6 (`BDF8`)
 
-**(g) `Resolve-Binaries`** — inserir `Test-ExecutableRuns` logo depois de cada
-`Test-RequiredBinary` de ffmpeg/ffprobe, mais um log de sucesso na existência (hoje
-`Test-RequiredBinary` é silencioso no sucesso):
-
-```powershell
-Test-RequiredBinary -Path $ffmpeg -Name "ffmpeg.exe" -FixHint "..." | Out-Null
-Write-LauncherLog "FFmpeg encontrado." "Success"
-Test-ExecutableRuns -Path $ffmpeg -Name "FFmpeg"
-
-Test-RequiredBinary -Path $ffprobe -Name "ffprobe.exe" -FixHint "..." | Out-Null
-Write-LauncherLog "FFprobe encontrado." "Success"
-Test-ExecutableRuns -Path $ffprobe -Name "FFprobe"
-
-Test-FfmpegCapabilities -Ffmpeg $ffmpeg -Config $Config
-```
-
-(A ordem exata dos dois `Write-LauncherLog`+`Test-ExecutableRuns` por binário fica a critério
-do executor; o que importa é: existência → log → executa, para cada um, antes de
-`Test-FfmpegCapabilities`.)
-
-### O que fica igual (preservado sem mudança de código)
-
-Itens 7–10, 12–14 do pedido do usuário são guardrails, não tarefas:
-
-- **Não** reintroduzir `-InputFile`/`-Profile`/`batch`. Launcher continua abrindo só
-  `Reels_Encoder_v2_FINAL.py --ui`.
-- **Não** alterar `ui/binaries.py` nem o contrato `REELS_FFMPEG`/`REELS_FFPROBE`.
-- **Não** chamar `Set-ExecutionPolicy` nem alterar política permanente.
-- **Não** substituir o mecanismo de stamp (SHA-256 requirements+pyproject). Ele só deixa de
-  ser suficiente sozinho — e isso já é o caso desde a BB, nada muda aqui.
-- **Não** mexer em `$PSNativeCommandUseErrorActionPreference = $false` (linha 21).
-- **Não** mexer em `Open-LauncherTabs`, `Resolve-LauncherShell`, `preferPwsh`/`noProfile`.
-- **Não** mexer em `Protect-PSLiteral` nem em `Build-SetupCommand`/`Build-AppCommand` — as
-  novas checagens invocam `&` direto (como `Test-VenvHealthy`/`Test-VenvConsistent` já fazem),
-  nenhuma monta string interpolada nova.
-- **Não** mexer em `$Config = $null` de `Install-Requirements`/`Initialize-Environment` — os 4
-  testes de `Context 'quando o venv nao existe'` dependem disso (mesma ressalva da BB).
+- Fonte única da versão da LUT: constante de módulo derivada de `_HOLLYWOOD_LUT_FILENAME` pela regex
+  que `_build_metadata_args` já usa; o `pipeline_tag` passa a usar a constante (comportamento
+  idêntico — os testes dos Ciclos AG/AH guardam). Toda string de console, help, epílogo e docstring
+  que cita versão da LUT usa a constante ou texto sem versão.
+- Dither descrito como é, sem mudar comportamento: help do `--dither`, prints de console
+  (`Reels_Encoder_v2_FINAL.py:2217, 2341, 4073-4080`), label do launcher (`ui/launcher.py:224`),
+  docstring e comentário de seção de `_build_dither` (`enhance/ffmpeg_filters.py:75, 133-158`) e a
+  frase "mesma técnica" em `cineon_pipeline.py::quantize_uint8_dithered`. Texto: ruído uniforme
+  temporal no luma (±2 códigos), aplicado depois da conversão para 8-bit; `auto` equivale a `on`.
+  A menção ao upgrade futuro (FASE 30B) pode ficar, sem a palavra "blue-noise" descrevendo o atual.
+- Docstrings obsoletas: cabeçalho do módulo (linha 40), `run_ffmpeg` ("Confia 100% na LUT v6.6"),
+  `build_sdr_float_pipeline` (estágio "CAS 0.30" que não existe), `build_video_filter_auto` e
+  `build_scene_referred_hdr_pipeline` (v6.6).
+- README: linhas 48, 290, 294, 302, 373; tabela de defaults (`--enhance-ai`, `--mctf` → `off`;
+  `--tonemap` sem `bt2390`); linha do PyAV (`17.0.0+`); nota de que `--mode 2pass` no Cineon
+  renderiza o pipeline duas vezes.
+- Teste de guarda novo `ui/test_docs_consistency.py` (ler com `encoding="utf-8"`): README e
+  `build_parser().format_help()` sem `v6.6`, `v6.7`, `bt2390` nem "Blue-noise"; README contém a
+  versão derivada de `_HOLLYWOOD_LUT_FILENAME`.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
-|----|--------|-------------|----------|-------------------|
-| **BC1** | Implementar (a)–(g) do § Desenho | executor-pesado | `launcher.ps1` | `Select-String '\$Debug\b' launcher.ps1` → 0 linhas (só `$DebugMode` sobra); `Select-String 'PathType Leaf' launcher.ps1` → 1 linha; `Test-ExecutableRuns`/`Get-VenvPythonVersion` definidas e chamadas nos pontos do desenho; `Parser::ParseFile` sem erros |
-| **BC2** | Testes — ver § "Mudanças na suíte" | executor-pesado | `tests/launcher.Tests.ps1` | suíte verde nos 3 jobs Pester; contagem sobe do valor atual (confirmar com `Invoke-Pester` antes de editar) |
-| **BC3** | Anexar `## Ciclo BC` ao `STATE.md` com resultado + SHAs | Orquestrador | `.claude/memory/STATE.md` | — |
+|----|--------|-------------|----------|------------------|
+| BD1 | § BD1 | executor-pesado | `Reels_Encoder_v2_FINAL.py`, `enhance/test_color_matrix.py` | com `PATH=$SP/ff70:$PATH` e com `$SP/ff60`: 3 passed; com `env PATH=/usr/bin:/bin`: 3 skipped; trocar `bt709` por `bt601` na constante (local, sem commit) faz `test_cineon_output_vf_is_bt709` reprovar |
+| BD2 | § BD2 | executor-pesado | `Reels_Encoder_v2_FINAL.py`, `pyproject.toml`, `enhance/test_cineon_color_io.py` | passa com o PyAV do venv (18.1) e com `PYTHONPATH=$SP/av_17.0.0`; com `PYTHONPATH=$SP/av_16.0.0` o teste full-range reprova (prova do piso — registrar no STATE, não commitar nada disso) |
+| BD3 | § BD3 | executor-pesado | `Reels_Encoder_v2_FINAL.py`, `enhance/test_cineon_cfr.py` | testes passam; o loop do Cineon consome `_cfr_resample` |
+| BD4 | § BD4 | executor-pesado | `Reels_Encoder_v2_FINAL.py`, `enhance/test_cineon_e2e.py` | antes da mudança o e2e reprova (registrar a saída no STATE); depois passa com `$SP/ff70` e `$SP/ff60`; suíte completa (`test_render_queue.py enhance/ ui/ tools/`) sem falha com e sem FFmpeg no PATH; `ruff check .` limpo (ruff 0.14.10) |
+| BD5 | § BD5 | executor-pesado | `.github/workflows/ci.yml` | `actionlint` sem erro (via `pip install actionlint-py`; se indisponível, `yaml.safe_load` + revisão manual e registrar isso); prova real = run do CI no PR |
+| BD6 | § BD6 | executor | `Reels_Encoder_v2_FINAL.py`, `ui/config.py`, `ui/launcher.py`, `enhance/test_hdr_pipeline.py`, `ui/test_config.py` | `grep -rn bt2390 --include=*.py .` fora de `.claude/memory` e `docs/superpowers` → 0; testes novos passam |
+| BD7 | § BD7 | executor | `Reels_Encoder_v2_FINAL.py`, `ui/config.py`, `ui/test_config.py` | testes passam; `--help` mostra os dois defaults como off |
+| BD8 | § BD8 | executor | `Reels_Encoder_v2_FINAL.py`, `enhance/ffmpeg_filters.py`, `cineon_pipeline.py`, `ui/launcher.py`, `README.md`, `ui/test_docs_consistency.py` | `grep -nE "v6\.6|v6\.7|bt2390|[Bb]lue-noise" Reels_Encoder_v2_FINAL.py README.md ui/launcher.py ui/config.py enhance/ffmpeg_filters.py` → 0; `npx --yes markdownlint-cli2@0.23.1 README.md` → 0 issues; suíte completa verde |
+| BD9 | auditoria do wizard após BD6–BD8 | ui-flow-reviewer | `ui/launcher.py` | veredito sem achado bloqueante |
+| BD10 | encodes reais + validação | Orquestrador (encodes) + validador | `.claude/memory/VALIDATION.md` | ver § "Validação" |
+| BD11 | fechamento: STATE/FINDINGS, push, PR | Orquestrador | `.claude/memory/*` | — |
 
-BC1 e BC2 podem ser um único commit por arquivo (como na BB) ou combinados — critério é
-`git diff main --stat` tocar só os dois arquivos de código, memória em commit separado.
+Ordem: BD1→BD5 (`executor-pesado`, um commit por ID) → BD6→BD8 (`executor`, um commit por ID) →
+BD9 → BD10 → BD11. Nada em paralelo: BD1–BD8 editam `Reels_Encoder_v2_FINAL.py`.
 
-## Mudanças na suíte (especificação da BC2)
+## Validação (BD10)
 
-Todas em `tests/launcher.Tests.ps1`, seguindo a convenção já estabelecida (mock das
-funções-wrapper, nunca do binário nativo — ver comentário de cabeçalho do arquivo).
+Fonte sintética 1080×1920, 60 fps, 3 s, `testsrc2` + `sine`, tags BT.709. Dois encodes pela CLI, com
+FFmpeg 7.0.2 no PATH e `--ebu-meter off`: (a) padrão (FFmpeg, CRF, defaults novos); (b)
+`--cineon-pipeline on --mode 2pass`. O `validador` roda `validate_encode.sh` nos dois e sobrescreve
+`VALIDATION.md` (fecha a parte de `BDF8` sobre o VALIDATION.md desatualizado). VMAF não se aplica
+(grade deliberado sobre fonte sintética).
 
-**Cabeçalho do arquivo (linhas 9–18).** Acrescentar `Get-VenvPythonVersion` e
-`Test-ExecutableRuns` à lista de superfícies não-testáveis diretamente (native invocation via
-variável), mesma razão já documentada para `Test-VenvHealthy`/`Test-VenvConsistent`.
+## Critérios de aceite do ciclo
 
-**Rename `-Debug` → `-DebugMode`.** No teste `It 'suprime o nivel Debug quando -Debug nao foi
-passado'` (linha 601) e no comentário interno (602-604): atualizar nome do teste e do
-comentário para `$DebugMode`. O comentário passa a explicar que o rename elimina a colisão —
-não que ela é evitada por ausência de `[CmdletBinding()]`.
-
-**`Describe 'Initialize-Environment'` — mock novo em todos os Contexts que passam por
-`$healthy = $true`** (`'venv existe, saudavel, stamp confere'` linha 242, `'... stamp difere'`
-linha 286, `'quando o venv nao existe'` linha 357, `'com -Force'` linha 400, `'pip check
-reprova depois do install'` linha 421): acrescentar `Mock Get-VenvPythonVersion { return
-[version]'3.12.0' }` ao `BeforeAll`. Sem esse mock a função real tentaria `& 'VENV\Scripts\
-python.exe' -c ...` num caminho que não existe.
-
-No Context `'venv existe mas nao esta saudavel'` (linha 329, `$healthy = $false`): acrescentar
-o mesmo mock (inofensivo, não deve ser invocado) e uma asserção nova — **`It 'nao chama
-Get-VenvPythonVersion quando o venv nao esta saudavel'`**: `Should -Invoke
-Get-VenvPythonVersion -Times 0 -Exactly`. Prova que o gate de versão só roda depois de
-confirmar que o Python inicia.
-
-**Context novo — `'Python do venv abaixo do minimo'`:** mocks iguais ao Context `'stamp
-confere'`, exceto `Mock Get-VenvPythonVersion { return [version]'3.9.0' }` (config real usada
-pelos testes tem `minPythonVersion: "3.11"`, ver `$script:Config`). Três asserções:
-
-1. `It 'lanca excecao'` — `{ Initialize-Environment ... } | Should -Throw`.
-2. `It 'nao instala nada (nao tenta corrigir sozinho)'` — `Should -Invoke Install-Requirements
-   -Times 0 -Exactly`. **Fecha o Caso 5** (não reutiliza, não corrige sozinho).
-3. `It 'a mensagem de erro nomeia encontrado e minimo'` — `{ ... } | Should -Throw -ExpectedMessage
-   '*3.9.0*'` e variante/segunda asserção para `'*3.11*'` (Pester só casa um padrão por
-   `-ExpectedMessage`; usar `-ErrorId`/captura de exceção com `try/catch` + duas asserções
-   `Should -Match`, a critério do executor).
-
-**`Describe 'Resolve-Binaries'` — os dois Contexts existentes** (`'todos os binarios
-presentes'` linha 462, `'Windows Terminal ausente'` linha 511): acrescentar `Mock
-Test-ExecutableRuns { }` ao `BeforeAll`. `Should -Invoke Test-RequiredBinary -Times 3
--Exactly` continua válido (contagem não muda).
-
-**Context novo em `Resolve-Binaries` — `'ffmpeg nao consegue iniciar'`:** mocks iguais a
-`'todos os binarios presentes'`, exceto `Mock Test-ExecutableRuns { throw "FFmpeg nao
-conseguiu iniciar." } -ParameterFilter { $Name -eq 'FFmpeg' }`. Asserção: `It 'propaga a
-excecao'` — `{ Resolve-Binaries ... } | Should -Throw`; `It 'nao chega a checar capacidades'`
-— `Should -Invoke Test-FfmpegCapabilities -Times 0 -Exactly`.
-
-**`Describe 'Test-RequiredBinary'` (novo bloco, função hoje sem `Describe` próprio).** Usa
-`TestDrive:` do Pester (filesystem real, sem mock — é lógica pura de `Test-Path`):
-
-- `It 'aceita um arquivo existente'` — cria `TestDrive:\fake.exe` (`New-Item -ItemType File`),
-  `Test-RequiredBinary -Path 'TestDrive:\fake.exe' -Name x -FixHint y` não lança.
-- `It 'rejeita um diretorio com nome de executavel'` — cria `TestDrive:\fake.exe` como
-  **diretório** (`New-Item -ItemType Directory`), `Test-RequiredBinary` **lança**. **Esta é a
-  asserção que fecha o item 6** (`-PathType Leaf` distingue diretório de arquivo).
-- `It 'rejeita caminho inexistente'` — comportamento já existente, sem regressão.
-
-## Critérios de aceite
-
-1. Suíte verde nos 3 jobs Pester (`ubuntu-latest`, `windows-latest` pwsh 7, `Windows
-   PowerShell 5.1`) + `lint` + `tests`.
-2. `.\launcher.ps1` e `.\launcher.ps1 -DebugMode` funcionam sem erro relacionado ao parâmetro
-   (verificação manual do usuário, não testável em CI — mesma natureza do critério 6 da BB).
-3. Casos 3–8 do pedido do usuário cobertos pelos testes da § "Mudanças na suíte" (venv
-   saudável+versão+pip check+stamp → pula install; pip check falha → reinstala; versão abaixo
-   do mínimo → não reutiliza; FFmpeg/FFprobe não iniciam → erro claro; capacidade FFmpeg
-   ausente → aborta com mensagem clara — este já coberto por teste existente da AX, não
-   recriar).
-4. `git diff main --stat` toca exatamente `launcher.ps1` e `tests/launcher.Tests.ps1`; memória
-   em commit próprio.
-5. Nenhuma construção só-pwsh-7 (`??`, ternário, `&&`, `||`, `-Parallel`, `-AsHashtable`).
-6. `QF1` não volta: toda invocação nativa nova (`Get-VenvPythonVersion`, `Test-ExecutableRuns`)
-   usa o guard `$ErrorActionPreference = "Continue"` + `finally`.
+1. CI verde nos jobs `lint`, `tests` (4 pernas), `pester` (2) e `pester-winps51` no PR.
+2. Cineon: carta sai BT.709 na entrada e na saída; 60→30 e 24→30 com duração de vídeo = áudio;
+   2-pass completa em Linux com Python 3.11/3.12; logs do 2-pass nunca sobram.
+3. Caminhos FFmpeg SDR/HDR: bytes idênticos aos de antes (só ganham teste de guarda).
+4. `bt2390` não existe mais em código de produto; `--enhance-ai`/`--mctf` opt-in.
+5. Nenhuma mudança de imagem nos caminhos FFmpeg (dither, tonemap e enhance intocados — `BDF11`–`13`
+   ficam para A/B).
 
 ## Notas de execução
 
-- **Branch:** recriar `claude/launcher-encoder-architecture-jzyyu8` a partir do `main`
-  (`git fetch origin main && git checkout -B claude/launcher-encoder-architecture-jzyyu8
-  origin/main`) — mesmo nome reaproveitado nos ciclos AX–BB, apagada após o merge da BB. PR
-  **novo**.
-- Sem `pwsh` no container do Orquestrador: quem valida é o CI. O `executor-pesado` roda
-  `Invoke-Pester -Path ./tests` localmente se tiver PowerShell; senão, confia nos 3 jobs.
-- Commits: `BC1` → `BC2` → `BC3` (memória, `[skip ci]` **só se não for o commit-topo do push**
-  — ver nota abaixo).
-- **Armadilha do Ciclo BB a não repetir:** se o commit de memória (`[skip ci]`) for o topo do
-  push, o GitHub Actions pula o workflow inteiro para esse push, inclusive no evento
-  `pull_request` — o CI real não roda. Ou não usar `[skip ci]` no commit de memória, ou
-  garantir que ele não seja o último commit pusheado antes de abrir/atualizar o PR.
-- **Nunca `git add -A` nem `git add .`.** Adicionar por caminho explícito.
+- **Branch:** `claude/peaceful-noether-h2y27d` (já em checkout, a partir de `main` `07d14d3`). Não
+  trocar de branch. Não fazer push — o Orquestrador faz na BD11.
+- **Ambiente** (`SP=/tmp/claude-0/-home-user-encoder-ai-instagram/4aeaaaef-0120-5a84-a847-5e0691be4410/scratchpad`):
+  - venv Python 3.11 com o projeto instalado: `$SP/venv/bin/python` (`pip install -e ".[opencv,dev]"`
+    já feito; instalar `ruff==0.14.10` nele se precisar).
+  - FFmpeg + ffprobe estáticos: `$SP/ff70/` (7.0.2) e `$SP/ff60/` (6.0.1). O container não tem FFmpeg
+    no PATH por padrão; `ui.binaries` resolve `./bin` → PATH.
+  - PyAV alternativos para `PYTHONPATH`: `$SP/av_13.0.0`, `$SP/av_16.0.0`, `$SP/av_17.0.0`.
+  - Suíte canônica: `$SP/venv/bin/python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`.
+- **Commits:** um por ID, mensagem convencional em português, terminando com:
+
+  ```text
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  Claude-Session: https://claude.ai/code/session_011d7qoEQho76K2EPCw3rDhv
+  ```
+
+- **Nunca `git add -A` nem `git add .`** — adicionar por caminho explícito. Não commitar
+  `*.egg-info`, `__pycache__`, `enhance_maps/` nem nada de `$SP`.
+- Sem `[skip ci]` em nenhum commit deste ciclo (armadilha do Ciclo BB).
+- STATE.md: anexar `## Ciclo BD` ao fim, uma linha por ID; saída de comando relevante (a reprovação
+  pré-fix do e2e, a prova do piso do PyAV) em subseção curta.
+- Plano ambíguo ou em conflito com o código → `blocked` com a pergunta exata; não improvisar.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
