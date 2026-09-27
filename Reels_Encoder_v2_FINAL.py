@@ -83,6 +83,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from typing import Optional, Tuple
 
 try:
@@ -3082,6 +3083,58 @@ def _pyav_frame_to_rgb24(frame) -> "np.ndarray":
     ).to_ndarray()
 
 
+def _cfr_resample(frames, out_fps, in_fps=None):
+    """Reamostra frames decodificados para CFR `out_fps` → yields `(frame, is_repeat)`.
+
+    Semântica do filtro `fps` do FFmpeg com `round=near`: o slot de um frame é
+    floor((t − t0)·out_fps + ½); no mesmo slot vence o último frame; slot vazio
+    repete o anterior. O último frame cobre até t_last + dur_last. `in_fps`
+    (default: `out_fps`) supre `pts` e `duration` ausentes. Guarda só o frame
+    pendente.
+    """
+    out_fps = Fraction(out_fps)
+    frame_period = 1 / Fraction(in_fps if in_fps else out_fps)
+    half = Fraction(1, 2)
+
+    pending = None
+    pending_emitted = False
+    pending_t = None
+    t0 = None
+    next_slot = 0
+
+    for frame in frames:
+        if frame.pts is not None:
+            t = Fraction(frame.pts) * frame.time_base
+        elif pending_t is not None:
+            t = pending_t + frame_period
+        else:
+            t = Fraction(0)
+        if t0 is None:
+            t0 = t
+        slot = int(((t - t0) * out_fps + half) // 1)
+        if pending is not None:
+            while next_slot < slot:
+                yield pending, pending_emitted
+                pending_emitted = True
+                next_slot += 1
+        pending = frame
+        pending_emitted = False
+        pending_t = t
+
+    if pending is None:
+        return
+    duration = getattr(pending, "duration", None)
+    if duration and duration > 0 and pending.time_base:
+        t_end = pending_t + Fraction(duration) * pending.time_base
+    else:
+        t_end = pending_t + frame_period
+    total_slots = int(((t_end - t0) * out_fps + half) // 1)
+    while next_slot < total_slots:
+        yield pending, pending_emitted
+        pending_emitted = True
+        next_slot += 1
+
+
 def run_ffmpeg_with_cineon(
     input_file: str,
     output_file: str,
@@ -3617,6 +3670,7 @@ def run_ffmpeg_with_cineon(
         raise
 
     video_stream = container.streams.video[0]
+    _in_fps = video_stream.average_rate or Fraction(_probe.fps_int)
 
     # Informações do stream de vídeo
     console.print(f"[dim]   Stream: {video_stream.width}×{video_stream.height} @ {video_stream.average_rate} fps[/dim]")
@@ -3642,7 +3696,7 @@ def run_ffmpeg_with_cineon(
         console.print(f"[green]✓ FFmpeg subprocess iniciado (PID: {ffmpeg_process.pid})[/green]")
 
         # Progress HUD
-        hud = ResolveProgressHUD(total_frames, source_fps=output_fps)
+        hud = ResolveProgressHUD(round(duration * output_fps), source_fps=output_fps)
 
         # Thread para capturar stderr do FFmpeg em tempo real
         def ffmpeg_stderr_reader(pipe, hud):
@@ -3685,58 +3739,59 @@ def run_ffmpeg_with_cineon(
 
         with Live(hud.render(), refresh_per_second=7, console=console) as live:
             try:
-                for frame in container.decode(video=0):
-                    # PyAV frame → NumPy array (RGB)
-                    frame_rgb = _pyav_frame_to_rgb24(frame)
+                for frame, is_repeat in _cfr_resample(container.decode(video=0), output_fps, _in_fps):
+                    if not is_repeat:
+                        # PyAV frame → NumPy array (RGB)
+                        frame_rgb = _pyav_frame_to_rgb24(frame)
 
-                    # CRITICAL: Aplicar rotação iPhone (se necessário)
-                    if rotation_degrees != 0:
-                        frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
+                        # CRITICAL: Aplicar rotação iPhone (se necessário)
+                        if rotation_degrees != 0:
+                            frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
 
-                    # Normalizar para float32 [0.0-1.0]
-                    frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
+                        # Normalizar para float32 [0.0-1.0]
+                        frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
 
-                    # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
-                    if target_resolution is not None:
-                        t_w, t_h = target_resolution
-                        if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
-                            frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
+                        # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
+                        if target_resolution is not None:
+                            t_w, t_h = target_resolution
+                            if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
+                                frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
 
-                    # ── Enhancement Engine (antes do Cineon) ─────────────────────
-                    if _enhance_fn is not None:
-                        frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
+                        # ── Enhancement Engine (antes do Cineon) ─────────────────────
+                        if _enhance_fn is not None:
+                            frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
 
-                    # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
-                    frame_processed = process_frame_full_pipeline(
-                        frame_rgb_normalized,
-                        portra_lut,
-                        exposure_offset=exposure_offset,
-                        saturation=saturation,
-                    )
-
-                    # Validação: Garantir array C-contiguous uint8
-                    if not frame_processed.flags["C_CONTIGUOUS"]:
-                        frame_processed = np.ascontiguousarray(frame_processed)
-
-                    if frame_processed.dtype != np.uint8:
-                        frame_processed = quantize_uint8_dithered(
-                            frame_processed, rng=_dither_rng
+                        # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
+                        frame_processed = process_frame_full_pipeline(
+                            frame_rgb_normalized,
+                            portra_lut,
+                            exposure_offset=exposure_offset,
+                            saturation=saturation,
                         )
 
-                    # Validar dimensões esperadas (após rotação + downscale)
-                    if target_resolution is not None:
-                        expected_shape = (target_resolution[1], target_resolution[0], 3)
-                    else:
-                        expected_shape = (effective_height, effective_width, 3)
-                    if frame_processed.shape != expected_shape:
-                        console.print(
-                            f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
-                        )
-                        error_occurred = True
-                        break
+                        # Validação: Garantir array C-contiguous uint8
+                        if not frame_processed.flags["C_CONTIGUOUS"]:
+                            frame_processed = np.ascontiguousarray(frame_processed)
 
-                    # Converter para bytes
-                    frame_bytes = frame_processed.tobytes()
+                        if frame_processed.dtype != np.uint8:
+                            frame_processed = quantize_uint8_dithered(
+                                frame_processed, rng=_dither_rng
+                            )
+
+                        # Validar dimensões esperadas (após rotação + downscale)
+                        if target_resolution is not None:
+                            expected_shape = (target_resolution[1], target_resolution[0], 3)
+                        else:
+                            expected_shape = (effective_height, effective_width, 3)
+                        if frame_processed.shape != expected_shape:
+                            console.print(
+                                f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
+                            )
+                            error_occurred = True
+                            break
+
+                        # Converter para bytes
+                        frame_bytes = frame_processed.tobytes()
 
                     # Escrever no pipe do FFmpeg (binary mode)
                     try:
