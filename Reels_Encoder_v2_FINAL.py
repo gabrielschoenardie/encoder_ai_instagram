@@ -4313,9 +4313,9 @@ COMPARAÇÃO:
         choices=["on", "off", "auto"],
         default="auto",
         help="Ruído uniforme temporal no luma (±2 códigos), aplicado depois da "
-             "conversão para 8-bit, antes da quantização final. "
+             "conversão para 8-bit, antes do encode. "
              "'auto' equivale a 'on' (só 'off' desativa). "
-             "Quebra a coerência espacial de banding que sobrevive ao re-encoding do Instagram. "
+             "Objetivo: mascarar banding no re-encode do Instagram. "
              "Default: auto.",
     )
     parser.add_argument(
