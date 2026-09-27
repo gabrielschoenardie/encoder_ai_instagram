@@ -3064,6 +3064,8 @@ def apply_rotation_to_frame(frame: np.ndarray, rotation: int) -> np.ndarray:
 
 _CINEON_RGB_TO_YUV709_VF = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_inp,format=yuv420p"
 
+_CINEON_DITHER_SEED = 0
+
 _PYAV_SRC_COLORSPACE = {1: "ITU709", 4: "FCC", 5: "ITU601", 6: "ITU601", 7: "SMPTE240M"}
 
 
@@ -3198,17 +3200,6 @@ def run_ffmpeg_with_cineon(
             "tonemap HDR → SDR."
         )
 
-    # Input SDR sem color metadata → forçar BT.709 antes do -i (vide run_ffmpeg).
-    # Pass 1 Cineon aplica zscale (scale_filter); sem isso, resize de fonte
-    # não-taggeada aborta com "no path between colorspaces".
-    _input_color_args: list = []
-    if _probe.color_tags_missing and not _probe.is_hdr:
-        _input_color_args = [
-            "-color_primaries", "bt709",
-            "-color_trc", "bt709",
-            "-colorspace", "bt709",
-        ]
-
     rotation_degrees = _probe.rotation
     physical_width, physical_height = _probe.physical_width, _probe.physical_height
     effective_width, effective_height = _probe.width, _probe.height
@@ -3309,7 +3300,6 @@ def run_ffmpeg_with_cineon(
 
     # Duração e VBV
     duration = _probe.duration
-    total_frames = _probe.nb_frames
 
     # ═══════════════════════════════════════════════════════════════
     # FIX 1: x264-params com DEBUG DETALHADO
@@ -3383,8 +3373,6 @@ def run_ffmpeg_with_cineon(
         f"[dim]   Domain: [{portra_lut.domain_min[0]:.2f}, {portra_lut.domain_max[0]:.2f}][/dim]"
     )
 
-    # Dither RPDF (ruído temporal — mesma instância reaproveitada entre frames)
-    _dither_rng = np.random.default_rng() if dither_enabled else None
     if dither_enabled:
         console.print("[dim]   Dither: RPDF ±0.5 LSB ativo (quantização uint8)[/dim]")
 
@@ -3409,75 +3397,8 @@ def run_ffmpeg_with_cineon(
             f"[yellow]📊 Modo: 2-Pass Inteligente | Bitrate base: {video_bitrate}k | VBV: {vbv_description}[/yellow]"
         )
 
-    # ═══════════════════════════════════════════════════════════════
-    # 2-PASS INTELLIGENT: Pass 1 FFmpeg CLI (sem Cineon — análise pura)
-    # ═══════════════════════════════════════════════════════════════
-    # Pass 1 usa o vídeo nativo (sem pipeline Cineon) para mapear complexidade
-    # em tempo mínimo (~60fps), depois os params adaptativos guiam o Pass 2 real.
-    # Pass 2 = loop PyAV + Cineon pipeline + FFmpeg com -pass 2 -passlogfile.
-    logfile_2pass = None
-    if mode == "2pass":
-        logfile_2pass = f"{output_file}_2pass"
-        console.print()
-        console.print("[cyan]📊 Pass 1: Mapeando complexidade (FFmpeg CLI nativo)...[/cyan]")
-
-        # Filtro de escala para Pass 1 (mesma resolução do Pass 2, sem LUT/Cineon)
-        _p1_vf_parts = []
-        if scale_filter:
-            _p1_vf_parts.append(scale_filter)
-        _p1_vf = ",".join(_p1_vf_parts) if _p1_vf_parts else None
-
-        pass1_cineon_cmd = [
-            FFMPEG, "-y",
-            "-threads", str(decoder_threads),
-            "-filter_threads", str(filter_threads),
-            *_input_color_args,
-            "-i", input_file,
-        ]
-        if _p1_vf:
-            pass1_cineon_cmd.extend(["-vf", _p1_vf])
-        pass1_cineon_cmd.extend([
-            "-r", str(output_fps),
-            "-fps_mode", "cfr",
-            "-c:v", "libx264",
-            "-preset", hw_profile.recommended_preset,
-            "-b:v", f"{video_bitrate}k",
-            "-profile:v", "high",
-            "-level:v", "4.1",
-            "-pix_fmt", "yuv420p",
-            "-x264-params", x264_params,
-            "-pass", "1",
-            "-passlogfile", logfile_2pass,
-            "-an",
-            "-f", "null",
-            DEVNULL_FF,
-        ])
-
-
-        _run_encoding(pass1_cineon_cmd, total_frames, cwd=script_dir, fps=output_fps,
-                      source=input_file, output=output_file, fit=fit,
-                      src_dims=(_probe.width, _probe.height))
-        console.print("[green]✓ Pass 1 Cineon completo![/green]")
-
-        # Análise do stats.log → parâmetros adaptativos para Pass 2
-        console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
-        _p1_stats = _analyze_pass1_log(logfile_2pass)
-        x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
-            base_bitrate=video_bitrate,
-            fps=output_fps,
-            pass1_stats=_p1_stats,
-            duration=duration,
-            threads=encoder_threads,
-            lookahead=_fps_aware_lookahead(hw_profile, output_fps),
-        )
-        vbv_description = f"Adaptive-2Pass ({video_bitrate}k)"
-        console.print(
-            f"[yellow]📊 Pass 2: Cineon Pipeline | Bitrate adaptado: {video_bitrate}k[/yellow]"
-        )
-        console.print()
-
     # ── ENHANCE ANALYSIS (Cineon mode — numpy per-frame) ─────────────────────
-    # Roda UMA VEZ antes do loop PyAV. Retorna None se conteúdo não precisar.
+    # Roda UMA VEZ antes dos passes (o Pass 1 do 2-pass também renderiza com enhance).
     # Aplicado APÓS deband e ANTES do pipeline Cineon (float32 Rec.709 gamma).
     _enhance_fn = None
     if ENHANCE_AVAILABLE and enhance_enabled:
@@ -3513,204 +3434,139 @@ def run_ffmpeg_with_cineon(
     else:
         ffmpeg_input_resolution = f"{effective_width}x{effective_height}"
 
-    ffmpeg_cmd = [
-        FFMPEG,
-        "-y",
-        "-f",
-        "rawvideo",
-        "-vcodec",
-        "rawvideo",
-        "-pix_fmt",
-        "rgb24",
-        "-s",
-        ffmpeg_input_resolution,  # Dimensões efetivas pós-rotação
-        "-r",
-        str(output_fps),
-        "-i",
-        "-",  # ← stdin pipe (binary mode)
-        # Audio input (separado)
-        "-i",
-        input_file,
-        # Stream mapping
-        "-map",
-        "0:v:0",  # Vídeo do pipe (stdin)
-        "-map",
-        "1:a:0?",  # Áudio do input file (opcional)
-        "-vf",
-        _CINEON_RGB_TO_YUV709_VF,
-        # Video encoding
-        "-c:v",
-        "libx264",
-        "-preset",
-        hw_profile.recommended_preset,
-    ]
+    logfile_2pass = f"{output_file}_2pass" if mode == "2pass" else None
 
-    # CRF ou 2-pass
-    if mode == "crf":
-        ffmpeg_cmd.extend(
-            [
-                "-crf",
-                "18",
+    def _build_pipe_cmd(pass_number, bitrate_k, params, pass_metadata_args=None):
+        """Comando FFmpeg que recebe o pipe rgb24. pass_number: None (CRF), 1 ou 2."""
+        cmd = [
+            FFMPEG,
+            "-y",
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-pix_fmt", "rgb24",
+            "-s", ffmpeg_input_resolution,  # Dimensões efetivas pós-rotação
+            "-r", str(output_fps),
+            "-i", "-",  # ← stdin pipe (binary mode)
+        ]
+        if pass_number != 1:
+            cmd += [
+                "-i", input_file,  # Áudio do input file (separado)
+                "-map", "0:v:0",  # Vídeo do pipe (stdin)
+                "-map", "1:a:0?",  # Áudio do input file (opcional)
             ]
-        )
-    else:
-        # 2-pass real: Pass 2 lê o stats.log gerado no Pass 1
-        ffmpeg_cmd.extend(
-            [
-                "-b:v",
-                f"{video_bitrate}k",
-                "-pass", "2",
+        cmd += [
+            "-vf", _CINEON_RGB_TO_YUV709_VF,
+            "-c:v", "libx264",
+            "-preset", hw_profile.recommended_preset,
+        ]
+        if pass_number is None:
+            cmd += ["-crf", "18"]
+        else:
+            cmd += [
+                "-b:v", f"{bitrate_k}k",
+                "-pass", str(pass_number),
                 "-passlogfile", logfile_2pass,
             ]
-        )
-
-    # x264 profile & level
-    ffmpeg_cmd.extend(
-        [
-            "-profile:v",
-            "high",
-            "-level:v",
-            "4.1",
-            "-pix_fmt",
-            "yuv420p",
-        ]
-    )
-
-    ffmpeg_cmd.extend(
-        [
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
+        cmd += [
+            "-profile:v", "high",
+            "-level:v", "4.1",
+            "-pix_fmt", "yuv420p",
+            "-color_range", "tv",
+            "-colorspace", "bt709",
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
             "-bsf:v",
             "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+            "-tune", "film",
+            "-x264-params", params,
         ]
-    )
-    console.print("[dim]   Color metadata: BT.709 TV range (posição otimizada)[/dim]")
-
-    ffmpeg_cmd.extend(
-        [
-            "-tune",
-            "film",
-            "-x264-params",
-            x264_params,
-        ]
-    )
-
-    # Audio filter (loudnorm) + codec args — saída sempre estéreo (-ac 2)
-    ffmpeg_cmd.extend(_audio_output_args(audio_filter))
-
-    # ═══════════════════════════════════════════════════════════════
-    # METADATA & CONTAINER FLAGS
-    # ═══════════════════════════════════════════════════════════════
-    # CRÍTICO: -movflags +write_colr DEVE vir DEPOIS de todos os
-    # argumentos de encoding, mas ANTES do output filename
-    metadata_args = _build_metadata_args(
-        duration, video_bitrate, mode, cineon_mode=True
-    )
-    ffmpeg_cmd.extend(metadata_args)
-
-    console.print(
-        "[dim]   Container flags: +faststart+write_colr (escrita forçada)[/dim]"
-    )
-
-    # ═══════════════════════════════════════════════════════════════
-    # OUTPUT
-    # ═══════════════════════════════════════════════════════════════
-    ffmpeg_cmd.append(output_file)
-
-    # ═══════════════════════════════════════════════════════════════
-    # DEBUG: Exibir comando FFmpeg completo
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print()
-    console.print(
-        "[cyan]═══════════════════════════════════════════════════════[/cyan]"
-    )
-    console.print("[bold cyan]🔍 DEBUG: Comando FFmpeg Completo[/bold cyan]")
-    console.print(
-        "[cyan]═══════════════════════════════════════════════════════[/cyan]"
-    )
-
-    # Exibir apenas partes críticas no terminal
-    console.print("[dim]Partes críticas:[/dim]")
-    for i, arg in enumerate(ffmpeg_cmd):
-        if arg in (
-            "-x264-params",
-            "-colorspace",
-            "-color_primaries",
-            "-color_trc",
-            "-movflags",
-        ):
-            console.print(f"[dim]{i:3d}.[/dim] [yellow]{arg}[/yellow]")
-            if i + 1 < len(ffmpeg_cmd):
-                console.print(f"[dim]{i+1:3d}.[/dim] [green]{ffmpeg_cmd[i+1]}[/green]")
-
-    console.print("[cyan]═══════════════════════════════════════════════════════[/cyan]")
-    console.print()
-
-    # ═══════════════════════════════════════════════════════════════
-    # PYAV VIDEO DECODE & CINEON PROCESSING
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print("[cyan]🎬 Iniciando encoding com pipeline Cineon...[/cyan]")
-    console.print()
+        if pass_number == 1:
+            cmd += ["-an", "-f", "null", DEVNULL_FF]
+        else:
+            # Audio filter (loudnorm) + codec args — saída sempre estéreo (-ac 2)
+            cmd += _audio_output_args(audio_filter)
+            # CRÍTICO: -movflags +write_colr DEVE vir DEPOIS de todos os
+            # argumentos de encoding, mas ANTES do output filename
+            cmd += pass_metadata_args
+            cmd.append(output_file)
+        return cmd
 
     import av
 
-    # Abrir container com PyAV
-    try:
-        container = av.open(input_file)
-    except Exception as e:
-        console.print(f"[red]Erro ao abrir input com PyAV: {e}[/red]")
-        raise
-
-    video_stream = container.streams.video[0]
-    _in_fps = video_stream.average_rate or Fraction(_probe.fps_int)
-
-    # Informações do stream de vídeo
-    console.print(f"[dim]   Stream: {video_stream.width}×{video_stream.height} @ {video_stream.average_rate} fps[/dim]")
-    console.print(f"[dim]   Codec: {video_stream.codec_context.name}[/dim]")
-    console.print()
-
-    # Iniciar subprocess FFmpeg (stdin=PIPE para receber frames)
-    try:
-        ffmpeg_process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=script_dir,
+    def _render_pass(cmd, label):
+        """Renderiza o pipeline Cineon completo no pipe de `cmd`. Retorna o nº de frames."""
+        console.print()
+        console.print(
+            "[cyan]═══════════════════════════════════════════════════════[/cyan]"
         )
-    except Exception as e:
-        console.print(f"[red]Erro ao iniciar FFmpeg subprocess: {e}[/red]")
-        container.close()
-        raise
+        console.print(f"[bold cyan]🔍 DEBUG: Comando FFmpeg Completo ({label})[/bold cyan]")
+        console.print(
+            "[cyan]═══════════════════════════════════════════════════════[/cyan]"
+        )
+        console.print("[dim]Partes críticas:[/dim]")
+        for i, arg in enumerate(cmd):
+            if arg in (
+                "-x264-params",
+                "-colorspace",
+                "-color_primaries",
+                "-color_trc",
+                "-movflags",
+            ):
+                console.print(f"[dim]{i:3d}.[/dim] [yellow]{arg}[/yellow]")
+                if i + 1 < len(cmd):
+                    console.print(f"[dim]{i+1:3d}.[/dim] [green]{cmd[i+1]}[/green]")
+        console.print("[cyan]═══════════════════════════════════════════════════════[/cyan]")
+        console.print()
 
-    try:
+        console.print(f"[cyan]🎬 {label}: iniciando encoding com pipeline Cineon...[/cyan]")
+        console.print()
+
+        # Abrir container com PyAV
+        try:
+            container = av.open(input_file)
+        except Exception as e:
+            console.print(f"[red]Erro ao abrir input com PyAV: {e}[/red]")
+            raise
+
+        video_stream = container.streams.video[0]
+        _in_fps = video_stream.average_rate or Fraction(_probe.fps_int)
+
+        # Informações do stream de vídeo
+        console.print(f"[dim]   Stream: {video_stream.width}×{video_stream.height} @ {video_stream.average_rate} fps[/dim]")
+        console.print(f"[dim]   Codec: {video_stream.codec_context.name}[/dim]")
+        console.print()
+
+        # Iniciar subprocess FFmpeg (stdin=PIPE para receber frames)
+        try:
+            ffmpeg_process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                cwd=script_dir,
+            )
+        except Exception as e:
+            console.print(f"[red]Erro ao iniciar FFmpeg subprocess: {e}[/red]")
+            container.close()
+            raise
+
         _register_ffmpeg(ffmpeg_process)
         console.print(f"[green]✓ FFmpeg subprocess iniciado (PID: {ffmpeg_process.pid})[/green]")
 
         # Progress HUD
         hud = ResolveProgressHUD(round(duration * output_fps), source_fps=output_fps)
+        stderr_tail = collections.deque(maxlen=50)
 
         # Thread para capturar stderr do FFmpeg em tempo real
         def ffmpeg_stderr_reader(pipe, hud):
-            """
-            Lê stderr do FFmpeg em tempo real para atualizar progress HUD.
-
-            CORREÇÃO: Trata gracefully o fechamento do pipe.
-            """
+            """Lê stderr do FFmpeg: atualiza o HUD e guarda as últimas 50 linhas."""
             try:
                 for line in iter(pipe.readline, b""):
                     if not line:
                         break
                     try:
                         line_str = line.decode("utf-8", errors="ignore")
+                        stderr_tail.extend(line_str.splitlines())
                         if "frame=" in line_str:
                             parts = line_str.split("frame=")
                             if len(parts) > 1:
@@ -3728,6 +3584,9 @@ def run_ffmpeg_with_cineon(
             target=ffmpeg_stderr_reader, args=(ffmpeg_process.stderr, hud), daemon=True
         )
         stderr_thread.start()
+
+        # Dither RPDF: semente fixa por passe → Pass 1 e Pass 2 recebem bytes idênticos
+        _dither_rng = np.random.default_rng(_CINEON_DITHER_SEED) if dither_enabled else None
 
         # ═══════════════════════════════════════════════════════════════
         # MAIN PROCESSING LOOP
@@ -3839,116 +3698,7 @@ def run_ffmpeg_with_cineon(
                 # Fechar container PyAV
                 container.close()
 
-        # ═══════════════════════════════════════════════════════════════
-        # WAIT FOR FFMPEG COMPLETION
-        # ═══════════════════════════════════════════════════════════════
-
-        if not error_occurred:
-            console.print()
-            console.print(
-                "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
-            )
-
-            try:
-                stdout, stderr = ffmpeg_process.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
-                ffmpeg_process.kill()
-                stdout, stderr = ffmpeg_process.communicate()
-
-            returncode = ffmpeg_process.returncode
-
-            if returncode != 0:
-                console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
-                console.print()
-                console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
-
-                stderr_str = stderr.decode("utf-8", errors="ignore")
-                stderr_lines = stderr_str.strip().splitlines()
-                for line in stderr_lines[-50:]:
-                    console.print(f"[red]{line}[/red]")
-
-                raise subprocess.CalledProcessError(
-                    returncode, ffmpeg_cmd, output=stdout, stderr=stderr
-                )
-            else:
-                console.print(
-                    f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
-                )
-
-                # ═══════════════════════════════════════════════════════════
-                # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
-                # ═══════════════════════════════════════════════════════════
-                # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
-                # Solução: Remux com stream copy + metadados de cor explícitos
-
-                console.print()
-                console.print(
-                    "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
-                )
-
-                # Arquivo temporário para output original
-                output_temp = output_file.replace(".mp4", "_temp.mp4")
-
-                # Renomear output original para temp
-                try:
-                    shutil.move(output_file, output_temp)
-                except Exception as e:
-                    console.print(
-                        f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
-                    )
-                    console.print("[yellow]   Continuando sem remux...[/yellow]")
-                else:
-                    # Comando de remux (stream copy, sem re-encode)
-                    remux_cmd = [
-                        FFMPEG,
-                        "-y",
-                        "-i",
-                        output_temp,
-                        "-c",
-                        "copy",  # Stream copy (sem re-encode)
-                        "-color_primaries",
-                        "bt709",
-                        "-color_trc",
-                        "bt709",
-                        "-colorspace",
-                        "bt709",
-                        "-color_range",
-                        "tv",
-                        "-movflags",
-                        "+faststart+write_colr",
-                        output_file,
-                    ]
-
-                    try:
-                        console.print("[dim]   Executando remux (stream copy)...[/dim]")
-                        _run_ffmpeg_tracked(
-                            remux_cmd,
-                            check=True,
-                            capture_output=True,
-                            cwd=script_dir,
-                        )
-                        console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
-                        console.print(
-                            "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
-                        )
-
-                        # Remover arquivo temporário
-                        try:
-                            os.remove(output_temp)
-                        except Exception:
-                            pass
-
-                    except subprocess.CalledProcessError as e:
-                        console.print(f"[red]✗ Erro no remux: {e}[/red]")
-                        console.print("[yellow]   Restaurando arquivo original...[/yellow]")
-
-                        # Restaurar arquivo original
-                        try:
-                            shutil.move(output_temp, output_file)
-                        except Exception:
-                            pass
-        else:
+        if error_occurred:
             # Houve erro, terminar FFmpeg
             console.print("[yellow]⚠ Encerrando FFmpeg devido a erro...[/yellow]")
 
@@ -3961,6 +3711,152 @@ def run_ffmpeg_with_cineon(
             if interrupted:
                 raise KeyboardInterrupt
             raise RuntimeError("Encoding interrompido por erro no processamento")
+
+        # ═══════════════════════════════════════════════════════════════
+        # WAIT FOR FFMPEG COMPLETION (stdin já fechado: wait, nunca communicate)
+        # ═══════════════════════════════════════════════════════════════
+
+        console.print()
+        console.print(
+            "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
+        )
+
+        try:
+            returncode = ffmpeg_process.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
+            ffmpeg_process.kill()
+            returncode = ffmpeg_process.wait()
+        stderr_thread.join()
+        ffmpeg_process.stderr.close()
+
+        if returncode != 0:
+            console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
+            console.print()
+            console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
+            for line in stderr_tail:
+                console.print(f"[red]{line}[/red]")
+            raise subprocess.CalledProcessError(
+                returncode, cmd, stderr="\n".join(stderr_tail)
+            )
+
+        console.print(
+            f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
+        )
+        return frame_count
+
+    try:
+        if mode == "2pass":
+            console.print()
+            console.print("[cyan]📊 Pass 1: Mapeando complexidade (pipeline Cineon completo)...[/cyan]")
+            _render_pass(_build_pipe_cmd(1, video_bitrate, x264_params), "Pass 1")
+            console.print("[green]✓ Pass 1 Cineon completo![/green]")
+
+            # Análise do stats.log → parâmetros adaptativos para Pass 2
+            console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
+            _p1_stats = _analyze_pass1_log(logfile_2pass)
+            x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
+                base_bitrate=video_bitrate,
+                fps=output_fps,
+                pass1_stats=_p1_stats,
+                duration=duration,
+                threads=encoder_threads,
+                lookahead=_fps_aware_lookahead(hw_profile, output_fps),
+            )
+            vbv_description = f"Adaptive-2Pass ({video_bitrate}k)"
+            console.print(
+                f"[yellow]📊 Pass 2: Cineon Pipeline | Bitrate adaptado: {video_bitrate}k[/yellow]"
+            )
+            console.print()
+
+            metadata_args = _build_metadata_args(
+                duration, video_bitrate, mode, cineon_mode=True,
+                vbv_maxrate_override=_p2_maxrate,
+                vbv_bufsize_override=_p2_bufsize,
+            )
+            ffmpeg_cmd = _build_pipe_cmd(2, video_bitrate, x264_params, metadata_args)
+        else:
+            ffmpeg_cmd = _build_pipe_cmd(None, None, x264_params, metadata_args)
+
+        console.print("[dim]   Color metadata: BT.709 TV range (posição otimizada)[/dim]")
+        console.print(
+            "[dim]   Container flags: +faststart+write_colr (escrita forçada)[/dim]"
+        )
+
+        _render_pass(ffmpeg_cmd, "Pass 2" if mode == "2pass" else "Encode")
+
+        # ═══════════════════════════════════════════════════════════
+        # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
+        # ═══════════════════════════════════════════════════════════
+        # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
+        # Solução: Remux com stream copy + metadados de cor explícitos
+
+        console.print()
+        console.print(
+            "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
+        )
+
+        # Arquivo temporário para output original
+        output_temp = output_file.replace(".mp4", "_temp.mp4")
+
+        # Renomear output original para temp
+        try:
+            shutil.move(output_file, output_temp)
+        except Exception as e:
+            console.print(
+                f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
+            )
+            console.print("[yellow]   Continuando sem remux...[/yellow]")
+        else:
+            # Comando de remux (stream copy, sem re-encode)
+            remux_cmd = [
+                FFMPEG,
+                "-y",
+                "-i",
+                output_temp,
+                "-c",
+                "copy",  # Stream copy (sem re-encode)
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-movflags",
+                "+faststart+write_colr",
+                output_file,
+            ]
+
+            try:
+                console.print("[dim]   Executando remux (stream copy)...[/dim]")
+                _run_ffmpeg_tracked(
+                    remux_cmd,
+                    check=True,
+                    capture_output=True,
+                    cwd=script_dir,
+                )
+                console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
+                console.print(
+                    "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
+                )
+
+                # Remover arquivo temporário
+                try:
+                    os.remove(output_temp)
+                except Exception:
+                    pass
+
+            except subprocess.CalledProcessError as e:
+                console.print(f"[red]✗ Erro no remux: {e}[/red]")
+                console.print("[yellow]   Restaurando arquivo original...[/yellow]")
+
+                # Restaurar arquivo original
+                try:
+                    shutil.move(output_temp, output_file)
+                except Exception:
+                    pass
 
         # ═══════════════════════════════════════════════════════════════
         # VALIDATION
@@ -4032,7 +3928,12 @@ def run_ffmpeg_with_cineon(
         except subprocess.CalledProcessError:
             console.print("[yellow]   ⚠ ffprobe falhou (não crítico)[/yellow]")
 
-        # Limpeza dos logs temporários do 2-pass
+        console.print()
+        console.print(
+            f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
+        )
+    finally:
+        # Limpeza dos logs temporários do 2-pass (sucesso, erro e interrupção)
         if logfile_2pass:
             for _ext in ("-0.log", "-0.log.mbtree"):
                 _lp = f"{logfile_2pass}{_ext}"
@@ -4042,12 +3943,6 @@ def run_ffmpeg_with_cineon(
                     except OSError:
                         pass
             console.print("[dim]   Logs temporários 2-pass removidos[/dim]")
-
-        console.print()
-        console.print(
-            f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
-        )
-    finally:
         _register_ffmpeg(None)
 
 
