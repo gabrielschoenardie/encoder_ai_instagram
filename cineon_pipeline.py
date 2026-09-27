@@ -1021,9 +1021,11 @@ def quantize_uint8_dithered(
     Sem dither, o cast float→uint8 tem erro de quantização determinístico
     (mesmo resíduo repetido pixel a pixel em áreas planas) → banding
     perceptível. RPDF (ruído uniforme ±0.5 LSB, média zero) quebra essa
-    coerência espacial sem introduzir viés — mesma técnica do filtro
-    `noise=c0s=...:c0f=t+u` usado no pipeline FFmpeg (ver
-    enhance/ffmpeg_filters.py::_build_dither).
+    coerência espacial. Não é a mesma implementação do filtro
+    `noise=c0s=...:c0f=t+u` do pipeline FFmpeg (ver
+    enhance/ffmpeg_filters.py::_build_dither): lá o ruído é aplicado só no
+    luma, DEPOIS do cast para 8-bit; aqui é aplicado em todos os canais
+    ANTES do cast, durante a própria quantização.
 
     Args:
         frame: Frame float32, Rec.709, nominal 0.0-1.0.

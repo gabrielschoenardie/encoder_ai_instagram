@@ -32,7 +32,7 @@ _CHOICES = {
     "ebu_meter": {"on", "off"},
     "report": {"on", "off"},
     "hdr": {"auto", "off"},
-    "tonemap": {"mobius", "reinhard", "hable", "bt2390"},
+    "tonemap": {"mobius", "reinhard", "hable"},
     "fps": {"auto", "24", "25", "30", "60"},
     "scale": {"auto", "off"},
     "fit": {"contain", "cover"},
@@ -83,8 +83,8 @@ class EncodeConfig(BaseModel):
 
     # Enhance / AI
     enhance: str = "on"
-    enhance_ai: str = "on"
-    mctf: str = "on"
+    enhance_ai: str = "off"
+    mctf: str = "off"
     dither: str = "auto"
 
     # Misc / engine flags

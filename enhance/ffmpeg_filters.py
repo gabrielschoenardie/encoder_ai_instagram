@@ -72,7 +72,7 @@ _DEBAND_THR_SCALE = 0.06      # strength [0,1] → thr in FFmpeg normalized rang
 _DEBAND_THR_MIN = 0.003       # minimum threshold to have effect
 _DEBAND_THR_MAX = 0.06        # max threshold before blurring too aggressively
 
-# ── Blue-noise dithering (FASE 30A) ──────────────────────────────────────────
+# ── Dithering (FASE 30A) ─────────────────────────────────────────────────────
 _DITHER_C0S_MIN = 2           # amplitude mínima efetiva (~0.8% de 255 ≈ 0.8 LSBs)
 _DITHER_C0S_MAX = 6           # amplitude máxima antes de ser visível (~2.4% ≈ 2.4 LSBs)
 _DITHER_FLAGS   = "t+u"       # temporal + uniforme (RPDF): cada frame diferente, distribuição plana
@@ -132,14 +132,13 @@ def _build_deband(strength: float) -> str:
 
 def _build_dither(strength: float = 0.5) -> str:
     """
-    Blue-noise dithering via FFmpeg noise filter (FASE 30A).
-
-    Aplicado entre zscale e format=yuv420p para quebrar a coerência
-    espacial dos degraus de quantização ANTES da codificação final.
+    Dithering via FFmpeg noise filter (FASE 30A): ruído uniforme (RPDF)
+    temporal no canal de luma, aplicado DEPOIS da conversão para 8-bit
+    (entre zscale e format=yuv420p), antes da quantização/codificação final.
 
     Por que funciona contra o re-encoding do Instagram:
       1. O gradiente tem banding determinístico → degraus em posições fixas.
-      2. O noise (mesmo white temporal) jitteriza as posições dos degraus.
+      2. O noise (uniforme, temporal) jitteriza as posições dos degraus.
       3. O codec libx264 / Instagram HEVC vê um sinal sem coerência espacial
          de banding → os DCT low-AC coeficientes não carregam a "linha de banding".
       4. O gradiente reconstruído é perceptualmente suave (HVS integra espacialmente).
@@ -149,8 +148,9 @@ def _build_dither(strength: float = 0.5) -> str:
     Gaussiana (default) para dithering pois cobre a faixa inteira de forma uniforme.
     Amplitude c0s=4 (1.6% de 255 ≈ 1.5 LSBs): abaixo do limiar de percepção HVS (~2%).
 
-    Upgrade path (FASE 30B): substituir por void-and-cluster blue-noise PNG texture
-    para espectro spatial verdadeiramente blue (energia concentrada em altas freq.).
+    Upgrade path (FASE 30B): substituir por textura PNG void-and-cluster com
+    espectro espacial de alta frequência (energia concentrada, sem coerência
+    de baixa frequência).
 
     Args:
         strength: [0.0–1.0] → mapeado linearmente para c0s [_DITHER_C0S_MIN, _DITHER_C0S_MAX]

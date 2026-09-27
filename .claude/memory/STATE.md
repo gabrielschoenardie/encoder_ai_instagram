@@ -3588,3 +3588,70 @@ Usuario confirmou verificacao manual em maquina real: `.\launcher.ps1` e `.\laun
 Ciclo BC completo — os 15 objetivos do pedido do usuario endurecidos, as duas decisoes de
 desenho (manter fix da BB; erro claro sem auto-recriar venv) preservadas exatamente como
 resolvido antes da implementacao.
+
+## Ciclo BD
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| BD1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_color_matrix.py | commit `9faded2` — `_CINEON_RGB_TO_YUV709_VF` como `-vf` do pipe rgb24; 3 passed com ff70 e ff60, 3 skipped com `PATH=/usr/bin:/bin`; mutação bt709→bt601 reprova `test_cineon_output_vf_is_bt709` (Y 18,4 códigos fora) e também `test_sdr_chain_is_bt709` (a fonte da carta usa a constante) |
+| BD2 | done | Reels_Encoder_v2_FINAL.py, pyproject.toml, enhance/test_cineon_color_io.py | commit `8c6a464` — `_pyav_frame_to_rgb24` no loop, `av>=17.0.0`, recusa de HDR logo após `probe_video` (guard de constantes segue primeiro); 6 passed com PyAV 18.1 e 17.0.0; com 16.0.0 `test_red_bt709_full_range` reprova (246,0,0 vs 255,0,0) — prova do piso; pré-fix os 6 reprovam. Extra no mesmo arquivo: docstring do módulo `pip install av>=11.0.0` → `>=17.0.0` (acompanha o piso) |
+| BD3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_cfr.py | commit `fa22d93` — `_cfr_resample(frames, out_fps, in_fps=None)` consumido pelo loop (`is_repeat` reescreve `frame_bytes`); 8 passed (60→30 pares, 24→30 12 repetições, 30→30, NTSC 3 em 3000, jitter ±2 ms, total, pts/duração ausentes, streaming). Interpretação: o plano pede fallback "1/fps de entrada" mas a assinatura só tinha `(frames, out_fps)` — adicionado `in_fps` opcional (loop passa `video_stream.average_rate`, fallback `_probe.fps_int`). Smoke e2e ainda cai em `ValueError: flush of closed file` (BDF4, alvo da BD4) |
+| BD4 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | commit `9a07e07` — `_build_pipe_cmd` (CRF / Pass 1 `-an -f null` / Pass 2 com overrides de VBV nos metadados) + `_render_pass` (Popen stdout=DEVNULL, `_register_ffmpeg` por passe, deque de 50 linhas, `wait(60)`+kill, `join`, `CalledProcessError`); Pass 1 CLI nativo removido (e `_input_color_args`/`total_frames`, mortos sem ele); enhance antes dos passes; `_CINEON_DITHER_SEED`; logs do 2-pass no `finally`. e2e 5 passed com ff70 e ff60; suíte 494 passed com ff70, 486 passed + 8 skipped sem FFmpeg; `ruff check .` limpo (0.14.10). Pré-fix 5/5 reprovaram (ver subseção) |
+| BD5 | done | .github/workflows/ci.yml | commit `64e1698` — step `Install FFmpeg (Linux)` (`if: runner.os == 'Linux'`, apt `--no-install-recommends ffmpeg` + `ffmpeg -version`) antes de `Run tests`; `actionlint` (actionlint-py) sem erro; suíte 494 passed com ff60, 486 passed + 8 skipped sem FFmpeg; prova real pendente = run do CI no PR |
+
+### BD4 — e2e antes do fix (HEAD `fa22d93`, Python 3.11.15, ff70)
+
+```text
+E               ValueError: flush of closed file   (x5)
+FAILED test_60fps_crf_is_30_frames_in_sync
+FAILED test_60fps_2pass_is_30_frames_in_sync_and_leaves_no_logs
+FAILED test_24fps_crf_is_30_frames
+FAILED test_every_pipe_command_converts_with_bt709_vf[crf-1]
+FAILED test_every_pipe_command_converts_with_bt709_vf[2pass-2]
+5 failed in 4.48s
+```
+
+Nota: o pré-fix rodou depois de BD1–BD3 (ordem do plano), então o BDF3 já estava corrigido e o
+BDF4 mascarava qualquer outra asserção — os 5 caem no `communicate()`. Verificação ad-hoc extra
+(scratchpad, não commitada): no 2-pass os dois passes escrevem 60 frames com hashes idênticos no
+pipe (dither de semente fixa); Ctrl+C simulado no Pass 2 → `KeyboardInterrupt` propagado, nenhum
+log `_2pass-0.log*` no disco, `_ACTIVE_FFMPEG` volta a `None`.
+Ajuste do teste após o fix (antes do commit): o filtro de logs do 2-pass pegava o próprio
+`out_60_2pass.mp4`; passou a usar o prefixo `<saída>_2pass` e ganhou um spy em
+`_analyze_pass1_log` que prova que o `-0.log` existia durante o encode.
+| BD6 | done | Reels_Encoder_v2_FINAL.py, ui/config.py, ui/launcher.py, enhance/test_hdr_pipeline.py | commit `15a5519` — `bt2390` fora de `TONEMAP_ALGORITHMS`, `choices` da CLI, `ui/config.py` e `ask_select` do launcher; `build_scene_referred_hdr_pipeline` levanta `ValueError` em algoritmo desconhecido (fallback silencioso removido). `grep -rn bt2390 --include=*.py .` fora de `.claude/memory`/`docs/superpowers`/`enhance/test_hdr_pipeline.py` (o teste novo que prova a rejeição, por natureza cita a string) → 0; 11 testes novos passam; suíte completa 499 passed; `ruff check .` limpo |
+| BD7 | done | Reels_Encoder_v2_FINAL.py, ui/config.py, ui/test_config.py | commit `898a9d4` — `--enhance-ai`/`--mctf` (CLI, help e `EncodeConfig`) default `off`; `--enhance` continua `on`; wizard já lia default de `EncodeConfig`, sem tocar `ui/launcher.py`. `ui/test_config.py:39-40` atualizado + teste novo `test_cli_defaults_enhance_ai_and_mctf_off`; `--help` mostra os dois defaults como off (conferido via saída real); suíte completa 500 passed; `ruff check .` limpo |
+| BD8 | done | Reels_Encoder_v2_FINAL.py, ui/config.py (não tocado — só launcher/README/ffmpeg_filters/cineon_pipeline), enhance/ffmpeg_filters.py, cineon_pipeline.py, ui/launcher.py, README.md, ui/test_docs_consistency.py | commit `33a9d03` — constante `_HOLLYWOOD_LUT_VERSION` derivada de `_HOLLYWOOD_LUT_FILENAME` (mesma regex que `_build_metadata_args` já usava) substitui `v6.6`/`v6.7`/`v6.7B` hardcoded em prints, help, epílogo e docstrings (`run_ffmpeg`, `build_sdr_float_pipeline` — removida a menção a estágio "CAS 0.30" inexistente e renumerados os STAGEs —, `build_video_filter_auto`, `build_scene_referred_hdr_pipeline`); dither descrito como é ("ruído uniforme temporal no luma, ±2 códigos, depois da conversão para 8-bit"; `auto` equivale a `on`) em `--dither` help, prints de console, label do launcher e docstring/comentário de `_build_dither`; `cineon_pipeline.py::quantize_uint8_dithered` deixou de dizer "mesma técnica" do filtro FFmpeg (são implementações diferentes: pré- vs pós-quantização, todos os canais vs só luma) e passou a explicar a diferença; menção a "blue-noise" só sobrevive na nota de upgrade futuro FASE 30B, reescrita sem a palavra (usa "espectro espacial de alta frequência"). README: linha do PyAV `17.0.0+`, nota de que `--mode 2pass` no Cineon renderiza o pipeline duas vezes, `v6.7B`→`v6.8` nas 3 ocorrências restantes, `bt2390` removido da tabela de `--tonemap`, "Blue-noise dithering" reescrito. `grep -nE "v6\.6|v6\.7|bt2390|[Bb]lue-noise" Reels_Encoder_v2_FINAL.py README.md ui/launcher.py ui/config.py enhance/ffmpeg_filters.py` → 0; `npx --yes markdownlint-cli2@0.23.1 README.md` → 0 issues (achado 1 problema pré-existente não relacionado — MD028 blank-line-in-blockquote na linha 216 — e corrigido também, pois o critério de done exige 0 issues no arquivo); teste de guarda novo `ui/test_docs_consistency.py` (3 testes) passa; suíte completa 503 passed com FFmpeg no PATH, 495 passed + 8 skipped sem FFmpeg; `ruff check .` limpo (0.14.10) |
+| BD8b | done | Reels_Encoder_v2_FINAL.py | commit `6b3ba9d` — ajuste pedido pelo Orquestrador ao help do `--dither`: removida a ambiguidade "depois da conversão para 8-bit, antes da quantização final" (a conversão para 8-bit já é a quantização) e a afirmação de efeito não medido ("quebra a coerência espacial de banding que sobrevive ao re-encoding do Instagram", achado aberto `BDF11`); texto exato do Orquestrador aplicado ("...aplicado depois da conversão para 8-bit, antes do encode... Objetivo: mascarar banding no re-encode do Instagram..."). `ui/test_docs_consistency.py` 3 passed; suíte canônica sem FFmpeg 495 passed + 8 skipped; `ruff check .` limpo |
+| BD6b | done | ui/test_launcher.py | commit `421220d` — teste novo `test_advanced_flow_tonemap_options_match_tonemap_algorithms`: monkeypatcha `ask_select` por um gravador `(msg, opts)` no fluxo avançado (preset 5) e afirma que as opções de `"Tonemap"` == `set(Reels_Encoder_v2_FINAL.TONEMAP_ALGORITHMS)`, travando a lista literal de `ui/launcher.py:205-206` que nenhum teste conferia (achado da auditoria BD9). Verificado localmente, sem commit: reintroduzir `"bt2390"` na lista do launcher faz o teste reprovar (`AssertionError`, `bt2390` sobrando no set); revertido com `git checkout`. `ui/` 162 passed; suíte canônica sem FFmpeg 496 passed + 8 skipped; `ruff check .` limpo |
+
+| BD9 | done | — (auditoria, sem edição) | `ui-flow-reviewer`: **FLOW OK**. Nenhum caminho do wizard produz `tonemap="bt2390"` nem depende dos defaults antigos de `enhance_ai`/`mctf`; paridade menu/dispatch, ordem de abas e `cfg` intactos. Lacuna latente (lista literal de tonemap em `ui/launcher.py:206` sem teste) → corrigida na BD6b. Achado anterior ao ciclo (toggle de MCTF não depende do enhance-ai) → `BDF15` |
+| BD10 | done | `.claude/memory/VALIDATION.md` | Encodes reais pela CLI com FFmpeg 6.0.1, fonte `testsrc2` 1080×1920 60 fps 3 s (mono): (a) FFmpeg padrão CRF, 38 s de render; (b) Cineon `--mode 2pass`, 441 s de render, 90 frames nos dois passes, `colr` injetado, sem log residual. `validate_encode.sh`: (b) **aprovado com ressalva**; (a) **reprovado** só em bitrate médio (13.656 kbps > 12.000) — preset `ultra_short` + buffer inicial em clipe curto, presets de VBV intocados neste ciclo → ampliado em `BDF9`. Aviso de loudness (−17,0 LUFS) nos dois → causa raiz achada: `BDF16` (fonte mono + `dual_mono`), anterior ao ciclo |
+
+## Ciclo BD — fechamento (Orquestrador, 2026-09-27)
+
+Commits do ciclo (branch `claude/peaceful-noether-h2y27d`, PR #66): `9faded2` BD1 · `8c6a464` BD2 ·
+`fa22d93` BD3 · `9a07e07` BD4 · `64e1698` BD5 · `15a5519` BD6 · `898a9d4` BD7 · `33a9d03` BD8 ·
+`6b3ba9d` BD8b · `421220d` BD6b, mais os commits de memória. Diff de código do ciclo: 16 arquivos,
++1072 / −486.
+
+Verificação final no HEAD de código `421220d` (Orquestrador, independente dos executores):
+
+- `pytest test_render_queue.py enhance/ ui/ tools/`: **504 passed** com FFmpeg 6.0.1 e com 7.0.2;
+  sem FFmpeg, **496 passed + 8 skipped** (os 8 são os testes que exigem FFmpeg). `ruff check .` limpo.
+- CI do PR: verde em todos os pushes a partir de `9faded2`. Nas pernas Linux o CI instala o FFmpeg
+  **6.1.1** do Ubuntu (mesma série do FFmpeg 6.1 de produção) e os testes de matriz de cor e o e2e do
+  Cineon rodam e passam sem pular — prova do fix na série 6.1, que não havia no container.
+- Única falha de CI do ciclo: `Pester (Windows PowerShell 5.1)` em `e688d8c` (commit só de memória),
+  no `Install-Module Pester` da PowerShell Gallery, antes de qualquer teste; o mesmo job passou no mesmo
+  commit pela execução do push. Sem permissão para re-run (403); comentado no PR; os pushes seguintes
+  ficaram verdes.
+
+Revisão do Orquestrador sobre os diffs (antes de cada push): BD1–BD4 conferidos contra o § Desenho,
+incluindo o rastreio manual do `_cfr_resample` (60→30 pares, 24→30 uma repetição a cada 4, fim em
+`t_last + dur_last`); BD8 só texto, `pipeline_tag` idêntico nos dois ramos. O ajuste BD8b saiu da
+revisão da BD8; a BD6b saiu da auditoria BD9.
+
+Achados novos durante a execução: `BDF15` (S4), `BDF16` (S2, mono −3 LU), `BDF17` (S4, cauda de áudio no
+Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em ordem sugerida: `BDF16`,
+`BDF9` (item 2), `BDF10` (item 4); depois, com A/B do usuário, `BDF11`/`BDF12`/`BDF13`.

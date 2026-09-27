@@ -96,6 +96,33 @@ def _seq(values):
     return lambda *a, **k: next(it)
 
 
+def test_advanced_flow_tonemap_options_match_tonemap_algorithms(monkeypatch):
+    """BD6b: trava a lista literal do ask_select('Tonemap', ...) contra
+    TONEMAP_ALGORITHMS — sem isso, bt2390 poderia voltar só no launcher e
+    o CI ficaria verde (EncodeConfig não valida atribuição direta)."""
+    import Reels_Encoder_v2_FINAL as R
+
+    recorded = []
+
+    def recording_ask_select(con, msg, opts, default):
+        recorded.append((msg, opts))
+        return default
+
+    monkeypatch.setattr(L, "ask_choice", lambda *a, **k: 5)  # preset 5 = advanced
+    monkeypatch.setattr(L, "ask_toggle", lambda *a, **k: "off")
+    monkeypatch.setattr(L, "ask_select", recording_ask_select)
+    monkeypatch.setattr(L, "ask_number", lambda con, msg, default, **k: default)
+    monkeypatch.setattr(L, "ask_path", lambda *a, **k: "clip.mov")
+    monkeypatch.setattr(L, "Confirm", type("C", (), {"ask": staticmethod(lambda *a, **k: True)}))
+
+    ns = L.run_launcher(console=_silent_console())
+    assert isinstance(ns, argparse.Namespace)
+
+    tonemap_calls = [opts for msg, opts in recorded if msg == "Tonemap"]
+    assert len(tonemap_calls) == 1
+    assert set(tonemap_calls[0]) == set(R.TONEMAP_ALGORITHMS)
+
+
 def test_tools_flow_runs_tool_then_returns_to_menu(monkeypatch):
     # main menu -> Tools(4); tools menu -> tool #1; tools menu -> Voltar(5); main menu -> quick(1)
     monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 5, 1]))

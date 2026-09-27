@@ -1,16 +1,68 @@
-# VALIDATION.md — Auditoria Cineon Pipeline (Correções A3, F2, E3d)
+# Validação de Encodes — Ciclo BD10
 
-**Timestamp:** 2026-07-18 15:08 GMT-3
+**Data:** 2026-09-27 | **Validador:** agente `validador` | **FFmpeg:** 6.0.1 estático | **Fonte:** `testsrc2` 1080×1920, 60 fps, 3 s, áudio mono (`sine`)
 
-## Tabela de Veredito
+---
+
+## Arquivo 1: src_1080x1920_60fps_Hollywood_CRF18.mp4
 
 | check | esperado | medido | status |
 |-------|----------|--------|--------|
-| V1 A3: função existe e é chamada | ≥ 1 def + ≥ 1 call site | 0 definições, 0 call sites (grep vazio) | ✗ |
-| V2 A3: função executa sem exceção | executa, imprime OK | AttributeError: no attribute '_validate_cineon_constants' | ✗ |
-| V3 F2: output LUT (0,0,0) ∈ [0, 0.05] | [0, 0.05] | -0.025428999999999997 | ✗ |
-| V4 F2/regressão LUT (4 valores) | F1≤1e-2, F3≥-1e-4, F4≤5°, F5≤3.5e-2 | F1=4.44e-16, F3_min=0.00335, F4_max=-0.87°, F5=0.00164 | ✓ |
-| V5: audit_cineon_math.py TODAS linhas PASS | PASS em 100% | 20/20 checks PASS | ✓ |
-| V6 E3d: doc descreve dither/round ANTES clip | ordem ×255→dither→round→clip | "clip [0,1] → ×255 → dither → round → uint8" | ✗ |
+| Codec | H.264 | H.264 | ✓ |
+| Profile | High | High | ✓ |
+| Level | 4.1 | 4.1 | ✓ |
+| Pixel format | yuv420p | yuv420p | ✓ |
+| Resolução | 1080×1920 | 1080×1920 | ✓ |
+| FPS | 30 fps | 30 fps | ✓ |
+| Frame rate mode | CFR | CFR | ✓ |
+| Bitrate vídeo | ≤ 12000 kbps | 13656 kbps | ✗ |
+| GOP (keyframe) | máx ~29-30 | 29 frames | ✓ |
+| color_primaries | bt709 | bt709 | ✓ |
+| color_transfer | bt709 | bt709 | ✓ |
+| color_space | bt709 | bt709 | ✓ |
+| Codec áudio | AAC-LC | AAC-LC | ✓ |
+| Bitrate áudio | ~128-192 kbps | 191 kbps | ✓ |
+| Sample rate | 48000 Hz | 48000 Hz | ✓ |
+| Canais | Stereo | Stereo | ✓ |
+| Duração | 3s | 3s | ✓ |
+| Faststart (moov) | moov antes de mdat | sim | ✓ |
+| True Peak | ≤ -1 dBTP | -15.9 dBTP | ✓ |
+| Loudness integrado | -14 LUFS (±1) | -17.0 LUFS | ⚠ |
 
-**Veredito: REPROVADO**
+**Veredito:** REPROVADO — 1 check falhou (bitrate vídeo 13656 kbps > 12000 kbps) + 1 aviso
+
+---
+
+## Arquivo 2: src_1080x1920_60fps_Cineon_Film.mp4
+
+| check | esperado | medido | status |
+|-------|----------|--------|--------|
+| Codec | H.264 | H.264 | ✓ |
+| Profile | High | High | ✓ |
+| Level | 4.1 | 4.1 | ✓ |
+| Pixel format | yuv420p | yuv420p | ✓ |
+| Resolução | 1080×1920 | 1080×1920 | ✓ |
+| FPS | 30 fps | 30 fps | ✓ |
+| Frame rate mode | CFR | CFR | ✓ |
+| Bitrate vídeo | ≤ 12000 kbps | 11874 kbps | ✓ |
+| GOP (keyframe) | máx ~29-30 | 30 frames | ✓ |
+| color_primaries | bt709 | bt709 | ✓ |
+| color_transfer | bt709 | bt709 | ✓ |
+| color_space | bt709 | bt709 | ✓ |
+| Codec áudio | AAC-LC | AAC-LC | ✓ |
+| Bitrate áudio | ~128-192 kbps | 186 kbps | ✓ |
+| Sample rate | 48000 Hz | 48000 Hz | ✓ |
+| Canais | Stereo | Stereo | ✓ |
+| Duração | 3s | 3s | ✓ |
+| Faststart (moov) | moov antes de mdat | sim | ✓ |
+| True Peak | ≤ -1 dBTP | -15.9 dBTP | ✓ |
+| Loudness integrado | -14 LUFS (±1) | -17.0 LUFS | ⚠ |
+
+**Veredito:** APROVADO COM RESSALVAS — 0 falhas críticas, 1 aviso
+
+---
+
+## Veredito Consolidado
+
+**Arquivo 1 (Hollywood CRF18):** REPROVADO — 1 check falhou
+**Arquivo 2 (Cineon Film):** APROVADO COM RESSALVAS — 0 checks falharam

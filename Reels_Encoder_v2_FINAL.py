@@ -37,7 +37,7 @@ COMPARAÇÃO:
 ┌────────────────────────────────────────────────────────────┐
 │ MODO FFMPEG (default, v1.4.1):                            │
 │ • Performance: ~30-60 fps (GPU filters)                    │
-│ • Qualidade: Excelente (float + LUT v6.6)                  │
+│ • Qualidade: Excelente (float + LUT)                       │
 │ • Uso: Produção rápida, batch processing                   │
 ├────────────────────────────────────────────────────────────┤
 │ MODO CINEON (novo, v2.0):                                  │
@@ -57,7 +57,7 @@ USAGE:
   python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on --exposure +0.5 --saturation 1.1
 
 DEPENDENCIES:
-  pip install av>=11.0.0  # PyAV (para modo Cineon)
+  pip install av>=17.0.0  # PyAV (para modo Cineon)
   pip install colour-science>=0.4.7  # Colour (para modo Cineon)
 
 VERSÕES:
@@ -83,6 +83,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from fractions import Fraction
 from typing import Optional, Tuple
 
 try:
@@ -349,7 +350,6 @@ TONEMAP_ALGORITHMS = {
     "mobius": "Highlights suaves, melhor para skin tones (recomendado)",
     "reinhard": "Suave, preserva sombras",
     "hable": "Contraste cinematográfico (Uncharted 2)",
-    "bt2390": "ITU standard para broadcast",
 }
 
 # =============================================================================
@@ -1999,11 +1999,7 @@ def _build_metadata_args(
     elif not lut_enabled:
         pipeline_tag = "NoLUT"
     else:
-        _lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
-        if _lut_version_match:
-            pipeline_tag = f"HollywoodLUT_v{_lut_version_match.group(1)}"
-        else:
-            pipeline_tag = f"HollywoodLUT_{os.path.splitext(_HOLLYWOOD_LUT_FILENAME)[0]}"
+        pipeline_tag = f"HollywoodLUT_{_HOLLYWOOD_LUT_VERSION}"
 
     if mode == "crf":
         comment = f"{pipeline_tag} VBV:{vbv_preset_name} crf:18 max:{vbv_maxrate}k buf:{vbv_bufsize}k"
@@ -2114,7 +2110,7 @@ def build_scene_referred_hdr_pipeline(
     Pipeline CORRETO para HDR sources: Scene-Referred Processing SEM LUT.
 
     FILOSOFIA:
-    - Hollywood Cinema LUT v6.6 foi construída para SDR inputs (Rec.709/sRGB)
+    - Hollywood Cinema LUT foi construída para SDR inputs (Rec.709/sRGB)
     - LUT espera coordenadas display-referred (gamma space), não HDR
     - Para HDR: TONEMAP apenas (sem LUT)
 
@@ -2134,7 +2130,7 @@ def build_scene_referred_hdr_pipeline(
         tonemap_algorithm: Algoritmo de tone mapping (mobius, hable, reinhard)
     """
     console.print(f"[bold magenta]🌟 PIPELINE HDR DETECTADO (TONEMAP: {tonemap_algorithm.upper()})[/bold magenta]")
-    console.print("[dim]   LUT v6.6 não é aplicada em HDR (coordenadas SDR apenas)[/dim]")
+    console.print(f"[dim]   LUT {_HOLLYWOOD_LUT_VERSION} não é aplicada em HDR (coordenadas SDR apenas)[/dim]")
 
     parts = []
 
@@ -2196,15 +2192,14 @@ def build_scene_referred_hdr_pipeline(
 
     # Validar algoritmo
     if tonemap_algorithm not in tonemap_configs:
-        console.print(f"[yellow]⚠ Tonemap '{tonemap_algorithm}' inválido, usando 'mobius'[/yellow]")
-        tonemap_algorithm = "mobius"
+        raise ValueError(f"Tonemap algorithm '{tonemap_algorithm}' desconhecido")
 
     config = tonemap_configs[tonemap_algorithm]
     tonemap_stage = f"tonemap={tonemap_algorithm}:{config['params']},zscale=t=bt709:m=bt709:r=tv:p=bt709"
     parts.append(tonemap_stage)
     console.print(f"[green]✓ Tonemap:[/green] HDR → SDR ({config['description']})")
     console.print("[dim]   Ajustado para evitar highlights estourados[/dim]")
-    console.print("[yellow]⚠ LUT v6.6 NÃO aplicada:[/yellow] Construída para SDR inputs apenas")
+    console.print(f"[yellow]⚠ LUT {_HOLLYWOOD_LUT_VERSION} NÃO aplicada:[/yellow] Construída para SDR inputs apenas")
 
     # STAGE 4: Sharpen em SDR SPACE (após tonemap)
     parts.append("cas=strength=0.35")
@@ -2214,7 +2209,10 @@ def build_scene_referred_hdr_pipeline(
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
         parts.append(_build_dither(0.5))
-        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização HDR (c0s=4, temporal)")
+        console.print(
+            "[green]✓ Dither:[/green] ruído uniforme temporal no luma, "
+            "pós-quantização HDR (±2 códigos)"
+        )
 
     parts.append("format=yuv420p")
     console.print("[green]✓ YUV420P:[/green] Conversão final para entrega")
@@ -2259,6 +2257,13 @@ _HOLLYWOOD_LUT_FILENAME = (
     "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube"
 )
 
+_lut_version_match = re.search(r"_v(\d+\.\d+[\w-]*)_", _HOLLYWOOD_LUT_FILENAME)
+_HOLLYWOOD_LUT_VERSION = (
+    f"v{_lut_version_match.group(1)}"
+    if _lut_version_match
+    else os.path.splitext(_HOLLYWOOD_LUT_FILENAME)[0]
+)
+
 
 def _get_hollywood_lut_path() -> str:
     """Valida e retorna o path absoluto da Hollywood LUT v6.8.
@@ -2286,30 +2291,24 @@ def build_sdr_float_pipeline(
     Pipeline SDR com 32-bit float (DaVinci Intermediate Simulado).
 
     FILOSOFIA:
-    - Mantém color science Rec.709 (como LUT v6.6 espera)
+    - Mantém color science Rec.709 (como a LUT espera)
     - Aumenta precisão matemática (32-bit float)
-    - Elimina banding via float processing + high-end dither
+    - Elimina banding via float processing + dither
 
     Pipeline:
-        [SCALE] → IDT (32-bit) → CAS 0.30 → [LUT v6.6] → ODT (dither) → CROP
-                  ↑ gbrpf32le  ↑          ↑            ↑ zscale+yuv420p ↑
-
-    AJUSTE v1.4.1:
-    - CAS reduzido de 0.45 → 0.30 (conservador, anti-banding)
-    - Float permite ser mais suave sem perder definição
-    - Sharpen forte + gradientes = banding artifacts
+        [SCALE] → IDT (32-bit) → [LUT] → ODT (dither) → CROP
+                  ↑ gbrpf32le  ↑        ↑ zscale+yuv420p ↑
 
     Benefícios:
     - Zero banding (float elimina quantização)
     - Cores corretas (mantém Rec.709)
-    - Sharpen suave (0.30 evita artifacts)
     - Compatível com LUT atual
     - Performance: ~10-20% mais lento (aceitável)
 
     Args:
         scale_filter: Filtro de downscale (opcional)
         target_resolution: Resolução alvo para crop (opcional)
-        lut_enabled: Aplicar LUT v6.7 (default: True)
+        lut_enabled: Aplicar a Hollywood Cinema LUT (default: True)
     """
     parts = []
 
@@ -2322,23 +2321,26 @@ def build_sdr_float_pipeline(
     parts.append("format=gbrpf32le")
     console.print("[green]✓ IDT:[/green] 8-bit → 32-bit float planar (gbrpf32le)")
 
-    # STAGE 4: LUT v6.7B em Float Space (CONDICIONAL)
+    # STAGE 3: LUT em Float Space (CONDICIONAL)
     if lut_enabled:
         _get_hollywood_lut_path()   # valida existência — levanta FileNotFoundError se ausente
         parts.append(f"lut3d=file={_HOLLYWOOD_LUT_FILENAME}:interp=trilinear")
         console.print(
-            f"[green]✓ LUT v6.8:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
+            f"[green]✓ LUT {_HOLLYWOOD_LUT_VERSION}:[/green] {_HOLLYWOOD_LUT_FILENAME} (trilinear em float)"
         )
     else:
         console.print("[dim]○ LUT desativada (--lut off)[/dim]")
 
-    # STAGE 5: ODT - Output Device Transform (32-bit float → 8-bit com dither)
+    # STAGE 4: ODT - Output Device Transform (32-bit float → 8-bit com dither)
     parts.append("zscale=t=bt709:m=bt709:r=tv:p=bt709")
 
     if dither_enabled:
         from enhance.ffmpeg_filters import _build_dither
         parts.append(_build_dither(0.5))
-        console.print("[green]✓ Dither:[/green] Blue-noise pré-quantização (c0s=4, temporal)")
+        console.print(
+            "[green]✓ Dither:[/green] ruído uniforme temporal no luma, "
+            "pós-quantização (±2 códigos)"
+        )
     parts.append("format=yuv420p")
     console.print("[green]✓ ODT:[/green] 32-bit float → 8-bit YUV420p")
     # STAGE 6: Crop final (remove macroblock padding)
@@ -2381,7 +2383,7 @@ def build_video_filter_auto(
     - Pipeline SDR Float (32-bit)
 
     IMPORTANTE:
-    - Hollywood Cinema LUT v6.6 foi construída para SDR inputs (Rec.709/sRGB)
+    - Hollywood Cinema LUT foi construída para SDR inputs (Rec.709/sRGB)
     - LUT espera coordenadas display-referred, não HDR
     - HDR sources: TONEMAP apenas (sem LUT)
     - SDR sources: LUT aplicada (pipeline tradicional ou float)
@@ -2390,7 +2392,7 @@ def build_video_filter_auto(
         is_hdr: True = source HDR (tonemap, sem LUT); False = source SDR
         scale_filter: Filtro de downscale (opcional)
         target_resolution: Resolução alvo para crop (opcional)
-        lut_enabled: Aplicar LUT v6.6 (APENAS para SDR sources)
+        lut_enabled: Aplicar a Hollywood Cinema LUT (APENAS para SDR sources)
         tonemap_algorithm: Algoritmo de tone mapping para HDR (mobius, hable, reinhard)
 
     Returns:
@@ -2402,7 +2404,7 @@ def build_video_filter_auto(
             f"[bold cyan]🎯 Modo: HDR Source (Tonemap: {tonemap_algorithm.upper()})[/bold cyan]"
         )
         console.print(
-            "[yellow]⚠ LUT v6.6 desativada:[/yellow] Construída para SDR inputs apenas"
+            f"[yellow]⚠ LUT {_HOLLYWOOD_LUT_VERSION} desativada:[/yellow] Construída para SDR inputs apenas"
         )
         return build_scene_referred_hdr_pipeline(
             scale_filter=scale_filter,
@@ -2492,9 +2494,9 @@ def run_ffmpeg(
     Função principal de encoding - Hollywood LUT Transport.
 
     Pipeline ultra-simplificado sem denoise standalone/grain.
-    Confia 100% na Hollywood Cinema LUT v6.6 para qualidade.
+    Confia 100% na Hollywood Cinema LUT para qualidade.
 
-    NOVO v1.4: Suporta 32-bit float processing (DaVinci Intermediate simulado)
+    Suporta 32-bit float processing (DaVinci Intermediate simulado).
     """
     if mode == "crf":
         console.rule("[bold yellow]🎬 Encode CRF 18 - Hollywood LUT Transport")
@@ -3061,6 +3063,81 @@ def apply_rotation_to_frame(frame: np.ndarray, rotation: int) -> np.ndarray:
     return frame_rotated
 
 
+_CINEON_RGB_TO_YUV709_VF = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_inp,format=yuv420p"
+
+_CINEON_DITHER_SEED = 0
+
+_PYAV_SRC_COLORSPACE = {1: "ITU709", 4: "FCC", 5: "ITU601", 6: "ITU601", 7: "SMPTE240M"}
+
+
+def _pyav_frame_to_rgb24(frame) -> "np.ndarray":
+    """Frame PyAV → RGB24 com a matriz e o range da fonte explícitos.
+
+    Colorspace sem tag (ou não mapeado) é tratado como BT.709, mesma política
+    do caminho FFmpeg para fonte sem tag.
+    """
+    src_colorspace = _PYAV_SRC_COLORSPACE.get(int(frame.colorspace), "ITU709")
+    src_color_range = "JPEG" if int(frame.color_range) == 2 else "MPEG"
+    return frame.reformat(
+        format="rgb24",
+        src_colorspace=src_colorspace,
+        src_color_range=src_color_range,
+        dst_color_range="JPEG",
+    ).to_ndarray()
+
+
+def _cfr_resample(frames, out_fps, in_fps=None):
+    """Reamostra frames decodificados para CFR `out_fps` → yields `(frame, is_repeat)`.
+
+    Semântica do filtro `fps` do FFmpeg com `round=near`: o slot de um frame é
+    floor((t − t0)·out_fps + ½); no mesmo slot vence o último frame; slot vazio
+    repete o anterior. O último frame cobre até t_last + dur_last. `in_fps`
+    (default: `out_fps`) supre `pts` e `duration` ausentes. Guarda só o frame
+    pendente.
+    """
+    out_fps = Fraction(out_fps)
+    frame_period = 1 / Fraction(in_fps if in_fps else out_fps)
+    half = Fraction(1, 2)
+
+    pending = None
+    pending_emitted = False
+    pending_t = None
+    t0 = None
+    next_slot = 0
+
+    for frame in frames:
+        if frame.pts is not None:
+            t = Fraction(frame.pts) * frame.time_base
+        elif pending_t is not None:
+            t = pending_t + frame_period
+        else:
+            t = Fraction(0)
+        if t0 is None:
+            t0 = t
+        slot = int(((t - t0) * out_fps + half) // 1)
+        if pending is not None:
+            while next_slot < slot:
+                yield pending, pending_emitted
+                pending_emitted = True
+                next_slot += 1
+        pending = frame
+        pending_emitted = False
+        pending_t = t
+
+    if pending is None:
+        return
+    duration = getattr(pending, "duration", None)
+    if duration and duration > 0 and pending.time_base:
+        t_end = pending_t + Fraction(duration) * pending.time_base
+    else:
+        t_end = pending_t + frame_period
+    total_slots = int(((t_end - t0) * out_fps + half) // 1)
+    while next_slot < total_slots:
+        yield pending, pending_emitted
+        pending_emitted = True
+        next_slot += 1
+
+
 def run_ffmpeg_with_cineon(
     input_file: str,
     output_file: str,
@@ -3117,16 +3194,12 @@ def run_ffmpeg_with_cineon(
     # Probe único — 1 ffprobe call para rotation/dimensions/fps/duration/nb_frames
     _probe = probe_video(input_file)
 
-    # Input SDR sem color metadata → forçar BT.709 antes do -i (vide run_ffmpeg).
-    # Pass 1 Cineon aplica zscale (scale_filter); sem isso, resize de fonte
-    # não-taggeada aborta com "no path between colorspaces".
-    _input_color_args: list = []
-    if _probe.color_tags_missing and not _probe.is_hdr:
-        _input_color_args = [
-            "-color_primaries", "bt709",
-            "-color_trc", "bt709",
-            "-colorspace", "bt709",
-        ]
+    if _probe.is_hdr:
+        raise RuntimeError(
+            f"Fonte {_probe.hdr_type} não é suportada pelo pipeline Cineon (espera SDR "
+            "BT.709, sem tonemap). Use --cineon-pipeline off: o pipeline FFmpeg faz o "
+            "tonemap HDR → SDR."
+        )
 
     rotation_degrees = _probe.rotation
     physical_width, physical_height = _probe.physical_width, _probe.physical_height
@@ -3228,7 +3301,6 @@ def run_ffmpeg_with_cineon(
 
     # Duração e VBV
     duration = _probe.duration
-    total_frames = _probe.nb_frames
 
     # ═══════════════════════════════════════════════════════════════
     # FIX 1: x264-params com DEBUG DETALHADO
@@ -3302,8 +3374,6 @@ def run_ffmpeg_with_cineon(
         f"[dim]   Domain: [{portra_lut.domain_min[0]:.2f}, {portra_lut.domain_max[0]:.2f}][/dim]"
     )
 
-    # Dither RPDF (ruído temporal — mesma instância reaproveitada entre frames)
-    _dither_rng = np.random.default_rng() if dither_enabled else None
     if dither_enabled:
         console.print("[dim]   Dither: RPDF ±0.5 LSB ativo (quantização uint8)[/dim]")
 
@@ -3328,75 +3398,8 @@ def run_ffmpeg_with_cineon(
             f"[yellow]📊 Modo: 2-Pass Inteligente | Bitrate base: {video_bitrate}k | VBV: {vbv_description}[/yellow]"
         )
 
-    # ═══════════════════════════════════════════════════════════════
-    # 2-PASS INTELLIGENT: Pass 1 FFmpeg CLI (sem Cineon — análise pura)
-    # ═══════════════════════════════════════════════════════════════
-    # Pass 1 usa o vídeo nativo (sem pipeline Cineon) para mapear complexidade
-    # em tempo mínimo (~60fps), depois os params adaptativos guiam o Pass 2 real.
-    # Pass 2 = loop PyAV + Cineon pipeline + FFmpeg com -pass 2 -passlogfile.
-    logfile_2pass = None
-    if mode == "2pass":
-        logfile_2pass = f"{output_file}_2pass"
-        console.print()
-        console.print("[cyan]📊 Pass 1: Mapeando complexidade (FFmpeg CLI nativo)...[/cyan]")
-
-        # Filtro de escala para Pass 1 (mesma resolução do Pass 2, sem LUT/Cineon)
-        _p1_vf_parts = []
-        if scale_filter:
-            _p1_vf_parts.append(scale_filter)
-        _p1_vf = ",".join(_p1_vf_parts) if _p1_vf_parts else None
-
-        pass1_cineon_cmd = [
-            FFMPEG, "-y",
-            "-threads", str(decoder_threads),
-            "-filter_threads", str(filter_threads),
-            *_input_color_args,
-            "-i", input_file,
-        ]
-        if _p1_vf:
-            pass1_cineon_cmd.extend(["-vf", _p1_vf])
-        pass1_cineon_cmd.extend([
-            "-r", str(output_fps),
-            "-fps_mode", "cfr",
-            "-c:v", "libx264",
-            "-preset", hw_profile.recommended_preset,
-            "-b:v", f"{video_bitrate}k",
-            "-profile:v", "high",
-            "-level:v", "4.1",
-            "-pix_fmt", "yuv420p",
-            "-x264-params", x264_params,
-            "-pass", "1",
-            "-passlogfile", logfile_2pass,
-            "-an",
-            "-f", "null",
-            DEVNULL_FF,
-        ])
-
-
-        _run_encoding(pass1_cineon_cmd, total_frames, cwd=script_dir, fps=output_fps,
-                      source=input_file, output=output_file, fit=fit,
-                      src_dims=(_probe.width, _probe.height))
-        console.print("[green]✓ Pass 1 Cineon completo![/green]")
-
-        # Análise do stats.log → parâmetros adaptativos para Pass 2
-        console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
-        _p1_stats = _analyze_pass1_log(logfile_2pass)
-        x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
-            base_bitrate=video_bitrate,
-            fps=output_fps,
-            pass1_stats=_p1_stats,
-            duration=duration,
-            threads=encoder_threads,
-            lookahead=_fps_aware_lookahead(hw_profile, output_fps),
-        )
-        vbv_description = f"Adaptive-2Pass ({video_bitrate}k)"
-        console.print(
-            f"[yellow]📊 Pass 2: Cineon Pipeline | Bitrate adaptado: {video_bitrate}k[/yellow]"
-        )
-        console.print()
-
     # ── ENHANCE ANALYSIS (Cineon mode — numpy per-frame) ─────────────────────
-    # Roda UMA VEZ antes do loop PyAV. Retorna None se conteúdo não precisar.
+    # Roda UMA VEZ antes dos passes (o Pass 1 do 2-pass também renderiza com enhance).
     # Aplicado APÓS deband e ANTES do pipeline Cineon (float32 Rec.709 gamma).
     _enhance_fn = None
     if ENHANCE_AVAILABLE and enhance_enabled:
@@ -3432,201 +3435,139 @@ def run_ffmpeg_with_cineon(
     else:
         ffmpeg_input_resolution = f"{effective_width}x{effective_height}"
 
-    ffmpeg_cmd = [
-        FFMPEG,
-        "-y",
-        "-f",
-        "rawvideo",
-        "-vcodec",
-        "rawvideo",
-        "-pix_fmt",
-        "rgb24",
-        "-s",
-        ffmpeg_input_resolution,  # Dimensões efetivas pós-rotação
-        "-r",
-        str(output_fps),
-        "-i",
-        "-",  # ← stdin pipe (binary mode)
-        # Audio input (separado)
-        "-i",
-        input_file,
-        # Stream mapping
-        "-map",
-        "0:v:0",  # Vídeo do pipe (stdin)
-        "-map",
-        "1:a:0?",  # Áudio do input file (opcional)
-        # Video encoding
-        "-c:v",
-        "libx264",
-        "-preset",
-        hw_profile.recommended_preset,
-    ]
+    logfile_2pass = f"{output_file}_2pass" if mode == "2pass" else None
 
-    # CRF ou 2-pass
-    if mode == "crf":
-        ffmpeg_cmd.extend(
-            [
-                "-crf",
-                "18",
+    def _build_pipe_cmd(pass_number, bitrate_k, params, pass_metadata_args=None):
+        """Comando FFmpeg que recebe o pipe rgb24. pass_number: None (CRF), 1 ou 2."""
+        cmd = [
+            FFMPEG,
+            "-y",
+            "-f", "rawvideo",
+            "-vcodec", "rawvideo",
+            "-pix_fmt", "rgb24",
+            "-s", ffmpeg_input_resolution,  # Dimensões efetivas pós-rotação
+            "-r", str(output_fps),
+            "-i", "-",  # ← stdin pipe (binary mode)
+        ]
+        if pass_number != 1:
+            cmd += [
+                "-i", input_file,  # Áudio do input file (separado)
+                "-map", "0:v:0",  # Vídeo do pipe (stdin)
+                "-map", "1:a:0?",  # Áudio do input file (opcional)
             ]
-        )
-    else:
-        # 2-pass real: Pass 2 lê o stats.log gerado no Pass 1
-        ffmpeg_cmd.extend(
-            [
-                "-b:v",
-                f"{video_bitrate}k",
-                "-pass", "2",
+        cmd += [
+            "-vf", _CINEON_RGB_TO_YUV709_VF,
+            "-c:v", "libx264",
+            "-preset", hw_profile.recommended_preset,
+        ]
+        if pass_number is None:
+            cmd += ["-crf", "18"]
+        else:
+            cmd += [
+                "-b:v", f"{bitrate_k}k",
+                "-pass", str(pass_number),
                 "-passlogfile", logfile_2pass,
             ]
-        )
-
-    # x264 profile & level
-    ffmpeg_cmd.extend(
-        [
-            "-profile:v",
-            "high",
-            "-level:v",
-            "4.1",
-            "-pix_fmt",
-            "yuv420p",
-        ]
-    )
-
-    ffmpeg_cmd.extend(
-        [
-            "-color_range",
-            "tv",
-            "-colorspace",
-            "bt709",
-            "-color_primaries",
-            "bt709",
-            "-color_trc",
-            "bt709",
+        cmd += [
+            "-profile:v", "high",
+            "-level:v", "4.1",
+            "-pix_fmt", "yuv420p",
+            "-color_range", "tv",
+            "-colorspace", "bt709",
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
             "-bsf:v",
             "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+            "-tune", "film",
+            "-x264-params", params,
         ]
-    )
-    console.print("[dim]   Color metadata: BT.709 TV range (posição otimizada)[/dim]")
-
-    ffmpeg_cmd.extend(
-        [
-            "-tune",
-            "film",
-            "-x264-params",
-            x264_params,
-        ]
-    )
-
-    # Audio filter (loudnorm) + codec args — saída sempre estéreo (-ac 2)
-    ffmpeg_cmd.extend(_audio_output_args(audio_filter))
-
-    # ═══════════════════════════════════════════════════════════════
-    # METADATA & CONTAINER FLAGS
-    # ═══════════════════════════════════════════════════════════════
-    # CRÍTICO: -movflags +write_colr DEVE vir DEPOIS de todos os
-    # argumentos de encoding, mas ANTES do output filename
-    metadata_args = _build_metadata_args(
-        duration, video_bitrate, mode, cineon_mode=True
-    )
-    ffmpeg_cmd.extend(metadata_args)
-
-    console.print(
-        "[dim]   Container flags: +faststart+write_colr (escrita forçada)[/dim]"
-    )
-
-    # ═══════════════════════════════════════════════════════════════
-    # OUTPUT
-    # ═══════════════════════════════════════════════════════════════
-    ffmpeg_cmd.append(output_file)
-
-    # ═══════════════════════════════════════════════════════════════
-    # DEBUG: Exibir comando FFmpeg completo
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print()
-    console.print(
-        "[cyan]═══════════════════════════════════════════════════════[/cyan]"
-    )
-    console.print("[bold cyan]🔍 DEBUG: Comando FFmpeg Completo[/bold cyan]")
-    console.print(
-        "[cyan]═══════════════════════════════════════════════════════[/cyan]"
-    )
-
-    # Exibir apenas partes críticas no terminal
-    console.print("[dim]Partes críticas:[/dim]")
-    for i, arg in enumerate(ffmpeg_cmd):
-        if arg in (
-            "-x264-params",
-            "-colorspace",
-            "-color_primaries",
-            "-color_trc",
-            "-movflags",
-        ):
-            console.print(f"[dim]{i:3d}.[/dim] [yellow]{arg}[/yellow]")
-            if i + 1 < len(ffmpeg_cmd):
-                console.print(f"[dim]{i+1:3d}.[/dim] [green]{ffmpeg_cmd[i+1]}[/green]")
-
-    console.print("[cyan]═══════════════════════════════════════════════════════[/cyan]")
-    console.print()
-
-    # ═══════════════════════════════════════════════════════════════
-    # PYAV VIDEO DECODE & CINEON PROCESSING
-    # ═══════════════════════════════════════════════════════════════
-
-    console.print("[cyan]🎬 Iniciando encoding com pipeline Cineon...[/cyan]")
-    console.print()
+        if pass_number == 1:
+            cmd += ["-an", "-f", "null", DEVNULL_FF]
+        else:
+            # Audio filter (loudnorm) + codec args — saída sempre estéreo (-ac 2)
+            cmd += _audio_output_args(audio_filter)
+            # CRÍTICO: -movflags +write_colr DEVE vir DEPOIS de todos os
+            # argumentos de encoding, mas ANTES do output filename
+            cmd += pass_metadata_args
+            cmd.append(output_file)
+        return cmd
 
     import av
 
-    # Abrir container com PyAV
-    try:
-        container = av.open(input_file)
-    except Exception as e:
-        console.print(f"[red]Erro ao abrir input com PyAV: {e}[/red]")
-        raise
-
-    video_stream = container.streams.video[0]
-
-    # Informações do stream de vídeo
-    console.print(f"[dim]   Stream: {video_stream.width}×{video_stream.height} @ {video_stream.average_rate} fps[/dim]")
-    console.print(f"[dim]   Codec: {video_stream.codec_context.name}[/dim]")
-    console.print()
-
-    # Iniciar subprocess FFmpeg (stdin=PIPE para receber frames)
-    try:
-        ffmpeg_process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=script_dir,
+    def _render_pass(cmd, label):
+        """Renderiza o pipeline Cineon completo no pipe de `cmd`. Retorna o nº de frames."""
+        console.print()
+        console.print(
+            "[cyan]═══════════════════════════════════════════════════════[/cyan]"
         )
-    except Exception as e:
-        console.print(f"[red]Erro ao iniciar FFmpeg subprocess: {e}[/red]")
-        container.close()
-        raise
+        console.print(f"[bold cyan]🔍 DEBUG: Comando FFmpeg Completo ({label})[/bold cyan]")
+        console.print(
+            "[cyan]═══════════════════════════════════════════════════════[/cyan]"
+        )
+        console.print("[dim]Partes críticas:[/dim]")
+        for i, arg in enumerate(cmd):
+            if arg in (
+                "-x264-params",
+                "-colorspace",
+                "-color_primaries",
+                "-color_trc",
+                "-movflags",
+            ):
+                console.print(f"[dim]{i:3d}.[/dim] [yellow]{arg}[/yellow]")
+                if i + 1 < len(cmd):
+                    console.print(f"[dim]{i+1:3d}.[/dim] [green]{cmd[i+1]}[/green]")
+        console.print("[cyan]═══════════════════════════════════════════════════════[/cyan]")
+        console.print()
 
-    try:
+        console.print(f"[cyan]🎬 {label}: iniciando encoding com pipeline Cineon...[/cyan]")
+        console.print()
+
+        # Abrir container com PyAV
+        try:
+            container = av.open(input_file)
+        except Exception as e:
+            console.print(f"[red]Erro ao abrir input com PyAV: {e}[/red]")
+            raise
+
+        video_stream = container.streams.video[0]
+        _in_fps = video_stream.average_rate or Fraction(_probe.fps_int)
+
+        # Informações do stream de vídeo
+        console.print(f"[dim]   Stream: {video_stream.width}×{video_stream.height} @ {video_stream.average_rate} fps[/dim]")
+        console.print(f"[dim]   Codec: {video_stream.codec_context.name}[/dim]")
+        console.print()
+
+        # Iniciar subprocess FFmpeg (stdin=PIPE para receber frames)
+        try:
+            ffmpeg_process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                cwd=script_dir,
+            )
+        except Exception as e:
+            console.print(f"[red]Erro ao iniciar FFmpeg subprocess: {e}[/red]")
+            container.close()
+            raise
+
         _register_ffmpeg(ffmpeg_process)
         console.print(f"[green]✓ FFmpeg subprocess iniciado (PID: {ffmpeg_process.pid})[/green]")
 
         # Progress HUD
-        hud = ResolveProgressHUD(total_frames, source_fps=output_fps)
+        hud = ResolveProgressHUD(round(duration * output_fps), source_fps=output_fps)
+        stderr_tail = collections.deque(maxlen=50)
 
         # Thread para capturar stderr do FFmpeg em tempo real
         def ffmpeg_stderr_reader(pipe, hud):
-            """
-            Lê stderr do FFmpeg em tempo real para atualizar progress HUD.
-
-            CORREÇÃO: Trata gracefully o fechamento do pipe.
-            """
+            """Lê stderr do FFmpeg: atualiza o HUD e guarda as últimas 50 linhas."""
             try:
                 for line in iter(pipe.readline, b""):
                     if not line:
                         break
                     try:
                         line_str = line.decode("utf-8", errors="ignore")
+                        stderr_tail.extend(line_str.splitlines())
                         if "frame=" in line_str:
                             parts = line_str.split("frame=")
                             if len(parts) > 1:
@@ -3645,6 +3586,9 @@ def run_ffmpeg_with_cineon(
         )
         stderr_thread.start()
 
+        # Dither RPDF: semente fixa por passe → Pass 1 e Pass 2 recebem bytes idênticos
+        _dither_rng = np.random.default_rng(_CINEON_DITHER_SEED) if dither_enabled else None
+
         # ═══════════════════════════════════════════════════════════════
         # MAIN PROCESSING LOOP
         # ═══════════════════════════════════════════════════════════════
@@ -3655,58 +3599,59 @@ def run_ffmpeg_with_cineon(
 
         with Live(hud.render(), refresh_per_second=7, console=console) as live:
             try:
-                for frame in container.decode(video=0):
-                    # PyAV frame → NumPy array (RGB)
-                    frame_rgb = frame.to_ndarray(format="rgb24")
+                for frame, is_repeat in _cfr_resample(container.decode(video=0), output_fps, _in_fps):
+                    if not is_repeat:
+                        # PyAV frame → NumPy array (RGB)
+                        frame_rgb = _pyav_frame_to_rgb24(frame)
 
-                    # CRITICAL: Aplicar rotação iPhone (se necessário)
-                    if rotation_degrees != 0:
-                        frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
+                        # CRITICAL: Aplicar rotação iPhone (se necessário)
+                        if rotation_degrees != 0:
+                            frame_rgb = apply_rotation_to_frame(frame_rgb, rotation_degrees)
 
-                    # Normalizar para float32 [0.0-1.0]
-                    frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
+                        # Normalizar para float32 [0.0-1.0]
+                        frame_rgb_normalized = frame_rgb.astype(np.float32) / 255.0
 
-                    # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
-                    if target_resolution is not None:
-                        t_w, t_h = target_resolution
-                        if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
-                            frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
+                        # Downscale ANTES do pipeline Cineon (processa em 1080p, não 4K)
+                        if target_resolution is not None:
+                            t_w, t_h = target_resolution
+                            if frame_rgb_normalized.shape[1] != t_w or frame_rgb_normalized.shape[0] != t_h:
+                                frame_rgb_normalized = resize_frame_numpy(frame_rgb_normalized, t_w, t_h)
 
-                    # ── Enhancement Engine (antes do Cineon) ─────────────────────
-                    if _enhance_fn is not None:
-                        frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
+                        # ── Enhancement Engine (antes do Cineon) ─────────────────────
+                        if _enhance_fn is not None:
+                            frame_rgb_normalized = _enhance_fn(frame_rgb_normalized)
 
-                    # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
-                    frame_processed = process_frame_full_pipeline(
-                        frame_rgb_normalized,
-                        portra_lut,
-                        exposure_offset=exposure_offset,
-                        saturation=saturation,
-                    )
-
-                    # Validação: Garantir array C-contiguous uint8
-                    if not frame_processed.flags["C_CONTIGUOUS"]:
-                        frame_processed = np.ascontiguousarray(frame_processed)
-
-                    if frame_processed.dtype != np.uint8:
-                        frame_processed = quantize_uint8_dithered(
-                            frame_processed, rng=_dither_rng
+                        # Cineon pipeline (5 nodes) - SEMPRE 100% LUT
+                        frame_processed = process_frame_full_pipeline(
+                            frame_rgb_normalized,
+                            portra_lut,
+                            exposure_offset=exposure_offset,
+                            saturation=saturation,
                         )
 
-                    # Validar dimensões esperadas (após rotação + downscale)
-                    if target_resolution is not None:
-                        expected_shape = (target_resolution[1], target_resolution[0], 3)
-                    else:
-                        expected_shape = (effective_height, effective_width, 3)
-                    if frame_processed.shape != expected_shape:
-                        console.print(
-                            f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
-                        )
-                        error_occurred = True
-                        break
+                        # Validação: Garantir array C-contiguous uint8
+                        if not frame_processed.flags["C_CONTIGUOUS"]:
+                            frame_processed = np.ascontiguousarray(frame_processed)
 
-                    # Converter para bytes
-                    frame_bytes = frame_processed.tobytes()
+                        if frame_processed.dtype != np.uint8:
+                            frame_processed = quantize_uint8_dithered(
+                                frame_processed, rng=_dither_rng
+                            )
+
+                        # Validar dimensões esperadas (após rotação + downscale)
+                        if target_resolution is not None:
+                            expected_shape = (target_resolution[1], target_resolution[0], 3)
+                        else:
+                            expected_shape = (effective_height, effective_width, 3)
+                        if frame_processed.shape != expected_shape:
+                            console.print(
+                                f"[red]✗ Frame {frame_count}: shape incorreta {frame_processed.shape}, esperado {expected_shape}[/red]"
+                            )
+                            error_occurred = True
+                            break
+
+                        # Converter para bytes
+                        frame_bytes = frame_processed.tobytes()
 
                     # Escrever no pipe do FFmpeg (binary mode)
                     try:
@@ -3754,116 +3699,7 @@ def run_ffmpeg_with_cineon(
                 # Fechar container PyAV
                 container.close()
 
-        # ═══════════════════════════════════════════════════════════════
-        # WAIT FOR FFMPEG COMPLETION
-        # ═══════════════════════════════════════════════════════════════
-
-        if not error_occurred:
-            console.print()
-            console.print(
-                "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
-            )
-
-            try:
-                stdout, stderr = ffmpeg_process.communicate(timeout=60)
-            except subprocess.TimeoutExpired:
-                console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
-                ffmpeg_process.kill()
-                stdout, stderr = ffmpeg_process.communicate()
-
-            returncode = ffmpeg_process.returncode
-
-            if returncode != 0:
-                console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
-                console.print()
-                console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
-
-                stderr_str = stderr.decode("utf-8", errors="ignore")
-                stderr_lines = stderr_str.strip().splitlines()
-                for line in stderr_lines[-50:]:
-                    console.print(f"[red]{line}[/red]")
-
-                raise subprocess.CalledProcessError(
-                    returncode, ffmpeg_cmd, output=stdout, stderr=stderr
-                )
-            else:
-                console.print(
-                    f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
-                )
-
-                # ═══════════════════════════════════════════════════════════
-                # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
-                # ═══════════════════════════════════════════════════════════
-                # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
-                # Solução: Remux com stream copy + metadados de cor explícitos
-
-                console.print()
-                console.print(
-                    "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
-                )
-
-                # Arquivo temporário para output original
-                output_temp = output_file.replace(".mp4", "_temp.mp4")
-
-                # Renomear output original para temp
-                try:
-                    shutil.move(output_file, output_temp)
-                except Exception as e:
-                    console.print(
-                        f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
-                    )
-                    console.print("[yellow]   Continuando sem remux...[/yellow]")
-                else:
-                    # Comando de remux (stream copy, sem re-encode)
-                    remux_cmd = [
-                        FFMPEG,
-                        "-y",
-                        "-i",
-                        output_temp,
-                        "-c",
-                        "copy",  # Stream copy (sem re-encode)
-                        "-color_primaries",
-                        "bt709",
-                        "-color_trc",
-                        "bt709",
-                        "-colorspace",
-                        "bt709",
-                        "-color_range",
-                        "tv",
-                        "-movflags",
-                        "+faststart+write_colr",
-                        output_file,
-                    ]
-
-                    try:
-                        console.print("[dim]   Executando remux (stream copy)...[/dim]")
-                        _run_ffmpeg_tracked(
-                            remux_cmd,
-                            check=True,
-                            capture_output=True,
-                            cwd=script_dir,
-                        )
-                        console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
-                        console.print(
-                            "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
-                        )
-
-                        # Remover arquivo temporário
-                        try:
-                            os.remove(output_temp)
-                        except Exception:
-                            pass
-
-                    except subprocess.CalledProcessError as e:
-                        console.print(f"[red]✗ Erro no remux: {e}[/red]")
-                        console.print("[yellow]   Restaurando arquivo original...[/yellow]")
-
-                        # Restaurar arquivo original
-                        try:
-                            shutil.move(output_temp, output_file)
-                        except Exception:
-                            pass
-        else:
+        if error_occurred:
             # Houve erro, terminar FFmpeg
             console.print("[yellow]⚠ Encerrando FFmpeg devido a erro...[/yellow]")
 
@@ -3876,6 +3712,152 @@ def run_ffmpeg_with_cineon(
             if interrupted:
                 raise KeyboardInterrupt
             raise RuntimeError("Encoding interrompido por erro no processamento")
+
+        # ═══════════════════════════════════════════════════════════════
+        # WAIT FOR FFMPEG COMPLETION (stdin já fechado: wait, nunca communicate)
+        # ═══════════════════════════════════════════════════════════════
+
+        console.print()
+        console.print(
+            "[cyan]⏳ Aguardando finalização do FFmpeg (muxing final)...[/cyan]"
+        )
+
+        try:
+            returncode = ffmpeg_process.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            console.print("[red]✗ FFmpeg timeout (60s). Forçando término...[/red]")
+            ffmpeg_process.kill()
+            returncode = ffmpeg_process.wait()
+        stderr_thread.join()
+        ffmpeg_process.stderr.close()
+
+        if returncode != 0:
+            console.print(f"[red]✗ FFmpeg retornou erro (code={returncode})[/red]")
+            console.print()
+            console.print("[bold red]FFmpeg stderr (últimas 50 linhas):[/bold red]")
+            for line in stderr_tail:
+                console.print(f"[red]{line}[/red]")
+            raise subprocess.CalledProcessError(
+                returncode, cmd, stderr="\n".join(stderr_tail)
+            )
+
+        console.print(
+            f"[green]✓ FFmpeg finalizado com sucesso ({frame_count} frames)[/green]"
+        )
+        return frame_count
+
+    try:
+        if mode == "2pass":
+            console.print()
+            console.print("[cyan]📊 Pass 1: Mapeando complexidade (pipeline Cineon completo)...[/cyan]")
+            _render_pass(_build_pipe_cmd(1, video_bitrate, x264_params), "Pass 1")
+            console.print("[green]✓ Pass 1 Cineon completo![/green]")
+
+            # Análise do stats.log → parâmetros adaptativos para Pass 2
+            console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
+            _p1_stats = _analyze_pass1_log(logfile_2pass)
+            x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
+                base_bitrate=video_bitrate,
+                fps=output_fps,
+                pass1_stats=_p1_stats,
+                duration=duration,
+                threads=encoder_threads,
+                lookahead=_fps_aware_lookahead(hw_profile, output_fps),
+            )
+            vbv_description = f"Adaptive-2Pass ({video_bitrate}k)"
+            console.print(
+                f"[yellow]📊 Pass 2: Cineon Pipeline | Bitrate adaptado: {video_bitrate}k[/yellow]"
+            )
+            console.print()
+
+            metadata_args = _build_metadata_args(
+                duration, video_bitrate, mode, cineon_mode=True,
+                vbv_maxrate_override=_p2_maxrate,
+                vbv_bufsize_override=_p2_bufsize,
+            )
+            ffmpeg_cmd = _build_pipe_cmd(2, video_bitrate, x264_params, metadata_args)
+        else:
+            ffmpeg_cmd = _build_pipe_cmd(None, None, x264_params, metadata_args)
+
+        console.print("[dim]   Color metadata: BT.709 TV range (posição otimizada)[/dim]")
+        console.print(
+            "[dim]   Container flags: +faststart+write_colr (escrita forçada)[/dim]"
+        )
+
+        _render_pass(ffmpeg_cmd, "Pass 2" if mode == "2pass" else "Encode")
+
+        # ═══════════════════════════════════════════════════════════
+        # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
+        # ═══════════════════════════════════════════════════════════
+        # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
+        # Solução: Remux com stream copy + metadados de cor explícitos
+
+        console.print()
+        console.print(
+            "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
+        )
+
+        # Arquivo temporário para output original
+        output_temp = output_file.replace(".mp4", "_temp.mp4")
+
+        # Renomear output original para temp
+        try:
+            shutil.move(output_file, output_temp)
+        except Exception as e:
+            console.print(
+                f"[yellow]⚠️ Erro ao renomear arquivo temporário: {e}[/yellow]"
+            )
+            console.print("[yellow]   Continuando sem remux...[/yellow]")
+        else:
+            # Comando de remux (stream copy, sem re-encode)
+            remux_cmd = [
+                FFMPEG,
+                "-y",
+                "-i",
+                output_temp,
+                "-c",
+                "copy",  # Stream copy (sem re-encode)
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-colorspace",
+                "bt709",
+                "-color_range",
+                "tv",
+                "-movflags",
+                "+faststart+write_colr",
+                output_file,
+            ]
+
+            try:
+                console.print("[dim]   Executando remux (stream copy)...[/dim]")
+                _run_ffmpeg_tracked(
+                    remux_cmd,
+                    check=True,
+                    capture_output=True,
+                    cwd=script_dir,
+                )
+                console.print("[green]✓ 'colr' atom injetado com sucesso[/green]")
+                console.print(
+                    "[dim]   Metadados MP4 container: BT.709 TV range[/dim]"
+                )
+
+                # Remover arquivo temporário
+                try:
+                    os.remove(output_temp)
+                except Exception:
+                    pass
+
+            except subprocess.CalledProcessError as e:
+                console.print(f"[red]✗ Erro no remux: {e}[/red]")
+                console.print("[yellow]   Restaurando arquivo original...[/yellow]")
+
+                # Restaurar arquivo original
+                try:
+                    shutil.move(output_temp, output_file)
+                except Exception:
+                    pass
 
         # ═══════════════════════════════════════════════════════════════
         # VALIDATION
@@ -3947,7 +3929,12 @@ def run_ffmpeg_with_cineon(
         except subprocess.CalledProcessError:
             console.print("[yellow]   ⚠ ffprobe falhou (não crítico)[/yellow]")
 
-        # Limpeza dos logs temporários do 2-pass
+        console.print()
+        console.print(
+            f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
+        )
+    finally:
+        # Limpeza dos logs temporários do 2-pass (sucesso, erro e interrupção)
         if logfile_2pass:
             for _ext in ("-0.log", "-0.log.mbtree"):
                 _lp = f"{logfile_2pass}{_ext}"
@@ -3957,12 +3944,6 @@ def run_ffmpeg_with_cineon(
                     except OSError:
                         pass
             console.print("[dim]   Logs temporários 2-pass removidos[/dim]")
-
-        console.print()
-        console.print(
-            f"[bold green]✅ COMPLETA - Output: {os.path.basename(output_file)}[/bold green]"
-        )
-    finally:
         _register_ffmpeg(None)
 
 
@@ -4070,14 +4051,15 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 f"[yellow]⚠ MCTF falhou: {_mctf_exc} — usando consensus masks[/yellow]"
             )
-    # ── Blue-noise dither flag ────────────────────────────────────────────────
+    # ── Dither flag ───────────────────────────────────────────────────────────
     _dither_arg    = getattr(args, "dither", "auto")
     # Pipeline SDR é sempre 32-bit float → 8-bit, então o ODT sempre se beneficia
     # do dither anti-banding. auto = ativo (salvo --dither off explícito).
     _dither_active = _dither_arg != "off"
     if _dither_active:
         console.print(
-            "[cyan]🎲 Dither:[/cyan] Blue-noise ativado — quebra coerência de banding pré-quantização"
+            "[cyan]🎲 Dither:[/cyan] ruído uniforme temporal no luma ativado "
+            "— quebra coerência de banding pós-quantização"
         )
     # ──────────────────────────────────────────────────────────────────────────
 
@@ -4166,7 +4148,7 @@ def build_parser() -> argparse.ArgumentParser:
             """Exemplos de uso:
 
 MODO FFMPEG (default, rápido):
-  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT v6.7B
+  python Reels_Encoder_v2_FINAL.py input.mp4                           # Float 32-bit + LUT
   python Reels_Encoder_v2_FINAL.py 4k_video.mp4                        # 4K 60fps → 1080p 30fps (auto)
   python Reels_Encoder_v2_FINAL.py input.mp4 --mode 2pass              # 2-Pass + Loudnorm
   python Reels_Encoder_v2_FINAL.py input.mp4 --lut off                 # Sem LUT (apenas scale/sharpen)
@@ -4213,7 +4195,8 @@ COMPARAÇÃO:
         "--lut",
         choices=["on", "off"],
         default="on",
-        help="Aplicar Hollywood Cinema LUT v6.7B (default: on). off = apenas scale/HDR/sharpen",
+        help=f"Aplicar Hollywood Cinema LUT {_HOLLYWOOD_LUT_VERSION} (default: on). "
+             "off = apenas scale/HDR/sharpen",
     )
     parser.add_argument(
         "--loudnorm",
@@ -4243,7 +4226,7 @@ COMPARAÇÃO:
     )
     parser.add_argument(
         "--tonemap",
-        choices=["mobius", "reinhard", "hable", "bt2390"],
+        choices=["mobius", "reinhard", "hable"],
         default="mobius",
         help="Algoritmo de tone mapping HDR→SDR (default: mobius). mobius=skin tones, hable=cinema",
     )
@@ -4320,28 +4303,28 @@ COMPARAÇÃO:
     parser.add_argument(
         "--mctf",
         choices=["on", "off"],
-        default="on",
+        default="off",
         help="MCTF mask video: gera vídeo de máscara por frame com optical flow "
              "Farneback antes do encode. Requer --enhance on --enhance-ai on. "
-             "Elimina flicker temporal nas regiões de deband/CAS. Default: on.",
+             "Elimina flicker temporal nas regiões de deband/CAS. Default: off.",
     )
     parser.add_argument(
         "--dither",
         choices=["on", "off", "auto"],
         default="auto",
-        help="Blue-noise dithering antes da quantização final. "
-             "'auto' = ativado quando --enhance on (banding detectado pelo enhance). "
-             "Quebra a coerência espacial de banding que sobrevive ao re-encoding do Instagram. "
-             "Técnica usada em DCP, DaVinci Resolve, Unreal Engine. "
-             "Amplitude: ~1.5 LSBs @ 8-bit (imperceptível). Default: auto.",
+        help="Ruído uniforme temporal no luma (±2 códigos), aplicado depois da "
+             "conversão para 8-bit, antes do encode. "
+             "'auto' equivale a 'on' (só 'off' desativa). "
+             "Objetivo: mascarar banding no re-encode do Instagram. "
+             "Default: auto.",
     )
     parser.add_argument(
         "--enhance-ai",
         choices=["on", "off"],
-        default="on",
+        default="off",
         help="Mock AI decisions para Enhancement Engine. "
              "Requer --enhance on. Usa modelo sigmoid em vez de heurísticas. "
-             "Default: on.",
+             "Default: off.",
     )
     parser.add_argument(
         "--saturation",
