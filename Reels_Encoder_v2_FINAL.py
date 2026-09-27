@@ -3061,6 +3061,9 @@ def apply_rotation_to_frame(frame: np.ndarray, rotation: int) -> np.ndarray:
     return frame_rotated
 
 
+_CINEON_RGB_TO_YUV709_VF = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_inp,format=yuv420p"
+
+
 def run_ffmpeg_with_cineon(
     input_file: str,
     output_file: str,
@@ -3455,6 +3458,8 @@ def run_ffmpeg_with_cineon(
         "0:v:0",  # Vídeo do pipe (stdin)
         "-map",
         "1:a:0?",  # Áudio do input file (opcional)
+        "-vf",
+        _CINEON_RGB_TO_YUV709_VF,
         # Video encoding
         "-c:v",
         "libx264",
