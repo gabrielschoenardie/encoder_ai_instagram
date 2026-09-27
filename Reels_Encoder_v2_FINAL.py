@@ -4298,10 +4298,10 @@ COMPARAÇÃO:
     parser.add_argument(
         "--mctf",
         choices=["on", "off"],
-        default="on",
+        default="off",
         help="MCTF mask video: gera vídeo de máscara por frame com optical flow "
              "Farneback antes do encode. Requer --enhance on --enhance-ai on. "
-             "Elimina flicker temporal nas regiões de deband/CAS. Default: on.",
+             "Elimina flicker temporal nas regiões de deband/CAS. Default: off.",
     )
     parser.add_argument(
         "--dither",
@@ -4316,10 +4316,10 @@ COMPARAÇÃO:
     parser.add_argument(
         "--enhance-ai",
         choices=["on", "off"],
-        default="on",
+        default="off",
         help="Mock AI decisions para Enhancement Engine. "
              "Requer --enhance on. Usa modelo sigmoid em vez de heurísticas. "
-             "Default: on.",
+             "Default: off.",
     )
     parser.add_argument(
         "--saturation",

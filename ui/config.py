@@ -83,8 +83,8 @@ class EncodeConfig(BaseModel):
 
     # Enhance / AI
     enhance: str = "on"
-    enhance_ai: str = "on"
-    mctf: str = "on"
+    enhance_ai: str = "off"
+    mctf: str = "off"
     dither: str = "auto"
 
     # Misc / engine flags

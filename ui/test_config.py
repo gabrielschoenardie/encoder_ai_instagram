@@ -36,8 +36,8 @@ def test_defaults_match_argparse_defaults():
     assert ns.exposure_offset == 0.0
     assert ns.saturation == 1.0
     assert ns.enhance == "on"
-    assert ns.enhance_ai == "on"
-    assert ns.mctf == "on"
+    assert ns.enhance_ai == "off"
+    assert ns.mctf == "off"
     assert ns.dither == "auto"
     assert ns.hardware_info is False
     assert ns.ui is False
@@ -100,3 +100,13 @@ def test_presets():
     assert EncodeConfig.preset_quick_ffmpeg("a.mp4").cineon_pipeline == "off"
     assert EncodeConfig.preset_film_cineon("a.mp4").cineon_pipeline == "on"
     assert EncodeConfig.preset_batch("./clips").batch == "./clips"
+
+
+def test_cli_defaults_enhance_ai_and_mctf_off():
+    import importlib
+
+    engine = importlib.import_module("Reels_Encoder_v2_FINAL")
+    args = engine.build_parser().parse_args(["x.mp4"])
+    assert args.enhance == "on"
+    assert args.enhance_ai == "off"
+    assert args.mctf == "off"
