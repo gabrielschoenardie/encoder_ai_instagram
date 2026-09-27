@@ -1282,3 +1282,41 @@ BD põe um teste de guarda nas duas cadeias.
 | BDF8 | **corrigindo no Ciclo BD** | BD8 (VALIDATION.md regenerado pelo `validador` na BD10) |
 | BDF9, BDF10 | **aberto — próximo ciclo** | itens 2 e 4 do resumo; o usuário priorizou 1, 3, 5, 6 e 7 primeiro |
 | BDF11, BDF12, BDF13 | **aberto — exige A/B com o usuário** | mudam a imagem de todo encode (dither, tonemap, enhance seletivo); não entram sem medição de VMAF/bitrate/banding e aprovação visual |
+
+## Achados — 2026-09-27 (execução do Ciclo BD: auditoria do wizard BD9 e validação BD10)
+
+Evidência: `ui-flow-reviewer` (BD9, veredito "FLOW OK"), `validador` (BD10, `VALIDATION.md`) e medições
+do Orquestrador com FFmpeg 6.0.1 estático sobre fontes sintéticas (`testsrc2` + `sine` do lavfi, que
+é **mono**).
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| BDF15 | UX do wizard | `ui/launcher.py:219-223`, `Reels_Encoder_v2_FINAL.py` `_encode_single_file` | Toggle de MCTF não depende do enhance-ai; `mctf=on` sem enhance-ai é ignorado em silêncio | S4 | esperado: toggle só aparece com enhance-ai, ou aviso; medido: combinação aceita e descartada sem mensagem. Anterior ao ciclo; a BD7 (defaults off) só a torna mais alcançável |
+| BDF16 | loudness de fonte mono | `Reels_Encoder_v2_FINAL.py:1371-1383` (`_loudnorm_channel_prefix`, `_loudnorm_dual_mono`) | Fonte mono sai 3 LU abaixo do alvo: `dual_mono` supõe +3 LU que o upmix `-ac 2` não dá | S2 | esperado: −14 LUFS entregue; medido: −17,0 LUFS nos dois pipelines, com 3 s e 10 s (fonte −21,8 LUFS). O upmix mono→estéreo do FFmpeg preserva a loudness integrada (−21,8 → −21,8), então a compensação do `dual_mono` vira erro de −3 LU |
+| BDF17 | cauda de áudio (Cineon) | `run_ffmpeg_with_cineon` (comando do Pass final) | Com loudnorm ligado, o áudio do Cineon sai 0,1 s mais longo que o vídeo | S4 | esperado: áudio ≈ vídeo; medido: vídeo 3,000 s × áudio 3,100 s (10 s → 10,1 s). Cauda no fim, sem deriva; o caminho FFmpeg sai com 3,008 s. `_audio_output_args` não mudou neste ciclo |
+
+**BD9 — lacuna latente de teste (corrigida no próprio ciclo, BD6b `421220d`):** a lista literal do
+`ask_select("Tonemap", ...)` em `ui/launcher.py:206` era a única das quatro superfícies de tonemap sem
+teste; como o `EncodeConfig` não valida atribuição (o `_CHOICES` só roda em `model_post_init`), um
+`bt2390` reintroduzido só no launcher passaria pelo CI e só estouraria no `ValueError` do builder.
+Agora o teste grava as opções do prompt e as compara com `TONEMAP_ALGORITHMS`. A falta de
+`validate_assignment` no `EncodeConfig` fica registrada como observação (pré-existente, sem dano hoje).
+
+**BDF9 ampliado pela BD10:** o encode CRF padrão (fonte 1080×1920 60 fps de 3 s, conteúdo sintético de
+alto detalhe) saiu com média de **13.656 kbps** (`validate_encode.sh`: ✗ `≤ 12000`). Não é o 2-pass:
+é o preset `ultra_short` (`maxrate` 13.000k > teto médio de 12.000k) somado ao buffer inicial
+(`vbv-init` 0,9 × `bufsize` 17.550k) num clipe curto. O próximo ciclo (item 2) deve tratar o teto do
+perfil ≤15s como um todo, não só o fator adaptativo do 2-pass.
+
+**BDF16 — correção proposta (próximo ciclo, muda o áudio entregue):** tratar mono como o 5.1 já é
+tratado, com upmix para estéreo DENTRO da cadeia, antes do loudnorm (prefixo
+`aformat=channel_layouts=stereo,` também para `channels == 1`), e remover o `dual_mono`. Assim
+medição e entrega usam o mesmo layout, como a própria docstring de `_loudnorm_channel_prefix` pede.
+
+### Status (2026-09-27, execução do Ciclo BD)
+
+| ID | status | onde |
+|----|--------|------|
+| lacuna do launcher (BD9) | **corrigido** | BD6b `421220d` |
+| BDF15, BDF17 | **aberto — baixo** | candidatos a ciclo de UX/áudio |
+| BDF16 | **aberto — prioridade alta no próximo ciclo** | muda loudness de fontes mono; exige aprovação do usuário |

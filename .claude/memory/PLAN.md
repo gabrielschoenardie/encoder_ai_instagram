@@ -211,6 +211,13 @@ transcrever — carregar a skill.
 Ordem: BD1→BD5 (`executor-pesado`, um commit por ID) → BD6→BD8 (`executor`, um commit por ID) →
 BD9 → BD10 → BD11. Nada em paralelo: BD1–BD8 editam `Reels_Encoder_v2_FINAL.py`.
 
+Adendos durante a execução (decisão do Orquestrador, registrados no STATE.md):
+
+| ID | origem | agente | arquivos | critério de done |
+|----|--------|--------|----------|------------------|
+| BD8b | revisão do diff da BD8: o help do `--dither` era ambíguo ("antes da quantização final") e afirmava um efeito não medido | executor | `Reels_Encoder_v2_FINAL.py` | texto exato dado pelo Orquestrador; `ui/test_docs_consistency.py` verde |
+| BD6b | BD9 achou a 4ª superfície de tonemap (`ui/launcher.py:206`) sem teste | executor | `ui/test_launcher.py` | teste grava as opções do prompt "Tonemap" e compara com `TONEMAP_ALGORITHMS`; reprova com `bt2390` reintroduzido |
+
 ## Validação (BD10)
 
 Fonte sintética 1080×1920, 60 fps, 3 s, `testsrc2` + `sine`, tags BT.709. Dois encodes pela CLI, com
@@ -240,12 +247,8 @@ FFmpeg 7.0.2 no PATH e `--ebu-meter off`: (a) padrão (FFmpeg, CRF, defaults nov
     no PATH por padrão; `ui.binaries` resolve `./bin` → PATH.
   - PyAV alternativos para `PYTHONPATH`: `$SP/av_13.0.0`, `$SP/av_16.0.0`, `$SP/av_17.0.0`.
   - Suíte canônica: `$SP/venv/bin/python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`.
-- **Commits:** um por ID, mensagem convencional em português, terminando com:
-
-  ```text
-  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_011d7qoEQho76K2EPCw3rDhv
-  ```
+- **Commits:** um por ID, mensagem convencional em português, terminando com os trailers
+  `Co-Authored-By` e `Claude-Session` de atribuição da sessão (os mesmos do commit `e688d8c`).
 
 - **Nunca `git add -A` nem `git add .`** — adicionar por caminho explícito. Não commitar
   `*.egg-info`, `__pycache__`, `enhance_maps/` nem nada de `$SP`.
