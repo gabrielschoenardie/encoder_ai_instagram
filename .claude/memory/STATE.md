@@ -3588,3 +3588,34 @@ Usuario confirmou verificacao manual em maquina real: `.\launcher.ps1` e `.\laun
 Ciclo BC completo — os 15 objetivos do pedido do usuario endurecidos, as duas decisoes de
 desenho (manter fix da BB; erro claro sem auto-recriar venv) preservadas exatamente como
 resolvido antes da implementacao.
+
+## Ciclo BD
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|-----------------|-----------|
+| BD1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_color_matrix.py | commit `9faded2` — `_CINEON_RGB_TO_YUV709_VF` como `-vf` do pipe rgb24; 3 passed com ff70 e ff60, 3 skipped com `PATH=/usr/bin:/bin`; mutação bt709→bt601 reprova `test_cineon_output_vf_is_bt709` (Y 18,4 códigos fora) e também `test_sdr_chain_is_bt709` (a fonte da carta usa a constante) |
+| BD2 | done | Reels_Encoder_v2_FINAL.py, pyproject.toml, enhance/test_cineon_color_io.py | commit `8c6a464` — `_pyav_frame_to_rgb24` no loop, `av>=17.0.0`, recusa de HDR logo após `probe_video` (guard de constantes segue primeiro); 6 passed com PyAV 18.1 e 17.0.0; com 16.0.0 `test_red_bt709_full_range` reprova (246,0,0 vs 255,0,0) — prova do piso; pré-fix os 6 reprovam. Extra no mesmo arquivo: docstring do módulo `pip install av>=11.0.0` → `>=17.0.0` (acompanha o piso) |
+| BD3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_cfr.py | commit `fa22d93` — `_cfr_resample(frames, out_fps, in_fps=None)` consumido pelo loop (`is_repeat` reescreve `frame_bytes`); 8 passed (60→30 pares, 24→30 12 repetições, 30→30, NTSC 3 em 3000, jitter ±2 ms, total, pts/duração ausentes, streaming). Interpretação: o plano pede fallback "1/fps de entrada" mas a assinatura só tinha `(frames, out_fps)` — adicionado `in_fps` opcional (loop passa `video_stream.average_rate`, fallback `_probe.fps_int`). Smoke e2e ainda cai em `ValueError: flush of closed file` (BDF4, alvo da BD4) |
+| BD4 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | commit `9a07e07` — `_build_pipe_cmd` (CRF / Pass 1 `-an -f null` / Pass 2 com overrides de VBV nos metadados) + `_render_pass` (Popen stdout=DEVNULL, `_register_ffmpeg` por passe, deque de 50 linhas, `wait(60)`+kill, `join`, `CalledProcessError`); Pass 1 CLI nativo removido (e `_input_color_args`/`total_frames`, mortos sem ele); enhance antes dos passes; `_CINEON_DITHER_SEED`; logs do 2-pass no `finally`. e2e 5 passed com ff70 e ff60; suíte 494 passed com ff70, 486 passed + 8 skipped sem FFmpeg; `ruff check .` limpo (0.14.10). Pré-fix 5/5 reprovaram (ver subseção) |
+| BD5 | done | .github/workflows/ci.yml | commit `64e1698` — step `Install FFmpeg (Linux)` (`if: runner.os == 'Linux'`, apt `--no-install-recommends ffmpeg` + `ffmpeg -version`) antes de `Run tests`; `actionlint` (actionlint-py) sem erro; suíte 494 passed com ff60, 486 passed + 8 skipped sem FFmpeg; prova real pendente = run do CI no PR |
+
+### BD4 — e2e antes do fix (HEAD `fa22d93`, Python 3.11.15, ff70)
+
+```text
+E               ValueError: flush of closed file   (x5)
+FAILED test_60fps_crf_is_30_frames_in_sync
+FAILED test_60fps_2pass_is_30_frames_in_sync_and_leaves_no_logs
+FAILED test_24fps_crf_is_30_frames
+FAILED test_every_pipe_command_converts_with_bt709_vf[crf-1]
+FAILED test_every_pipe_command_converts_with_bt709_vf[2pass-2]
+5 failed in 4.48s
+```
+
+Nota: o pré-fix rodou depois de BD1–BD3 (ordem do plano), então o BDF3 já estava corrigido e o
+BDF4 mascarava qualquer outra asserção — os 5 caem no `communicate()`. Verificação ad-hoc extra
+(scratchpad, não commitada): no 2-pass os dois passes escrevem 60 frames com hashes idênticos no
+pipe (dither de semente fixa); Ctrl+C simulado no Pass 2 → `KeyboardInterrupt` propagado, nenhum
+log `_2pass-0.log*` no disco, `_ACTIVE_FFMPEG` volta a `None`.
+Ajuste do teste após o fix (antes do commit): o filtro de logs do 2-pass pegava o próprio
+`out_60_2pass.mp4`; passou a usar o prefixo `<saída>_2pass` e ganhou um spy em
+`_analyze_pass1_log` que prova que o `-0.log` existia durante o encode.
