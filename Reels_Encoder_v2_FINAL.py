@@ -57,7 +57,7 @@ USAGE:
   python Reels_Encoder_v2_FINAL.py input.mp4 --cineon-pipeline on --exposure +0.5 --saturation 1.1
 
 DEPENDENCIES:
-  pip install av>=11.0.0  # PyAV (para modo Cineon)
+  pip install av>=17.0.0  # PyAV (para modo Cineon)
   pip install colour-science>=0.4.7  # Colour (para modo Cineon)
 
 VERSÕES:
@@ -3063,6 +3063,24 @@ def apply_rotation_to_frame(frame: np.ndarray, rotation: int) -> np.ndarray:
 
 _CINEON_RGB_TO_YUV709_VF = "scale=out_color_matrix=bt709:out_range=tv:flags=bicubic+accurate_rnd+full_chroma_inp,format=yuv420p"
 
+_PYAV_SRC_COLORSPACE = {1: "ITU709", 4: "FCC", 5: "ITU601", 6: "ITU601", 7: "SMPTE240M"}
+
+
+def _pyav_frame_to_rgb24(frame) -> "np.ndarray":
+    """Frame PyAV → RGB24 com a matriz e o range da fonte explícitos.
+
+    Colorspace sem tag (ou não mapeado) é tratado como BT.709, mesma política
+    do caminho FFmpeg para fonte sem tag.
+    """
+    src_colorspace = _PYAV_SRC_COLORSPACE.get(int(frame.colorspace), "ITU709")
+    src_color_range = "JPEG" if int(frame.color_range) == 2 else "MPEG"
+    return frame.reformat(
+        format="rgb24",
+        src_colorspace=src_colorspace,
+        src_color_range=src_color_range,
+        dst_color_range="JPEG",
+    ).to_ndarray()
+
 
 def run_ffmpeg_with_cineon(
     input_file: str,
@@ -3119,6 +3137,13 @@ def run_ffmpeg_with_cineon(
 
     # Probe único — 1 ffprobe call para rotation/dimensions/fps/duration/nb_frames
     _probe = probe_video(input_file)
+
+    if _probe.is_hdr:
+        raise RuntimeError(
+            f"Fonte {_probe.hdr_type} não é suportada pelo pipeline Cineon (espera SDR "
+            "BT.709, sem tonemap). Use --cineon-pipeline off: o pipeline FFmpeg faz o "
+            "tonemap HDR → SDR."
+        )
 
     # Input SDR sem color metadata → forçar BT.709 antes do -i (vide run_ffmpeg).
     # Pass 1 Cineon aplica zscale (scale_filter); sem isso, resize de fonte
@@ -3662,7 +3687,7 @@ def run_ffmpeg_with_cineon(
             try:
                 for frame in container.decode(video=0):
                     # PyAV frame → NumPy array (RGB)
-                    frame_rgb = frame.to_ndarray(format="rgb24")
+                    frame_rgb = _pyav_frame_to_rgb24(frame)
 
                     # CRITICAL: Aplicar rotação iPhone (se necessário)
                     if rotation_degrees != 0:
