@@ -1336,8 +1336,8 @@ que importam estão nesta seção). FFmpeg 6.1.3, PyAV 18.1.0. Fonte sintética:
 | BDF9, CRF ≤15s | **parcial — limitação aceita** | decisão do usuário, ver abaixo |
 | BDF10 | **corrigido** (documentação + validador) | BE3 `f906c70` (tabela dos 5 tiers, Level 4.0/4.1, `keyint` ≤2 s, GOP em segundos no `validate_encode.sh`) e BE3b `69be5eb`. Residual S4, fora do ciclo: `analyze_source.py:587` mantém o comentário "hard cap: 60 frames (Instagram)" — o cap é do planejador, a regra da plataforma é 2 s |
 | BDF11, BDF12, BDF13 | **aberto — exige A/B com o usuário** | inalterado |
-| BDF15, BDF17 | **aberto — baixo** | inalterado |
-| BEF1 | **aberto — observação S4** | ver abaixo |
+| BDF15, BDF17 | **aberto — baixo** | inalterado; mantidos abertos por decisão do usuário (2026-09-28), candidatos a um ciclo de UX e áudio |
+| BEF1 | **fechado — consistente com a decisão do usuário** | `vbv_init` 0,9 é escolha deliberada; sem ação (2026-09-28, a pedido do usuário); ver abaixo |
 
 ## Decisão — 2026-09-27 (Ciclo BE) — CRF ≤15s pode passar de 12000 kbps médio: aceito, não será corrigido
 
@@ -1383,3 +1383,7 @@ Instagram recomprimir um clipe ≤15s cujo 1º segundo ultrapasse 15000 kbps, a 
 | BEF1 | burst do buffer inicial fora do `ultra_short` | `VBV_PRESETS` (`vbv_init` 0,9 em todos os tiers) | 1º segundo acima do `maxrate` do tier em encode real de 20s; abaixo de 15000, sem violar a Regra 6 | S4 | 2-pass real de 20 s: 9772 kbps médio, 11918 no 1º s (`maxrate` do tier 11000); 30 s: 8065 / 8941; fixture 2-pass: 9574 / 9313 |
 
 Sem ação. Mudar o `vbv_init` de tiers mais longos altera a imagem de todo encode: candidato a A/B junto com `BDF11`–`13`.
+
+**Fechado (2026-09-28, a pedido do usuário).** O `vbv_init` 0,9 em todos os tiers é escolha deliberada do usuário (ver o motivo na
+decisão acima), então o 1º segundo acima do `maxrate` do tier é a mesma característica já aceita, vista em outro tier, abaixo
+do teto de 15000. Só reabre se o usuário quiser testar outro `vbv_init` em A/B junto com `BDF11`–`13`.
