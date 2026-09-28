@@ -3724,6 +3724,9 @@ Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-l
 | BF1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | `-async 1` no comando de saída do Cineon; e2e `dynamic` vermelho antes (3,0 vs 3,1 s) e verde depois; suíte 581 passed; ruff limpo |
 | BF2 | done | ui/launcher.py, ui/test_launcher.py | MCTF só perguntado com enhance_ai on (senão cfg.mctf=off); teste (a) vermelho antes, verde depois; suíte 583 passed; ruff limpo |
 | BF3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_mctf_requires_enhance_ai.py | `_mctf_ignored_reason` + aviso antes do bloco MCTF; 2 testes vermelhos antes (AttributeError), verdes depois; suíte 585 passed; ruff limpo |
+| BF2r | done | — (auditoria, sem edição) | `ui-flow-reviewer`: FLOW COM ACHADOS, sem bloqueio; `cfg.mctf` sempre definido; achados menores anteriores ao ciclo (preview sem chip de MCTF, chip "AI" ignora `enhance`, `_report_settings` grava flags crus) → `BFF3` |
+| BF4 | done (com limitação aceita) | `.claude/memory/VALIDATION.md` | `validador`: (a) FFmpeg controle áudio 3,008 s; (c) Cineon fixture **3,008 s** (BE4 pré-fix: 3,100 s); (d) Cineon real de 4 s áudio 4,000 s, fonte 4,001 s. 1ª rodada bloqueada por defeito pré-existente (`--cineon-lut` relativo ao CWD → `BFF1`); 2ª com `--cineon-lut` absoluto. Bitrate ✗ só a limitação aceita do CRF curto. Orquestrador verificou: fim do áudio medido de novo; **vídeo bit-idêntico com e sem a BF1** (md5 igual em 2 execuções com e 1 sem a correção); `VALIDATION.md` corrigido (havia "pixel-perfect" e "mudança de LUT e pipeline" sem base) |
+| BF5 | pendente | `.claude/memory/*` | Orquestrador: suíte 585 passed com FFmpeg e **574 passed + 11 skipped sem FFmpeg** (worktree sem `bin/`, PATH sem FFmpeg); FINDINGS/STATE/VALIDATION fechados; memória do usuário atualizada; falta push e PR — aguardam confirmação |
 
 ### BF1 — saída pré-fix (2ª tentativa)
 
