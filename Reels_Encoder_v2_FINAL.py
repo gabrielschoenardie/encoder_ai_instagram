@@ -4001,10 +4001,21 @@ def find_video_files(folder: str) -> list:
 
 
 def _report_settings(args) -> dict:
-    """Human-relevant encode settings for the delivery certificate."""
+    """Human-relevant encode settings for the delivery certificate.
+
+    `enhance_ai` e `mctf` são normalizados para o valor efetivo (as mesmas
+    regras de descarte do motor em `_encode_single_file`): se `enhance` não
+    for "on", `enhance_ai` sai "off"; se o `enhance_ai` efetivo não for "on",
+    `mctf` sai "off". Só normaliza chaves já presentes.
+    """
     keys = ("mode", "fit", "fps", "scale", "lut", "loudnorm", "hdr", "tonemap",
             "cineon_pipeline", "enhance", "enhance_ai", "mctf", "dither", "performance")
-    return {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
+    settings = {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
+    if "enhance_ai" in settings and settings.get("enhance") != "on":
+        settings["enhance_ai"] = "off"
+    if "mctf" in settings and settings.get("enhance_ai") != "on":
+        settings["mctf"] = "off"
+    return settings
 
 
 def _mctf_ignored_reason(mctf: str, enhance_ai: bool) -> Optional[str]:
