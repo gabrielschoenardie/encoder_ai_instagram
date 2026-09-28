@@ -123,6 +123,43 @@ def test_advanced_flow_tonemap_options_match_tonemap_algorithms(monkeypatch):
     assert set(tonemap_calls[0]) == set(R.TONEMAP_ALGORITHMS)
 
 
+def _run_advanced_recording_toggles(monkeypatch, enhance_ai):
+    prompts = []
+
+    def recording_ask_toggle(con, msg, default_on=False, **k):
+        prompts.append(msg)
+        if msg.startswith("Enhancement engine"):
+            return "on"
+        if msg.startswith("Decisões via AI"):
+            return enhance_ai
+        if msg.startswith("MCTF mask video"):
+            return "on"
+        return "off"
+
+    monkeypatch.setattr(L, "ask_choice", lambda *a, **k: 5)  # preset 5 = advanced
+    monkeypatch.setattr(L, "ask_toggle", recording_ask_toggle)
+    monkeypatch.setattr(L, "ask_select", lambda con, msg, opts, default: default)
+    monkeypatch.setattr(L, "ask_number", lambda con, msg, default, **k: default)
+    monkeypatch.setattr(L, "ask_path", lambda *a, **k: "clip.mov")
+    monkeypatch.setattr(L, "Confirm", type("C", (), {"ask": staticmethod(lambda *a, **k: True)}))
+
+    ns = L.run_launcher(console=_silent_console())
+    assert isinstance(ns, argparse.Namespace)
+    return ns, prompts
+
+
+def test_advanced_flow_skips_mctf_prompt_when_enhance_ai_off(monkeypatch):
+    ns, prompts = _run_advanced_recording_toggles(monkeypatch, "off")
+    assert not any(p.startswith("MCTF mask video") for p in prompts)
+    assert ns.mctf == "off"
+
+
+def test_advanced_flow_asks_mctf_prompt_when_enhance_ai_on(monkeypatch):
+    ns, prompts = _run_advanced_recording_toggles(monkeypatch, "on")
+    assert any(p.startswith("MCTF mask video") for p in prompts)
+    assert ns.mctf == "on"
+
+
 def test_tools_flow_runs_tool_then_returns_to_menu(monkeypatch):
     # main menu -> Tools(4); tools menu -> tool #1; tools menu -> Voltar(5); main menu -> quick(1)
     monkeypatch.setattr(L, "ask_choice", _seq([4, 1, 5, 1]))

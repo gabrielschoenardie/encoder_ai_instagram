@@ -1387,3 +1387,59 @@ Sem ação. Mudar o `vbv_init` de tiers mais longos altera a imagem de todo enco
 **Fechado (2026-09-28, a pedido do usuário).** O `vbv_init` 0,9 em todos os tiers é escolha deliberada do usuário (ver o motivo na
 decisão acima), então o 1º segundo acima do `maxrate` do tier é a mesma característica já aceita, vista em outro tier, abaixo
 do teto de 15000. Só reabre se o usuário quiser testar outro `vbv_init` em A/B junto com `BDF11`–`13`.
+
+## Fechamento — 2026-09-28 (Ciclo BF: BDF17 e BDF15)
+
+Evidência: `validador` (BF4, `.claude/memory/VALIDATION.md`), três rodadas de diagnóstico do `BDF17` (matrizes por variável, no
+scratchpad da sessão, efêmeras — os números que importam estão aqui), auditoria do `ui-flow-reviewer` (BF2r) e verificações
+independentes do Orquestrador (provas vermelhas em worktree descartável, suíte com e sem FFmpeg, CLI real). FFmpeg 6.1.3.
+
+### Status (2026-09-28, Ciclo BF) — substitui as linhas "aberto" de BDF15 e BDF17 acima
+
+| ID | status | onde |
+|----|--------|------|
+| BDF17 | **corrigido** | BF1 `c8e8891`: `"-async", "1"` no comando de saída do Cineon (paridade com o caminho FFmpeg). Prova real: fixture 3,100 s → **3,008 s**; áudio real de 4 s termina em 4,000 s com a fonte em 4,001 s; vídeo bit-idêntico com e sem a correção |
+| BDF15 | **corrigido** | BF2 `0a96ec8` (wizard só pergunta o MCTF com `enhance_ai` on; senão `cfg.mctf = "off"`) + BF3 `ef1987e` (aviso `_mctf_ignored_reason` no motor quando `--mctf on` é descartado). Prova real: a CLI imprime o aviso com `--mctf on` e não imprime no padrão |
+| BFF1 | **aberto — S3** | ver abaixo |
+| BFF2 | **aberto — observação S4** | ver abaixo |
+| BFF3 | **aberto — observação S4** | ver abaixo |
+
+**BDF17 — causa refinada (medida em três rodadas).** A cauda de ≈0,09 s aparece **só quando o `loudnorm` do passe final cai em
+`Normalization Type: Dynamic` e o comando não tem `-async 1`**. Em modo Linear não há cauda. Fonte que cai em Dynamic: a
+senoide de 1 kHz do BE4 (`measured_LRA` 0,00; a de 440 Hz, com LRA 0,10, fica em Linear) e **2 de 3 recortes de áudio real do
+usuário** (o pico é alto demais para o ganho necessário: TP +0,12 dBTP e −1,24 dBTP com +4,0 dB de ganho). O caminho FFmpeg
+já tinha `-async 1` e por isso nunca mostrou o problema. A primeira tentativa de teste da BF1 passou antes da correção
+justamente porque a fonte de 440 Hz fica em Linear; o teste final força o Dynamic pelo `input_tp`, o que é determinístico
+(a blindagem do plano pegou isso). Que o `loudnorm` emite um bloco extra de 100 ms em Dynamic é inferência; o efeito do
+`-async 1` é o que está medido.
+
+### BFF1 (S3) — `--cineon-lut` com default relativo ao diretório corrente
+
+| ID | categoria | arquivo:linha | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------------|------------------------|------------|--------------------|
+| BFF1 | portabilidade / resolução de caminho | `Reels_Encoder_v2_FINAL.py` `--cineon-lut` `default="FilmLook_Portra400_SkinPriority_D65.cube"` (~`:4293`) × `cineon_lut_path=args.cineon_lut` (~`:4080`) × `if cineon_lut_path is None: _find_data_file(...)` (~`:3350`) | O default da CLI nunca é `None`, então o resolver `_find_data_file` é contornado e a LUT do Cineon é procurada no diretório corrente | S3 | esperado: Cineon roda de qualquer pasta, como o caminho FFmpeg; medido: `--cineon-pipeline on` fora da raiz do repo falha com "LUT Portra 400 não encontrada: FilmLook_Portra400_SkinPriority_D65.cube" |
+
+Descoberto pela 1ª rodada do BF4 (o `validador` rodou de dentro da pasta de entrada). Contorno usado na validação:
+`--cineon-lut <caminho absoluto>`. Impacto: o launcher abre o encoder na pasta do repo e por isso não é afetado; quem roda
+`reels-encoder` (entry point do `pyproject.toml`) ou o script de outra pasta com `--cineon-pipeline on` recebe o erro. O
+`_find_data_file` (pasta do módulo → diretório corrente → `share` da instalação) já é o mecanismo certo e o caminho
+Hollywood o usa. O Cineon do BE4 só rodou porque aquele `validador` estava na raiz do repo. Correção provável, fora do escopo
+deste ciclo: default `None` no parser (ou resolver o default com `_find_data_file` antes de repassar) e um teste rodando o
+Cineon de outro diretório. **Não corrigido.**
+
+### BFF2 (S4, observação) — `loudnorm` cai em Dynamic em 2 de 3 clipes reais
+
+O README descreve o Pass 2 como "normalização linear (…) sem compressão dinâmica". Em 2 de 3 recortes reais do usuário a
+normalização linear é impossível pelo pico (TP após o ganho > −1,5 dBTP) e o FFmpeg cai em Dynamic, que pode aplicar limitação.
+O −14 LUFS entregue ficou dentro de ±1 nos encodes medidos (−14,0 e −14,1), então não há dano de loudness medido; é
+descompasso entre a documentação e o comportamento em conteúdo com pico alto. Sem ação; candidato a ajuste de texto do README.
+
+### BFF3 (S4, observação) — certificado e preview do MCTF/AI
+
+Da auditoria do wizard (BF2r, `ui-flow-reviewer`, veredito `FLOW COM ACHADOS` sem bloqueio), todos anteriores ao ciclo:
+`_report_settings` (`Reels_Encoder_v2_FINAL.py`, ~`:3987`) grava `enhance_ai` e `mctf` crus, então o certificado de entrega pode
+listar "on" para o que o motor ignorou; o preview (`ui/components.py:443-450`) não tem chip de MCTF, e o chip "AI" só olha
+`enhance_ai`, sem checar `enhance`. O caso-limite do wizard (revisar no preview e desligar o `enhance` com `mctf` já "on")
+ainda mantém `mctf=on`, mas agora o motor avisa (BF3). Sem ação.
+
+Abertos após o Ciclo BF: `BDF11`, `BDF12`, `BDF13` (exigem A/B com o usuário), `BFF1` (S3), `BFF2` e `BFF3` (S4).
