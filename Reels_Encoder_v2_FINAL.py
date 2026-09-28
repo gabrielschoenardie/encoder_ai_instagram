@@ -2249,6 +2249,23 @@ def _find_data_file(filename: str) -> str:
     return os.path.join(here, filename)
 
 
+def _resolve_cineon_lut(path: Optional[str]) -> str:
+    """Resolve o caminho da LUT Portra 400 do Cineon.
+
+    - ``None`` -> busca pelo nome padrão via ``_find_data_file``.
+    - caminho existente (explícito ou relativo ao CWD) -> devolvido como está.
+    - nome nu (sem diretório) inexistente no CWD -> busca via ``_find_data_file``.
+    - qualquer outro caminho (com diretório inexistente) -> devolvido inalterado.
+    """
+    if path is None:
+        return _find_data_file("FilmLook_Portra400_SkinPriority_D65.cube")
+    if os.path.exists(path):
+        return path
+    if os.path.basename(path) == path:
+        return _find_data_file(path)
+    return path
+
+
 _HOLLYWOOD_LUT_FILENAME = (
     "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube"
 )
@@ -3347,8 +3364,7 @@ def run_ffmpeg_with_cineon(
     console.print()
 
     # Carregar LUT Portra 400
-    if cineon_lut_path is None:
-        cineon_lut_path = _find_data_file("FilmLook_Portra400_SkinPriority_D65.cube")
+    cineon_lut_path = _resolve_cineon_lut(cineon_lut_path)
 
     if not os.path.exists(cineon_lut_path):
         console.print(f"[red]✗ LUT Portra 400 não encontrada: {cineon_lut_path}[/red]")
