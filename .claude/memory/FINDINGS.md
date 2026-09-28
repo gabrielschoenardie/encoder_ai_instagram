@@ -1342,6 +1342,9 @@ que importam estão nesta seção). FFmpeg 6.1.3, PyAV 18.1.0. Fonte sintética:
 ## Decisão — 2026-09-27 (Ciclo BE) — CRF ≤15s pode passar de 12000 kbps médio: aceito, não será corrigido
 
 Decisão do usuário, tomada com os números abaixo à vista, entre `vbv_init` 0,3 (recomendado por mim), 0,6 e manter 0,9.
+**Motivo dado pelo usuário (2026-09-28):** manteve 0,9 porque, na experiência dele, no Instagram os vídeos funcionam melhor
+com esse valor e ele é o recomendado. É conhecimento de domínio do usuário; não foi verificado contra documentação da
+plataforma nesta sessão. O `vbv_init` 0,9 é, portanto, uma escolha deliberada, não um esquecimento.
 
 **O que foi medido.** Depois da BE2 (tier 10000/11200/15000), os dois caminhos CRF ainda ficam acima do teto médio de 12000 na
 fixture sintética, **inclusive acima do próprio `maxrate` de 11200**: FFmpeg CRF 12777 kbps, Cineon CRF 12905 kbps
@@ -1368,7 +1371,7 @@ um teste de estresse.
 15260 kbps, acima do teto de pico de 15000** da Regra de Ouro 6 — o burst do buffer inicial. Encodes CRF de clipes ≤15s de
 conteúdo muito complexo podem reprovar no bitrate médio do `validate_encode.sh`; isso é esperado, não perseguir como regressão.
 
-**Condição de reabertura:** se um encode CRF de clipe real ≤15s reprovar o bitrate médio no `validate_encode.sh`, ou se o
+**Condição de reabertura** (pesar antes o motivo do usuário acima: 0,9 é a preferência dele para o Instagram): se um encode CRF de clipe real ≤15s reprovar o bitrate médio no `validate_encode.sh`, ou se o
 Instagram recomprimir um clipe ≤15s cujo 1º segundo ultrapasse 15000 kbps, a correção medida é `vbv_init` 0,3 no tier
 `ultra_short` (efeito só nos caminhos CRF FFmpeg e Cineon, que leem o `vbv_init` do preset; o 2-pass usa 0,90 fixo em
 `_adaptive_2pass_x264_params`).
