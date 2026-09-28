@@ -188,7 +188,7 @@ dos I-frames do source antes do encode. `derive_gop()` combina essa evidência c
 
 O resultado é exposto em `result.gop_profile` (dict com `keyint`, `scenecut`,
 `force_keyframes`, `strategy`, `cut_rhythm`, `reasoning`). Hard cap absoluto:
-`keyint ≤ 60` (regra Instagram). Ver `references/vbv-rate-control.md` seção
+`keyint ≤ 60` (cap do planejador, conservador; a regra da plataforma é 2 s). Ver `references/vbv-rate-control.md` seção
 "GOP Structure" para a lógica completa.
 
 ### Passo 4c — Alocação de bits por shot (x264 zones)
@@ -231,8 +231,8 @@ Critérios de aprovação:
   que são de fato bons. O não-NEG é a referência justa para sign-off. Para flagrar
   *inflação* de qualidade (sharpening/denoise oportunista), rodar com override:
   `VMAF_MODEL=vmaf_v0.6.1neg`. Os targets abaixo assumem o não-NEG.
-- VMAF ≥ 93 para Maximum Quality (≤30s)
-- VMAF ≥ 90 para Safe Premium (≥40s)
+- VMAF ≥ 93 para Reels ≤30s
+- VMAF ≥ 90 para Reels ≥40s
 - VMAF harmonic mean deve estar próximo da mean — delta > 3 indica cenas problemáticas
 
 ### Passo 6b — Loop de iteração quando VMAF falha

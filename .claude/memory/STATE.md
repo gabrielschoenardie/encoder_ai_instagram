@@ -3664,6 +3664,7 @@ Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em 
 | BE1b | done | `README.md` | Bullet "Canais" (l.327) reescrito: mono→estéreo dentro da cadeia antes do `loudnorm`, como 5.1 (conforme `_loudnorm_channel_prefix`, canais != 2); sem `dual_mono` nem número; grep `dual_mono\|-3 LU` → 0; markdownlint-cli2@0.23.1 → 0 issues; `ui/test_docs_consistency.py` 3 passed (venv-be) |
 | BE2 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_vbv_ceiling.py` | `ultra_short` → 10000/11200/15000; `_INGEST_MAX_AVG_KBPS`/`_INGEST_MAX_PEAK_KBPS` limitam o 2-pass; 74 testes novos reprovam antes (9 falham) e passam depois; suíte 579 passed (505+74); ruff 0.14.10 limpo; `17550` sem outras ocorrências; rodada sem FFmpeg feita pelo Orquestrador: 570 passed + 9 skipped (ver abaixo) |
 | BE3 | done | `.claude/skills/instagram-reels-encoder/SKILL.md`, `.claude/skills/instagram-reels-encoder/scripts/validate_encode.sh` | Tabela de 5 tiers conferida contra `VBV_PRESETS` (parse via `ast.literal_eval` do dicionário, comparação por tier: 5/5 iguais); notas de keyint 2 s e Level 4.0/4.1; GOP do validador em segundos (`ceil(2×fps)`, fallback 60); 5 casos de GOP conforme esperado |
+| BE3b | done | `.claude/skills/instagram-reels-encoder/SKILL.md` | l.234-235 rotuladas por faixa (Reels ≤30s / ≥40s), limiares 93/90 mantidos; l.191 atribui `keyint ≤ 60` ao planejador (cap em `scripts/analyze_source.py:587`, `min(round(keyint_s * fps), 60)`); diff 3 linhas; nomes de perfil só na tabela de tiers (l.61, l.64) |
 
 ### BE1 — saída vermelha do e2e pré-fix
 
