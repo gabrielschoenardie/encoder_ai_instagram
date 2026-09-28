@@ -3716,3 +3716,13 @@ Duração 4 s (não 2 s): o GOP medido só chega a N se o clipe tiver mais de N 
 
 `git diff --stat` do `validate_encode.sh`: 16 inserções, 3 remoções (só o bloco de GOP; índice permanece LF, worktree CRLF por autocrlf). Nenhum teste automatizado cobre o script.
 Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-level:v 4.0` (template), l.85 `keyint=60` (template), l.186 `keyint=60:scenecut=40`, l.191 `keyint ≤ 60`, l.234-235 "VMAF ≥ 93 Maximum Quality (≤30s)" / "≥ 90 Safe Premium (≥40s)".
+
+## Ciclo BF
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|-----------------|----------------|----------------------|
+| BF1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | `-async 1` no comando de saída do Cineon; e2e `dynamic` vermelho antes (3,0 vs 3,1 s) e verde depois; suíte 581 passed; ruff limpo |
+
+### BF1 — saída pré-fix (2ª tentativa)
+
+`test_60fps_crf_with_loudnorm_keeps_audio_in_sync[linear]` passou; `[dynamic]` (`analyze_audio_loudness` com `input_tp="-0.10"`, blindagem `measured_TP=-0.10` no `-af` ok) REPROVOU antes do fix: `assert abs(3.0 - 3.1) = 0.1 <= 1/30`. Após `"-async", "1"` no bloco `pass_number != 1` de `_build_pipe_cmd`: 2 passed; suíte canônica 581 passed; `ruff check .` limpo.

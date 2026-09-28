@@ -3450,6 +3450,7 @@ def run_ffmpeg_with_cineon(
                 "-i", input_file,  # Áudio do input file (separado)
                 "-map", "0:v:0",  # Vídeo do pipe (stdin)
                 "-map", "1:a:0?",  # Áudio do input file (opcional)
+                "-async", "1",
             ]
         cmd += [
             "-vf", _CINEON_RGB_TO_YUV709_VF,

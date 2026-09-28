@@ -47,13 +47,13 @@ def popen_calls(monkeypatch):
     return calls
 
 
-def _source(tmp_path, fps):
+def _source(tmp_path, fps, duration=1):
     src = str(tmp_path / f"src_{fps}fps.mp4")
     proc = subprocess.run(
         [
             FFMPEG, "-hide_banner", "-v", "error", "-y",
-            "-f", "lavfi", "-i", f"testsrc2=size=90x160:rate={fps}:duration=1",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1",
+            "-f", "lavfi", "-i", f"testsrc2=size=90x160:rate={fps}:duration={duration}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={duration}",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
             "-c:a", "aac", "-shortest", src,
@@ -64,12 +64,12 @@ def _source(tmp_path, fps):
     return src
 
 
-def _encode(tmp_path, fps, mode):
-    src = _source(tmp_path, fps)
+def _encode(tmp_path, fps, mode, loudnorm=False, duration=1):
+    src = _source(tmp_path, fps, duration)
     out = str(tmp_path / f"out_{fps}_{mode}.mp4")
     R.run_ffmpeg_with_cineon(
         src, out, mode=mode, target_fps="30", scale_mode="off",
-        loudnorm_enabled=False, enhance_enabled=False, show_hardware=False,
+        loudnorm_enabled=loudnorm, enhance_enabled=False, show_hardware=False,
     )
     return out
 
@@ -97,6 +97,29 @@ def _pipe_commands(calls):
 def test_60fps_crf_is_30_frames_in_sync(tmp_path):
     out = _encode(tmp_path, 60, "crf")
     _assert_av_in_sync(out, 30)
+
+
+@pytest.mark.parametrize("norm_mode", ["linear", "dynamic"])
+def test_60fps_crf_with_loudnorm_keeps_audio_in_sync(
+    tmp_path, popen_calls, monkeypatch, norm_mode
+):
+    if norm_mode == "dynamic":
+        original = R.analyze_audio_loudness
+
+        def _peaky(input_file, target="instagram"):
+            stats = original(input_file, target)
+            stats["input_tp"] = "-0.10"
+            return stats
+
+        monkeypatch.setattr(R, "analyze_audio_loudness", _peaky)
+    out = _encode(tmp_path, 60, "crf", loudnorm=True, duration=3)
+    outputs = [c for c in _pipe_commands(popen_calls) if "1:a:0?" in c]
+    assert len(outputs) == 1
+    af = outputs[0][outputs[0].index("-af") + 1]
+    assert "loudnorm" in af
+    if norm_mode == "dynamic":
+        assert "measured_TP=-0.10" in af
+    _assert_av_in_sync(out, 90)
 
 
 def test_60fps_2pass_is_30_frames_in_sync_and_leaves_no_logs(tmp_path, monkeypatch):
