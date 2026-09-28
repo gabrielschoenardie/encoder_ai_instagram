@@ -3662,6 +3662,7 @@ Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em 
 |----|--------|----------------|-----------|
 | BE1 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_loudnorm.py` | `dual_mono` removido, prefixo `aformat` p/ canais != 2; e2e mono −17,0 → [−15,−13]; ruff limpo; suíte 504 verdes + 1 falha (`test_cineon_color_io.py::test_red_bt709_full_range`) no Python de sistema. **Correção do Orquestrador:** a falha não é pré-existente no código, é de ambiente — o Python de sistema tem PyAV 16.1.0, abaixo do piso `av>=17.0.0` (BD2). Verificado em venv isolado (Python 3.13.3, PyAV 18.1.0, `--timeout=120`): **505 passed**, sem skip; `ruff check .` limpo |
 | BE1b | done | `README.md` | Bullet "Canais" (l.327) reescrito: mono→estéreo dentro da cadeia antes do `loudnorm`, como 5.1 (conforme `_loudnorm_channel_prefix`, canais != 2); sem `dual_mono` nem número; grep `dual_mono\|-3 LU` → 0; markdownlint-cli2@0.23.1 → 0 issues; `ui/test_docs_consistency.py` 3 passed (venv-be) |
+| BE2 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_vbv_ceiling.py` | `ultra_short` → 10000/11200/15000; `_INGEST_MAX_AVG_KBPS`/`_INGEST_MAX_PEAK_KBPS` limitam o 2-pass; 74 testes novos reprovam antes (9 falham) e passam depois; suíte 579 passed (505+74); ruff 0.14.10 limpo; `17550` sem outras ocorrências; rodada sem FFmpeg não simulada (ver abaixo) |
 
 ### BE1 — saída vermelha do e2e pré-fix
 
@@ -3678,3 +3679,20 @@ FAILED TestMonoSourceE2E::test_mono_source_lands_near_target
 ```
 
 Pós-fix: `30 passed` em `enhance/test_loudnorm.py`. Memória da BE1 vai no mesmo commit do código.
+
+### BE2 — saída vermelha pré-fix
+
+`enhance/test_vbv_ceiling.py` contra o HEAD `d3e3e19`: `9 failed, 65 passed`.
+
+```
+E       assert (12000, 13000, 17550) == (10000, 11200, 15000)      # get_vbv_preset(15.0)
+E       assert 13799 <= 12000      # 2-pass, base 12000, mean_q<18
+E       assert 12960 <= 12000      # 2-pass, base 12000, mean_q<21
+E       assert 13799 == 12000      # clamp com base_bitrate=12000, mean_q=10
+E       assert 20000 == 12000      # base 20000 sem clamp
+```
+
+Pós-fix: `74 passed` no arquivo novo; suíte canônica `579 passed` (baseline 505). `ruff check .` (0.14.10): All checks passed.
+`grep -rn "17550"` (py/md, fora de `.claude/memory` e `docs/superpowers`): 0 ocorrências restantes.
+
+Rodada "sem FFmpeg": não simulada. `ui/binaries.py` não aceita `REELS_FFMPEG`/`REELS_FFPROBE` e `./bin/` tem `ffmpeg.exe`/`ffprobe.exe` (resolvem antes do PATH); simular a ausência exigiria mexer em `./bin/`, proibido. Os testes novos não usam FFmpeg.

@@ -284,12 +284,15 @@ def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
 # =============================================================================
+_INGEST_MAX_AVG_KBPS = 12000
+_INGEST_MAX_PEAK_KBPS = 15000
+
 VBV_PRESETS = {
     "ultra_short": {
         "duration_max": 15,
-        "target": 12000,
-        "maxrate": 13000,
-        "bufsize": 17550,  # maxrate × 1.35s
+        "target": 10000,
+        "maxrate": 11200,
+        "bufsize": 15000,  # perfil ≤30s da skill
         "vbv_init": 0.9,
         "description": "Ultra Short (≤15s) — Maximum Quality",
     },
@@ -1825,12 +1828,12 @@ def _adaptive_2pass_x264_params(
     else:
         bitrate_factor = 1.00
 
-    adapted_bitrate = int(base_bitrate * bitrate_factor)
+    adapted_bitrate = min(int(base_bitrate * bitrate_factor), _INGEST_MAX_AVG_KBPS)
 
     # ── ULTRA SAFE VBV LIMITS (Instagram Platform) ──────────────────────────
     # maxrate = bitrate × 1.10  → margem mínima de 10% (picos curtos)
     # bufsize = maxrate × 1.35  → janela 1.35s, alinhado com VBV_PRESETS (1.2×–1.4×)
-    vbv_maxrate = int(adapted_bitrate * 1.10)
+    vbv_maxrate = min(int(adapted_bitrate * 1.10), _INGEST_MAX_PEAK_KBPS)
     vbv_bufsize = int(vbv_maxrate    * 1.35)
     vbv_init    = 0.90
 
