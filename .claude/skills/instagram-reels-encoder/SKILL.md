@@ -53,23 +53,20 @@ preservação perceptual** na plataforma Instagram/Meta.
 **Regra primária:** sempre perguntar (ou inferir do contexto) a duração do Reel antes de gerar
 parâmetros. A duração determina o perfil obrigatório.
 
-### Maximum Quality — Reels ≤ 30s
-```
-target bitrate : 10000 kbps
-maxrate        : 11200 kbps
-bufsize        : 15000 kbps
-vbv-init       : 0.90
-```
+Cinco tiers, selecionados pela duração (fonte: `VBV_PRESETS` em `Reels_Encoder_v2_FINAL.py`).
+`vbv-init` = 0.90 em todos.
 
-### Safe Premium — Reels ≥ 40s
-```
-target bitrate : 8000 kbps
-maxrate        : 9000 kbps
-bufsize        : 12500 kbps
-vbv-init       : 0.90
-```
+| Tier | Duração | target (kbps) | maxrate (kbps) | bufsize (kbps) |
+|---|---|---|---|---|
+| `ultra_short` (Maximum Quality) | ≤ 15s | 10000 | 11200 | 15000 |
+| `short` (High Quality) | 15–30s | 9800 | 11000 | 14850 |
+| `medium` (Balanced) | 30–45s | 8500 | 9500 | 12825 |
+| `long` (Safe Premium) | 45–60s | 8000 | 9000 | 12150 |
+| `extra_long` (Conservative) | 60–90s | 6500 | 7500 | 10125 |
 
-> **Zona de transição 30–40s:** usar Safe Premium com target=9000 como compromisso seguro.
+- **GOP:** `keyint` limitado a 2 s (`fps × 2`); em clipes ≤ 15s, 1 s. A regra da plataforma é em
+  tempo, não em frames: a 60 fps o teto é 120 frames.
+- **Level:** 4.0 e 4.1 são aceitos (`references/instagram-ingest-rules.md`); o encoder usa 4.1.
 
 ---
 
@@ -191,7 +188,7 @@ dos I-frames do source antes do encode. `derive_gop()` combina essa evidência c
 
 O resultado é exposto em `result.gop_profile` (dict com `keyint`, `scenecut`,
 `force_keyframes`, `strategy`, `cut_rhythm`, `reasoning`). Hard cap absoluto:
-`keyint ≤ 60` (regra Instagram). Ver `references/vbv-rate-control.md` seção
+`keyint ≤ 60` (cap do planejador, conservador; a regra da plataforma é 2 s). Ver `references/vbv-rate-control.md` seção
 "GOP Structure" para a lógica completa.
 
 ### Passo 4c — Alocação de bits por shot (x264 zones)
@@ -234,8 +231,8 @@ Critérios de aprovação:
   que são de fato bons. O não-NEG é a referência justa para sign-off. Para flagrar
   *inflação* de qualidade (sharpening/denoise oportunista), rodar com override:
   `VMAF_MODEL=vmaf_v0.6.1neg`. Os targets abaixo assumem o não-NEG.
-- VMAF ≥ 93 para Maximum Quality (≤30s)
-- VMAF ≥ 90 para Safe Premium (≥40s)
+- VMAF ≥ 93 para Reels ≤30s
+- VMAF ≥ 90 para Reels ≥40s
 - VMAF harmonic mean deve estar próximo da mean — delta > 3 indica cenas problemáticas
 
 ### Passo 6b — Loop de iteração quando VMAF falha

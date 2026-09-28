@@ -284,12 +284,15 @@ def terminate_active_ffmpeg(timeout: float = 5.0) -> bool:
 # =============================================================================
 # VBV PRESETS PARA INSTAGRAM REELS
 # =============================================================================
+_INGEST_MAX_AVG_KBPS = 12000
+_INGEST_MAX_PEAK_KBPS = 15000
+
 VBV_PRESETS = {
     "ultra_short": {
         "duration_max": 15,
-        "target": 12000,
-        "maxrate": 13000,
-        "bufsize": 17550,  # maxrate × 1.35s
+        "target": 10000,
+        "maxrate": 11200,
+        "bufsize": 15000,  # perfil ≤30s da skill
         "vbv_init": 0.9,
         "description": "Ultra Short (≤15s) — Maximum Quality",
     },
@@ -1369,18 +1372,13 @@ def probe_audio_channels(input_file: str) -> int:
 
 
 def _loudnorm_channel_prefix(channels: int) -> str:
-    """Downmix p/ estéreo ANTES do loudnorm quando a fonte tem >2 canais.
+    """Converte p/ estéreo ANTES do loudnorm quando a fonte não é estéreo.
 
     Garante que a medição (Pass 1) e a normalização (Pass 2) atuem sobre o
-    MESMO layout estéreo que é efetivamente entregue — sem isso, o downmix
-    `-ac 2` aplicado depois do loudnorm desloca a loudness final do alvo.
+    MESMO layout estéreo que é efetivamente entregue: o upmix mono→estéreo e o
+    downmix >2 canais feitos só pelo `-ac 2` final deslocam a loudness do alvo.
     """
-    return "aformat=channel_layouts=stereo," if channels and channels > 2 else ""
-
-
-def _loudnorm_dual_mono(channels: int) -> str:
-    """':dual_mono=true' p/ fontes mono (correção EBU R128 de -3 LU)."""
-    return ":dual_mono=true" if channels == 1 else ""
+    return "aformat=channel_layouts=stereo," if channels and channels != 2 else ""
 
 
 def build_loudnorm_measure_filter(target: str = "instagram", channels: int = 2) -> str:
@@ -1389,7 +1387,6 @@ def build_loudnorm_measure_filter(target: str = "instagram", channels: int = 2) 
     return (
         f"{_loudnorm_channel_prefix(channels)}"
         f"loudnorm=I={t['I']}:TP={t['TP']}:LRA={t['LRA']}"
-        f"{_loudnorm_dual_mono(channels)}"
         f":print_format=json"
     )
 
@@ -1483,7 +1480,7 @@ def analyze_audio_loudness(
         console.print(f"[dim]   LRA: {stats['input_lra']} LU[/dim]")
         console.print(f"[dim]   Threshold: {stats['input_thresh']} LUFS[/dim]")
 
-        # Layout de canais p/ o Pass 2 (dual_mono / downmix estéreo)
+        # Layout de canais p/ o Pass 2 (upmix/downmix estéreo)
         stats["_channels"] = channels
 
         return stats
@@ -1523,7 +1520,6 @@ def build_loudnorm_filter(
         f"measured_LRA={stats['input_lra']}:"
         f"measured_thresh={stats['input_thresh']}"
         f"{offset_frag}"
-        f"{_loudnorm_dual_mono(channels)}"
         f":linear=true:print_format=summary"
     )
 
@@ -1832,12 +1828,12 @@ def _adaptive_2pass_x264_params(
     else:
         bitrate_factor = 1.00
 
-    adapted_bitrate = int(base_bitrate * bitrate_factor)
+    adapted_bitrate = min(int(base_bitrate * bitrate_factor), _INGEST_MAX_AVG_KBPS)
 
     # ── ULTRA SAFE VBV LIMITS (Instagram Platform) ──────────────────────────
     # maxrate = bitrate × 1.10  → margem mínima de 10% (picos curtos)
     # bufsize = maxrate × 1.35  → janela 1.35s, alinhado com VBV_PRESETS (1.2×–1.4×)
-    vbv_maxrate = int(adapted_bitrate * 1.10)
+    vbv_maxrate = min(int(adapted_bitrate * 1.10), _INGEST_MAX_PEAK_KBPS)
     vbv_bufsize = int(vbv_maxrate    * 1.35)
     vbv_init    = 0.90
 

@@ -188,9 +188,22 @@ elif (( BITRATE > 12000                     )); then fail "Bitrate vídeo" "${BI
 elif (( BITRATE >= 1 && BITRATE < 3500      )); then warn "Bitrate vídeo" "${BITRATE} kbps" "≥ 3500 kbps mínimo recomendado"
 else                                                 warn "Bitrate vídeo" "não detectado"   "verificar manualmente com ffprobe"; fi
 
-if   (( MAX_GOP > 0 && MAX_GOP <= 60 )); then ok   "GOP (keyframe)" "máx ${MAX_GOP} frames a cada ~$((MAX_GOP * 33 / 1000))ms"
-elif (( MAX_GOP > 60                  )); then fail "GOP (keyframe)" "${MAX_GOP} frames"   "≤ 60 frames (2s @ 30fps)"
-else                                           warn "GOP (keyframe)" "não detectado"       "verificar keyint manualmente"; fi
+GOP_FPS=$(ffprobe -v quiet -select_streams v:0 -show_entries stream=avg_frame_rate -of csv=p=0 "$FILE" 2>/dev/null |   python3 -c "
+import sys
+try:
+    n, d = sys.stdin.read().strip().split('/')
+    print(float(n) / float(d) if float(d) else 0)
+except Exception:
+    print(0)
+" 2>/dev/null || echo "0")
+GOP_LIMIT=$(python3 -c "import math; f=float('${GOP_FPS:-0}'); print(math.ceil(2*f) if f > 0 else 60)" 2>/dev/null || echo "60")
+GOP_DESC=$(python3 -c "
+f=float('${GOP_FPS:-0}'); g=int('${MAX_GOP:-0}')
+print(f'{g} frames = {g/f:.2f}s @ {f:.2f} fps' if f > 0 else f'{g} frames')
+" 2>/dev/null || echo "${MAX_GOP} frames")
+if   (( MAX_GOP > 0 && MAX_GOP <= GOP_LIMIT )); then ok   "GOP (keyframe)" "máx ${GOP_DESC} (limite 2s = ${GOP_LIMIT} frames)"
+elif (( MAX_GOP > GOP_LIMIT                 )); then fail "GOP (keyframe)" "${GOP_DESC}"   "≤ 2s (${GOP_LIMIT} frames)"
+else                                                 warn "GOP (keyframe)" "não detectado"       "verificar keyint manualmente"; fi
 
 hdr "COR"
 

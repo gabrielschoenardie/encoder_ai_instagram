@@ -1320,3 +1320,63 @@ medição e entrega usam o mesmo layout, como a própria docstring de `_loudnorm
 | lacuna do launcher (BD9) | **corrigido** | BD6b `421220d` |
 | BDF15, BDF17 | **aberto — baixo** | candidatos a ciclo de UX/áudio |
 | BDF16 | **aberto — prioridade alta no próximo ciclo** | muda loudness de fontes mono; exige aprovação do usuário |
+
+## Fechamento — 2026-09-27 (Ciclo BE: BDF16, BDF9, BDF10)
+
+Evidência: `validador` (BE4, `.claude/memory/VALIDATION.md`) e uma varredura exploratória do Orquestrador (7 encodes CRF com o
+`vbv_init` alterado só em memória, mais VMAF entre as variantes; arquivos no scratchpad da sessão, efêmeros — os números
+que importam estão nesta seção). FFmpeg 6.1.3, PyAV 18.1.0. Fonte sintética: `testsrc2` 1080×1920 60 fps 3 s, áudio mono.
+
+### Status (2026-09-27, Ciclo BE) — substitui as linhas "aberto" de BDF9, BDF10 e BDF16 acima
+
+| ID | status | onde |
+|----|--------|------|
+| BDF16 | **corrigido** | BE1 `58c9459` (upmix p/ estéreo dentro da cadeia, `dual_mono` removido) + BE1b `d3e3e19` (README). Prova real: fonte mono de −21,1 LUFS sai a **−14,0 LUFS** no FFmpeg CRF, no 2-pass e no Cineon (era −17,0) |
+| BDF9, 2-pass | **corrigido** | BE2 `722b085`: tier ≤15s em 10000/11200/15000 e clamp 12000/15000 em `_adaptive_2pass_x264_params`. Prova real: 2-pass da fixture = **9574 kbps** (o cálculo antigo dava 13799 com `mean_q<18`) |
+| BDF9, CRF ≤15s | **parcial — limitação aceita** | decisão do usuário, ver abaixo |
+| BDF10 | **corrigido** (documentação + validador) | BE3 `f906c70` (tabela dos 5 tiers, Level 4.0/4.1, `keyint` ≤2 s, GOP em segundos no `validate_encode.sh`) e BE3b `69be5eb`. Residual S4, fora do ciclo: `analyze_source.py:587` mantém o comentário "hard cap: 60 frames (Instagram)" — o cap é do planejador, a regra da plataforma é 2 s |
+| BDF11, BDF12, BDF13 | **aberto — exige A/B com o usuário** | inalterado |
+| BDF15, BDF17 | **aberto — baixo** | inalterado |
+| BEF1 | **aberto — observação S4** | ver abaixo |
+
+## Decisão — 2026-09-27 (Ciclo BE) — CRF ≤15s pode passar de 12000 kbps médio: aceito, não será corrigido
+
+Decisão do usuário, tomada com os números abaixo à vista, entre `vbv_init` 0,3 (recomendado por mim), 0,6 e manter 0,9.
+
+**O que foi medido.** Depois da BE2 (tier 10000/11200/15000), os dois caminhos CRF ainda ficam acima do teto médio de 12000 na
+fixture sintética, **inclusive acima do próprio `maxrate` de 11200**: FFmpeg CRF 12777 kbps, Cineon CRF 12905 kbps
+(`validate_encode.sh` ✗ `≤ 12000` nos dois). Numa segunda execução do mesmo encode a média foi 12900 — variação de ≈1% entre
+execuções. O 2-pass não sofre disso (9574).
+
+**Causa (medida, não presumida).** O `vbv_init` 0,9 deixa o encoder gastar o buffer inicial (0,9 × `bufsize` 15000 kb) nos
+primeiros frames. O excesso escala com `vbv_init × bufsize ÷ duração`, não com o `maxrate` — por isso pesa em clipes curtos. A
+estimativa do plano ("~2% de margem", `11200 × 1,05 ≈ 11760`) estava errada e o `VALIDATION.md` a repetiu; corrigido lá.
+
+| `vbv_init` / `bufsize` | sintética 3 s: kbps total / 1º s / VMAF vs 0,9 (inteiro; 1º s) | real 10 s: kbps total / 1º s / VMAF vs 0,9 (inteiro; 1º s) |
+|---|---|---|
+| 0,9 (atual) | 12900 / 13606 / — | 11654 / **15260** / — |
+| 0,6 | 11329 / 11702 / 96,78; 96,76 | não medido |
+| 0,3 | 9891 / 8132 / 96,22; 95,61 | 10738 / 9271 / 99,34; 99,21 |
+| 0,1 | 8889 / 5937 / 95,50; 93,28 | não medido |
+| `bufsize` 7500 (`vbv_init` 0,9) | 11784 / 12421 / 96,43; 96,76 | não medido |
+
+O VMAF é do encode com o `vbv_init` novo contra o encode com 0,9 (mesmo grade; só o buffer inicial muda), então mede quanto a
+imagem muda, não a qualidade absoluta. O clipe real são os 10 s iniciais de um `.mov` do usuário (n=1); a fixture `testsrc2` é
+um teste de estresse.
+
+**O que fica aceito, com a evidência à vista.** No clipe real a média (11654) passa do teto de 12000, mas o **1º segundo roda a
+15260 kbps, acima do teto de pico de 15000** da Regra de Ouro 6 — o burst do buffer inicial. Encodes CRF de clipes ≤15s de
+conteúdo muito complexo podem reprovar no bitrate médio do `validate_encode.sh`; isso é esperado, não perseguir como regressão.
+
+**Condição de reabertura:** se um encode CRF de clipe real ≤15s reprovar o bitrate médio no `validate_encode.sh`, ou se o
+Instagram recomprimir um clipe ≤15s cujo 1º segundo ultrapasse 15000 kbps, a correção medida é `vbv_init` 0,3 no tier
+`ultra_short` (efeito só nos caminhos CRF FFmpeg e Cineon, que leem o `vbv_init` do preset; o 2-pass usa 0,90 fixo em
+`_adaptive_2pass_x264_params`).
+
+### Observação BEF1 (S4) — burst inicial nos tiers ≥15s
+
+| ID | categoria | arquivo | descrição ≤20 palavras | severidade | esperado vs medido |
+|----|-----------|---------|------------------------|------------|--------------------|
+| BEF1 | burst do buffer inicial fora do `ultra_short` | `VBV_PRESETS` (`vbv_init` 0,9 em todos os tiers) | 1º segundo acima do `maxrate` do tier em encode real de 20s; abaixo de 15000, sem violar a Regra 6 | S4 | 2-pass real de 20 s: 9772 kbps médio, 11918 no 1º s (`maxrate` do tier 11000); 30 s: 8065 / 8941; fixture 2-pass: 9574 / 9313 |
+
+Sem ação. Mudar o `vbv_init` de tiers mais longos altera a imagem de todo encode: candidato a A/B junto com `BDF11`–`13`.

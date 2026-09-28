@@ -3655,3 +3655,64 @@ revisão da BD8; a BD6b saiu da auditoria BD9.
 Achados novos durante a execução: `BDF15` (S4), `BDF16` (S2, mono −3 LU), `BDF17` (S4, cauda de áudio no
 Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em ordem sugerida: `BDF16`,
 `BDF9` (item 2), `BDF10` (item 4); depois, com A/B do usuário, `BDF11`/`BDF12`/`BDF13`.
+
+## Ciclo BE
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| BE1 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_loudnorm.py` | `dual_mono` removido, prefixo `aformat` p/ canais != 2; e2e mono −17,0 → [−15,−13]; ruff limpo; suíte 504 verdes + 1 falha (`test_cineon_color_io.py::test_red_bt709_full_range`) no Python de sistema. **Correção do Orquestrador:** a falha não é pré-existente no código, é de ambiente — o Python de sistema tem PyAV 16.1.0, abaixo do piso `av>=17.0.0` (BD2). Verificado em venv isolado (Python 3.13.3, PyAV 18.1.0, `--timeout=120`): **505 passed**, sem skip; `ruff check .` limpo |
+| BE1b | done | `README.md` | Bullet "Canais" (l.327) reescrito: mono→estéreo dentro da cadeia antes do `loudnorm`, como 5.1 (conforme `_loudnorm_channel_prefix`, canais != 2); sem `dual_mono` nem número; grep `dual_mono\|-3 LU` → 0; markdownlint-cli2@0.23.1 → 0 issues; `ui/test_docs_consistency.py` 3 passed (venv-be) |
+| BE2 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_vbv_ceiling.py` | `ultra_short` → 10000/11200/15000; `_INGEST_MAX_AVG_KBPS`/`_INGEST_MAX_PEAK_KBPS` limitam o 2-pass; 74 testes novos reprovam antes (9 falham) e passam depois; suíte 579 passed (505+74); ruff 0.14.10 limpo; `17550` sem outras ocorrências; rodada sem FFmpeg feita pelo Orquestrador: 570 passed + 9 skipped (ver abaixo) |
+| BE3 | done | `.claude/skills/instagram-reels-encoder/SKILL.md`, `.claude/skills/instagram-reels-encoder/scripts/validate_encode.sh` | Tabela de 5 tiers conferida contra `VBV_PRESETS` (parse via `ast.literal_eval` do dicionário, comparação por tier: 5/5 iguais); notas de keyint 2 s e Level 4.0/4.1; GOP do validador em segundos (`ceil(2×fps)`, fallback 60); 5 casos de GOP conforme esperado |
+| BE3b | done | `.claude/skills/instagram-reels-encoder/SKILL.md` | l.234-235 rotuladas por faixa (Reels ≤30s / ≥40s), limiares 93/90 mantidos; l.191 atribui `keyint ≤ 60` ao planejador (cap em `scripts/analyze_source.py:587`, `min(round(keyint_s * fps), 60)`); diff 3 linhas; nomes de perfil só na tabela de tiers (l.61, l.64) |
+| BE4 | done (com limitação aceita) | `.claude/memory/VALIDATION.md` | `validador`, 3 encodes reais da fixture mono 3 s: **loudness −14,0 LUFS nos três** (BDF16 provado; era −17,0); 2-pass 9574 kbps ✓ (BDF9 provado); CRF FFmpeg 12777 e Cineon CRF 12905 kbps ✗ no bitrate médio. Varredura exploratória do Orquestrador (7 encodes + VMAF): a causa é o `vbv_init` 0,9; **decisão do usuário: manter 0,9 e aceitar** — evidência e condição de reabertura em `FINDINGS.md` § "Decisão — 2026-09-27 (Ciclo BE)". Sem mudança de código |
+| BE5 | pendente | `.claude/memory/*` | fechamento de FINDINGS/STATE/VALIDATION feito; memória do usuário atualizada (`dual_mono`); falta push da branch e PR — aguardam confirmação do usuário |
+
+### BE1 — saída vermelha do e2e pré-fix
+
+Ambiente: `venv/` não tem pytest; usado o Python do sistema (pytest 9.0.2, ruff 0.14.10, sem `pytest-timeout`, então sem `--timeout=120`). FFmpeg = `bin/ffmpeg.exe`.
+
+```
+enhance\test_loudnorm.py:243: AssertionError
+E       AssertionError: integrated loudness -17.0 LUFS fora de [-15, -13]
+FAILED TestBuildLoudnormFilter::test_upmix_prefix_for_mono_source
+FAILED TestBuildLoudnormFilter::test_channels_read_from_stats_when_param_none
+FAILED TestBuildLoudnormMeasureFilter::test_upmix_prefix_for_mono
+FAILED TestMonoSourceE2E::test_mono_source_lands_near_target
+4 failed, 26 passed
+```
+
+Pós-fix: `30 passed` em `enhance/test_loudnorm.py`. Memória da BE1 vai no mesmo commit do código.
+
+### BE2 — saída vermelha pré-fix
+
+`enhance/test_vbv_ceiling.py` contra o HEAD `d3e3e19`: `9 failed, 65 passed`.
+
+```
+E       assert (12000, 13000, 17550) == (10000, 11200, 15000)      # get_vbv_preset(15.0)
+E       assert 13799 <= 12000      # 2-pass, base 12000, mean_q<18
+E       assert 12960 <= 12000      # 2-pass, base 12000, mean_q<21
+E       assert 13799 == 12000      # clamp com base_bitrate=12000, mean_q=10
+E       assert 20000 == 12000      # base 20000 sem clamp
+```
+
+Pós-fix: `74 passed` no arquivo novo; suíte canônica `579 passed` (baseline 505). `ruff check .` (0.14.10): All checks passed.
+`grep -rn "17550"` (py/md, fora de `.claude/memory` e `docs/superpowers`): 0 ocorrências restantes.
+
+Rodada "sem FFmpeg": o executor não a simulou e registrou o motivo errado ("`ui/binaries.py` não aceita `REELS_FFMPEG`/`REELS_FFPROBE`"). **Correção do Orquestrador:** `ui/binaries.py` aceita as variáveis (`env_path` monta `"REELS_" + name.upper()`, por isso um grep literal não as acha; `AXF9` segue corrigido), mas só as honra se apontarem para arquivo existente — senão cai em `bin/` e no PATH, então uma variável apontando para caminho inexistente não simula a ausência. O que vale: `./bin/` tem os binários do usuário (não mexer) e o PATH tem o FFmpeg 6.1.3 do winget.
+Rodada feita pelo Orquestrador, sem tocar em `./bin/`: `git worktree` descartável no scratchpad (sem `bin/`, que é ignorado pelo git) + PATH filtrado sem winget/ffmpeg (`command -v ffmpeg`/`ffprobe` → nenhum), venv-be: **570 passed, 9 skipped, 0 failed**. Os 9 skips são os que exigem FFmpeg (`test_cineon_e2e` ×5, `test_color_matrix` ×3, `test_loudnorm` ×1 — o e2e mono da BE1 pula como o plano exige). Com FFmpeg: 579 passed. Worktree removido.
+
+### BE3 — linha de GOP (fixtures `testsrc2` 320x568, 4 s, `-g N -keyint_min N -sc_threshold 0`, no scratchpad)
+
+Duração 4 s (não 2 s): o GOP medido só chega a N se o clipe tiver mais de N frames. Rodado com `bash`.
+
+| caso | antes (script original) | depois |
+|---|---|---|
+| 30 fps `-g 60` | ✅ máx 60 frames | ✅ 60 frames = 2.00s @ 30.00 fps (limite 60) |
+| 60 fps `-g 120` | ❌ 120 frames (esperado ≤ 60) — prova vermelha | ✅ 120 frames = 2.00s @ 60.00 fps (limite 120) |
+| 60 fps `-g 180` | ❌ 180 frames | ❌ 180 frames = 3.00s @ 60.00 fps (≤ 2s, 120 frames) |
+| 30 fps `-g 90` | ❌ 90 frames | ❌ 90 frames = 3.00s @ 30.00 fps (≤ 2s, 60 frames) |
+| 29,97 fps `-g 60` | ✅ 60 frames | ✅ 60 frames = 2.00s @ 29.97 fps (limite ceil(59.94)=60) |
+
+`git diff --stat` do `validate_encode.sh`: 16 inserções, 3 remoções (só o bloco de GOP; índice permanece LF, worktree CRLF por autocrlf). Nenhum teste automatizado cobre o script.
+Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-level:v 4.0` (template), l.85 `keyint=60` (template), l.186 `keyint=60:scenecut=40`, l.191 `keyint ≤ 60`, l.234-235 "VMAF ≥ 93 Maximum Quality (≤30s)" / "≥ 90 Safe Premium (≥40s)".

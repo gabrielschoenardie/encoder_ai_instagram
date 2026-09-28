@@ -7,12 +7,12 @@ Reels_Encoder_v2_FINAL.py.
 Covers the audit fixes:
   - offset (target_offset) passed back into Pass 2
   - True Peak target hardened to -1.5 dBTP for Instagram/YouTube
-  - dual_mono correction for mono sources
-  - multichannel (>2) downmix to stereo INSIDE the filter chain, so
+  - upmix/downmix of any non-stereo source to stereo INSIDE the filter chain, so
     measurement (Pass 1) and normalization (Pass 2) act on the same
     layout that is actually delivered.
 
-All tests exercise pure string builders — no ffmpeg subprocess required.
+Tests exercise pure string builders; the mono end-to-end test runs FFmpeg
+and is skipped when the resolved binary does not execute.
 
 Run:
     python -m pytest enhance/test_loudnorm.py -v
@@ -20,8 +20,13 @@ Run:
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import subprocess
 import sys
+
+import pytest
 
 # ── Path setup: import the root encoder module ────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,6 +35,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import Reels_Encoder_v2_FINAL as R  # noqa: E402
+from ui.binaries import FFMPEG  # noqa: E402
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -107,9 +113,10 @@ class TestBuildLoudnormFilter:
         af = R.build_loudnorm_filter(stats, channels=2)
         assert "offset=" not in af, f"offset must be omitted when absent: {af}"
 
-    def test_dual_mono_for_mono_source(self):
+    def test_upmix_prefix_for_mono_source(self):
         af = R.build_loudnorm_filter(_stats(), channels=1)
-        assert "dual_mono=true" in af, f"mono needs dual_mono: {af}"
+        assert af.startswith("aformat=channel_layouts=stereo,"), af
+        assert "dual_mono" not in af, af
 
     def test_no_dual_mono_for_stereo(self):
         af = R.build_loudnorm_filter(_stats(), channels=2)
@@ -129,7 +136,7 @@ class TestBuildLoudnormFilter:
     def test_channels_read_from_stats_when_param_none(self):
         """When channels not passed, fall back to stats['_channels']."""
         af = R.build_loudnorm_filter(_stats(_channels=1), channels=None)
-        assert "dual_mono=true" in af
+        assert af.startswith("aformat=channel_layouts=stereo,"), af
 
     def test_defaults_to_stereo_when_no_channel_info(self):
         af = R.build_loudnorm_filter(_stats(), channels=None)
@@ -160,9 +167,10 @@ class TestBuildLoudnormMeasureFilter:
         af = R.build_loudnorm_measure_filter(channels=2)
         assert "measured_" not in af
 
-    def test_dual_mono_for_mono(self):
+    def test_upmix_prefix_for_mono(self):
         af = R.build_loudnorm_measure_filter(channels=1)
-        assert "dual_mono=true" in af
+        assert af.startswith("aformat=channel_layouts=stereo,"), af
+        assert "dual_mono" not in af, af
 
     def test_downmix_prefix_for_multichannel(self):
         """Measurement must act on the SAME stereo downmix Pass 2 delivers."""
@@ -178,6 +186,61 @@ class TestBuildLoudnormMeasureFilter:
     def test_no_malformed_syntax(self):
         for ch in (1, 2, 6):
             _assert_no_malformed_af(R.build_loudnorm_measure_filter(channels=ch))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# E2E — fonte mono entregue perto do alvo (BDF16)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ffmpeg_runs() -> bool:
+    try:
+        return subprocess.run(
+            [FFMPEG, "-hide_banner", "-version"], capture_output=True, timeout=60
+        ).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _integrated_lufs(path) -> float:
+    r = subprocess.run(
+        [FFMPEG, "-hide_banner", "-nostats", "-i", str(path), "-af", "ebur128", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=120,
+    )
+    summary = r.stderr.rsplit("Summary:", 1)[-1]
+    return float(re.search(r"I:\s*(-?\d+(?:\.\d+)?)\s*LUFS", summary).group(1))
+
+
+class TestMonoSourceE2E:
+
+    def test_mono_source_lands_near_target(self, tmp_path, monkeypatch):
+        if not _ffmpeg_runs():
+            pytest.skip(f"ffmpeg não executa: {FFMPEG}")
+        monkeypatch.setattr(R.console, "print", lambda *a, **k: None)
+
+        src = tmp_path / "mono.wav"
+        subprocess.run(
+            [FFMPEG, "-y", "-hide_banner", "-f", "lavfi", "-i",
+             "sine=frequency=440:duration=10:sample_rate=48000", "-ac", "1", str(src)],
+            check=True, capture_output=True, timeout=120,
+        )
+
+        measure_af = R.build_loudnorm_measure_filter(channels=1)
+        r = subprocess.run(
+            [FFMPEG, "-hide_banner", "-nostats", "-i", str(src), "-af", measure_af, "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120, check=True,
+        )
+        stats = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+        stats["_channels"] = 1
+
+        out = tmp_path / "out.wav"
+        subprocess.run(
+            [FFMPEG, "-y", "-hide_banner", "-i", str(src),
+             "-af", R.build_loudnorm_filter(stats, channels=1), "-ac", "2", "-ar", "48000", str(out)],
+            check=True, capture_output=True, timeout=120,
+        )
+
+        i = _integrated_lufs(out)
+        assert -15.0 <= i <= -13.0, f"integrated loudness {i} LUFS fora de [-15, -13]"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
