@@ -101,7 +101,7 @@ Conhecimento de encoder: `skill: instagram-reels-encoder` § "Regras de Ouro" (r
 | BE4 | encodes reais + validação | validador | `.claude/memory/VALIDATION.md` | ver § "Validação" |
 | BE5 | fechamento: STATE/FINDINGS, memória do usuário, push, PR | Orquestrador | `.claude/memory/*` | — |
 
-Ordem: BE1 → BE1b → BE2 → BE3 → BE4 → BE5. Nada em paralelo: BE1 e BE2 editam `Reels_Encoder_v2_FINAL.py`.
+Ordem: BE1 → BE1b → BE2 → BE3 → BE3b → BE4 → BE5. Nada em paralelo: BE1 e BE2 editam `Reels_Encoder_v2_FINAL.py`.
 Um commit por ID.
 
 Adendos durante a execução (decisão do Orquestrador, registrados no STATE.md):
@@ -109,6 +109,7 @@ Adendos durante a execução (decisão do Orquestrador, registrados no STATE.md)
 | ID | origem | agente | arquivos | critério de done |
 |----|--------|--------|----------|------------------|
 | BE1b | revisão do Orquestrador sobre a BE1: `README.md:327` ainda diz que fonte mono recebe correção `dual_mono` (−3 LU), o que a BE1 tornou falso; o plano não listava o README | executor | `README.md` | a frase descreve o comportamento real (mono, como 5.1, é convertida para estéreo dentro da cadeia, nos dois passes, para medição e entrega usarem o mesmo layout), sem citar `dual_mono` nem prometer número; `grep -n "dual_mono\|-3 LU" README.md` → 0; `npx --yes markdownlint-cli2@0.23.1 README.md` → 0 issues; um commit |
+| BE3b | revisão do Orquestrador sobre a BE3: o `SKILL.md` ficou com passagens que contradizem a tabela nova de tiers — as linhas 234–235 citam "Maximum Quality (≤30s)" e "Safe Premium (≥40s)", nomes que agora rotulam os tiers ≤15s e 45–60s; a linha 191 atribui à plataforma um cap de `keyint ≤ 60` em frames, enquanto a tabela diz que a regra é em tempo | executor | `.claude/skills/instagram-reels-encoder/SKILL.md` | 234–235: trocar os nomes pelas faixas de duração ("Reels ≤30s" e "Reels ≥40s"), mantendo os limiares 93 e 90; 191: verificar no código do planejador de GOP (localizar por `gop_profile`) se o cap de 60 é dele e reescrever só a atribuição ("cap do planejador, conservador; a regra da plataforma é 2 s"), sem mudar o número; linhas 79, 85 e 186 (templates de 30 fps) intocadas; um commit |
 
 ## Validação (BE4)
 
