@@ -3661,6 +3661,7 @@ Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em 
 | ID | status | arquivo tocado | resultado |
 |----|--------|----------------|-----------|
 | BE1 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_loudnorm.py` | `dual_mono` removido, prefixo `aformat` p/ canais != 2; e2e mono −17,0 → [−15,−13]; ruff limpo; suíte 504 verdes + 1 falha (`test_cineon_color_io.py::test_red_bt709_full_range`) no Python de sistema. **Correção do Orquestrador:** a falha não é pré-existente no código, é de ambiente — o Python de sistema tem PyAV 16.1.0, abaixo do piso `av>=17.0.0` (BD2). Verificado em venv isolado (Python 3.13.3, PyAV 18.1.0, `--timeout=120`): **505 passed**, sem skip; `ruff check .` limpo |
+| BE1b | done | `README.md` | Bullet "Canais" (l.327) reescrito: mono→estéreo dentro da cadeia antes do `loudnorm`, como 5.1 (conforme `_loudnorm_channel_prefix`, canais != 2); sem `dual_mono` nem número; grep `dual_mono\|-3 LU` → 0; markdownlint-cli2@0.23.1 → 0 issues; `ui/test_docs_consistency.py` 3 passed (venv-be) |
 
 ### BE1 — saída vermelha do e2e pré-fix
 
