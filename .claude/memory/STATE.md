@@ -3739,3 +3739,30 @@ Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-l
 ### BF3 — saída pré-fix
 
 `enhance/test_mctf_requires_enhance_ai.py` REPROVOU antes da função: 2 failed, ambos `AttributeError: module 'Reels_Encoder_v2_FINAL' has no attribute '_mctf_ignored_reason'`. Após o fix: 2 passed; suíte canônica 585 passed; `ruff check .` limpo.
+
+## Ciclo BG
+
+Baseline HEAD (c131e3e): 585 passed com FFmpeg.
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|-----------------|----------------|----------------------|
+| BG1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_lut_resolution.py | `_resolve_cineon_lut` nova; 5 casos vermelhos antes (AttributeError), verdes depois; prova real: CLI `--cineon-pipeline on` rodada do scratchpad (fora do repo) achou a LUT padrão; suíte 590 passed; ruff limpo |
+| BG2 | done | README.md | bullet do Pass 2 reescrito (modo dinâmico quando o ganho linear estouraria −1.5 dBTP); só esse bullet mudou |
+| BG3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_report_settings.py | `_report_settings` normaliza `enhance_ai`/`mctf` para o efetivo; 4 casos, 2 vermelhos antes (assert 'on'=='off'), verdes depois; suíte 594 passed; ruff limpo |
+| BG4 | done | ui/components.py, ui/test_components.py | chip "AI" agora exige `enhance==on`; chip novo "MCTF" após "AI"; 3 testes vermelhos antes (AssertionError/StopIteration), verdes depois; suíte 597 passed; ruff limpo |
+
+### BG1 — saída pré-fix
+
+`enhance/test_cineon_lut_resolution.py` REPROVOU antes de `_resolve_cineon_lut` existir: 5 failed, todos `AttributeError: module 'Reels_Encoder_v2_FINAL' has no attribute '_resolve_cineon_lut'`. Após o fix: 5 passed. Prova real: `cd` para o scratchpad da sessão, cópia de um vídeo curto do repo (`19162466-hd_1080_1920_24fps.mp4`) para `bg1_source.mp4`, `python Reels_Encoder_v2_FINAL.py bg1_source.mp4 --cineon-pipeline on` (sem `--cineon-lut`) imprimiu `✓ LUT Portra 400 carregada: FilmLook_Portra400_SkinPriority_D65.cube` — a LUT padrão foi achada mesmo com CWD fora da raiz do repo.
+
+### BG3 — saída pré-fix
+
+`enhance/test_report_settings.py` REPROVOU antes do fix em 2 dos 4 casos: `test_enhance_off_zeroes_enhance_ai_and_mctf` (`assert 'on' == 'off'`) e `test_enhance_ai_off_zeroes_mctf_only` (idem para `mctf`). Após o fix: 4 passed.
+
+### BG4 — saída pré-fix
+
+`ui/test_components.py` REPROVOU antes do fix: `test_settings_preview_ai_chip_warns_when_enhance_off` (chip "AI" saía ok mesmo com `enhance=off`), `test_settings_preview_mctf_chip_present` (StopIteration — sem chip "MCTF") e `test_settings_preview_mctf_chip_ok_only_when_all_three_on`. Após o fix: `pytest ui/test_components.py` 41 passed.
+
+### Suíte final e ruff (Ciclo BG)
+
+`python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120` → **597 passed**. `ruff check .` → **All checks passed!**. `git status --short` limpo além dos arquivos tocados e dos itens já não-rastreados pré-existentes (`docs/*.md`, `videos/`).
