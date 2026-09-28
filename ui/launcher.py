@@ -219,8 +219,11 @@ def _flow_advanced(con, base: Optional[EncodeConfig] = None) -> Optional[EncodeC
     if cfg.enhance == "on":
         cfg.enhance_ai = ask_toggle(con, "Decisões via AI (mock CNN)?",
                                     default_on=cfg.enhance_ai == "on")
-        cfg.mctf = ask_toggle(con, "MCTF mask video (anti-flicker)?",
-                              default_on=cfg.mctf == "on")
+        if cfg.enhance_ai == "on":
+            cfg.mctf = ask_toggle(con, "MCTF mask video (anti-flicker)?",
+                                  default_on=cfg.mctf == "on")
+        else:
+            cfg.mctf = "off"
     cfg.dither = ask_select(con, "Dither (ruído anti-banding)", ["auto", "on", "off"], cfg.dither)
 
     # EXPORT

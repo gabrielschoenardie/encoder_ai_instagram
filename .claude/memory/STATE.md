@@ -3722,7 +3722,13 @@ Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-l
 | ID | done ou blocked | arquivo tocado | resultado em 1 linha |
 |----|-----------------|----------------|----------------------|
 | BF1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | `-async 1` no comando de saída do Cineon; e2e `dynamic` vermelho antes (3,0 vs 3,1 s) e verde depois; suíte 581 passed; ruff limpo |
+| BF2 | done | ui/launcher.py, ui/test_launcher.py | MCTF só perguntado com enhance_ai on (senão cfg.mctf=off); teste (a) vermelho antes, verde depois; suíte 583 passed; ruff limpo |
 
 ### BF1 — saída pré-fix (2ª tentativa)
 
 `test_60fps_crf_with_loudnorm_keeps_audio_in_sync[linear]` passou; `[dynamic]` (`analyze_audio_loudness` com `input_tp="-0.10"`, blindagem `measured_TP=-0.10` no `-af` ok) REPROVOU antes do fix: `assert abs(3.0 - 3.1) = 0.1 <= 1/30`. Após `"-async", "1"` no bloco `pass_number != 1` de `_build_pipe_cmd`: 2 passed; suíte canônica 581 passed; `ruff check .` limpo.
+
+### BF2 — saída pré-fix
+
+`test_advanced_flow_skips_mctf_prompt_when_enhance_ai_off` REPROVOU antes do fix: `assert not True` (`any(p.startswith("MCTF mask video") ...)` verdadeiro com enhance on e enhance_ai off). O caso (b) `..._asks_mctf_prompt_when_enhance_ai_on` passou antes e depois. Após o fix: `pytest ui/` 164 passed; suíte canônica 583 passed; `ruff check .` limpo.
+
