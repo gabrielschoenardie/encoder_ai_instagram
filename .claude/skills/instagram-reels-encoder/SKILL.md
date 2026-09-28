@@ -53,23 +53,20 @@ preservação perceptual** na plataforma Instagram/Meta.
 **Regra primária:** sempre perguntar (ou inferir do contexto) a duração do Reel antes de gerar
 parâmetros. A duração determina o perfil obrigatório.
 
-### Maximum Quality — Reels ≤ 30s
-```
-target bitrate : 10000 kbps
-maxrate        : 11200 kbps
-bufsize        : 15000 kbps
-vbv-init       : 0.90
-```
+Cinco tiers, selecionados pela duração (fonte: `VBV_PRESETS` em `Reels_Encoder_v2_FINAL.py`).
+`vbv-init` = 0.90 em todos.
 
-### Safe Premium — Reels ≥ 40s
-```
-target bitrate : 8000 kbps
-maxrate        : 9000 kbps
-bufsize        : 12500 kbps
-vbv-init       : 0.90
-```
+| Tier | Duração | target (kbps) | maxrate (kbps) | bufsize (kbps) |
+|---|---|---|---|---|
+| `ultra_short` (Maximum Quality) | ≤ 15s | 10000 | 11200 | 15000 |
+| `short` (High Quality) | 15–30s | 9800 | 11000 | 14850 |
+| `medium` (Balanced) | 30–45s | 8500 | 9500 | 12825 |
+| `long` (Safe Premium) | 45–60s | 8000 | 9000 | 12150 |
+| `extra_long` (Conservative) | 60–90s | 6500 | 7500 | 10125 |
 
-> **Zona de transição 30–40s:** usar Safe Premium com target=9000 como compromisso seguro.
+- **GOP:** `keyint` limitado a 2 s (`fps × 2`); em clipes ≤ 15s, 1 s. A regra da plataforma é em
+  tempo, não em frames: a 60 fps o teto é 120 frames.
+- **Level:** 4.0 e 4.1 são aceitos (`references/instagram-ingest-rules.md`); o encoder usa 4.1.
 
 ---
 
