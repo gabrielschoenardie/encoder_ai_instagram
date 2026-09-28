@@ -261,6 +261,38 @@ def test_settings_preview_keeps_labels_with_glyphs():
     assert "Audio" in out and "Loudnorm" in out and "AI" in out
 
 
+def _chip_glyph(out: str, label_pattern: str) -> str:
+    """Extract the glyph char immediately before a chip's label text."""
+    import re
+    m = re.search(rf"(\S) {label_pattern}", out)
+    assert m, f"chip {label_pattern!r} not found in preview output"
+    return m.group(1)
+
+
+def test_settings_preview_ai_chip_warns_when_enhance_off():
+    # enhance_ai=on sem enhance=on é descartado pelo motor: o chip "AI" deve
+    # mostrar warn (nao ok), nao "on" cru.
+    cfg = EncodeConfig(input="clip.mov", enhance="off", enhance_ai="on")
+    out = _render(C.settings_preview(cfg))
+    assert _chip_glyph(out, r"✨ AI") == "⚠"
+
+
+def test_settings_preview_mctf_chip_present():
+    cfg = EncodeConfig(input="clip.mov", enhance="on", enhance_ai="on", mctf="off")
+    out = _render(C.settings_preview(cfg))
+    assert "MCTF" in out
+
+
+def test_settings_preview_mctf_chip_ok_only_when_all_three_on():
+    cfg_partial = EncodeConfig(input="clip.mov", enhance="on", enhance_ai="on", mctf="off")
+    out_partial = _render(C.settings_preview(cfg_partial))
+    assert _chip_glyph(out_partial, "MCTF") == "⚠"
+
+    cfg_full = EncodeConfig(input="clip.mov", enhance="on", enhance_ai="on", mctf="on")
+    out_full = _render(C.settings_preview(cfg_full))
+    assert _chip_glyph(out_full, "MCTF") == "✓"
+
+
 def test_error_card_renders():
     out = _render(C.error_card("algo falhou", hints=["rode com --debug"]))
     assert "algo falhou" in out

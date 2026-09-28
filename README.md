@@ -322,7 +322,7 @@ python Reels_Encoder_v2_FINAL.py [input] [opções]
 **Pipeline de loudness (EBU R128, 2-pass verdadeiro):**
 
 - **Pass 1 — medição:** analisa o áudio com `loudnorm:print_format=json` e extrai `input_i/tp/lra/thresh` + `target_offset`.
-- **Pass 2 — normalização linear:** reaplica os valores medidos com `linear=true` e o `offset` do Pass 1 (máxima precisão, sem compressão dinâmica).
+- **Pass 2 — normalização:** reaplica os valores medidos com `linear=true` e o `offset` do Pass 1; quando o ganho linear levaria o true peak acima de -1.5 dBTP (pico alto para o ganho), o próprio FFmpeg passa para o modo dinâmico, que pode limitar picos. O integrado continua em -14 LUFS (±1).
 - **Alvos Instagram/Reels:** **-14 LUFS** integrado (evita que o Instagram re-normalize o loudness) e **-1.5 dBTP** de true peak (margem contra clipping no transcode AAC do Instagram).
 - **Canais:** saída **sempre estéreo** (o Instagram aceita mono/estéreo, mas rejeita 5.1). Fontes **mono** são convertidas para estéreo *dentro* da cadeia de filtros (antes do `loudnorm`), assim como as fontes **multicanal (5.1)**, que são downmixadas — nos dois passes — para que medição e entrega usem o mesmo layout.
 - **Codec de saída:** AAC-LC, 48 kHz, estéreo, 192 kbps.

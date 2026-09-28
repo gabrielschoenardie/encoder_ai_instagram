@@ -1443,3 +1443,13 @@ listar "on" para o que o motor ignorou; o preview (`ui/components.py:443-450`) n
 ainda mantém `mctf=on`, mas agora o motor avisa (BF3). Sem ação.
 
 Abertos após o Ciclo BF: `BDF11`, `BDF12`, `BDF13` (exigem A/B com o usuário), `BFF1` (S3), `BFF2` e `BFF3` (S4).
+
+### Status (2026-09-28, Ciclo BG) — substitui as linhas "aberto" de BFF1, BFF2 e BFF3 acima
+
+| ID | status | onde |
+|----|--------|------|
+| BFF1 | **corrigido** | BG1 `8cd7b22`: `_resolve_cineon_lut` no ponto de uso (nome nu inexistente no CWD → `_find_data_file`); cobre CLI e wizard sem mudar default/help. Prova real: `--cineon-pipeline on` rodado do scratchpad carregou a LUT padrão |
+| BFF2 | **corrigido (texto)** | BG2 `1cc2918`: bullet do Pass 2 no README descreve a queda para o modo dinâmico quando o linear estouraria −1,5 dBTP |
+| BFF3 | **corrigido** | BG3 `0254ca5` (`_report_settings` grava `enhance_ai`/`mctf` efetivos) + BG4 `db0aaa6` (chip "AI" exige `enhance`; chip novo "MCTF") |
+
+Abertos após o Ciclo BG: `BDF11`, `BDF12`, `BDF13` (exigem A/B com o usuário).

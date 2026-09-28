@@ -2249,6 +2249,23 @@ def _find_data_file(filename: str) -> str:
     return os.path.join(here, filename)
 
 
+def _resolve_cineon_lut(path: Optional[str]) -> str:
+    """Resolve o caminho da LUT Portra 400 do Cineon.
+
+    - ``None`` -> busca pelo nome padrão via ``_find_data_file``.
+    - caminho existente (explícito ou relativo ao CWD) -> devolvido como está.
+    - nome nu (sem diretório) inexistente no CWD -> busca via ``_find_data_file``.
+    - qualquer outro caminho (com diretório inexistente) -> devolvido inalterado.
+    """
+    if path is None:
+        return _find_data_file("FilmLook_Portra400_SkinPriority_D65.cube")
+    if os.path.exists(path):
+        return path
+    if os.path.basename(path) == path:
+        return _find_data_file(path)
+    return path
+
+
 _HOLLYWOOD_LUT_FILENAME = (
     "HollywoodCinema_Ultimate_v6.8_3.1-96IRE_Instagram8bit_NeutralShadows.cube"
 )
@@ -3347,8 +3364,7 @@ def run_ffmpeg_with_cineon(
     console.print()
 
     # Carregar LUT Portra 400
-    if cineon_lut_path is None:
-        cineon_lut_path = _find_data_file("FilmLook_Portra400_SkinPriority_D65.cube")
+    cineon_lut_path = _resolve_cineon_lut(cineon_lut_path)
 
     if not os.path.exists(cineon_lut_path):
         console.print(f"[red]✗ LUT Portra 400 não encontrada: {cineon_lut_path}[/red]")
@@ -3985,10 +4001,21 @@ def find_video_files(folder: str) -> list:
 
 
 def _report_settings(args) -> dict:
-    """Human-relevant encode settings for the delivery certificate."""
+    """Human-relevant encode settings for the delivery certificate.
+
+    `enhance_ai` e `mctf` são normalizados para o valor efetivo (as mesmas
+    regras de descarte do motor em `_encode_single_file`): se `enhance` não
+    for "on", `enhance_ai` sai "off"; se o `enhance_ai` efetivo não for "on",
+    `mctf` sai "off". Só normaliza chaves já presentes.
+    """
     keys = ("mode", "fit", "fps", "scale", "lut", "loudnorm", "hdr", "tonemap",
             "cineon_pipeline", "enhance", "enhance_ai", "mctf", "dither", "performance")
-    return {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
+    settings = {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
+    if "enhance_ai" in settings and settings.get("enhance") != "on":
+        settings["enhance_ai"] = "off"
+    if "mctf" in settings and settings.get("enhance_ai") != "on":
+        settings["mctf"] = "off"
+    return settings
 
 
 def _mctf_ignored_reason(mctf: str, enhance_ai: bool) -> Optional[str]:
