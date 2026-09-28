@@ -444,7 +444,8 @@ def settings_preview(config, src_dims=None, console=None) -> RenderableType:
         quality_chip("LUT", config.lut == "on", console),
         quality_chip(f"{g['audio']} Loudnorm", config.loudnorm == "on", console),
         quality_chip("Enhance", config.enhance == "on", console),
-        quality_chip(f"{g['spark']} AI", config.enhance_ai == "on", console),
+        quality_chip(f"{g['spark']} AI", config.enhance == "on" and config.enhance_ai == "on", console),
+        quality_chip("MCTF", config.enhance == "on" and config.enhance_ai == "on" and config.mctf == "on", console),
         quality_chip("Dither", config.dither != "off", console),
         quality_chip("EBU Meter", config.ebu_meter == "on", console),
     ]
