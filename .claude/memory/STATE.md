@@ -3723,6 +3723,7 @@ Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-l
 |----|-----------------|----------------|----------------------|
 | BF1 | done | Reels_Encoder_v2_FINAL.py, enhance/test_cineon_e2e.py | `-async 1` no comando de saída do Cineon; e2e `dynamic` vermelho antes (3,0 vs 3,1 s) e verde depois; suíte 581 passed; ruff limpo |
 | BF2 | done | ui/launcher.py, ui/test_launcher.py | MCTF só perguntado com enhance_ai on (senão cfg.mctf=off); teste (a) vermelho antes, verde depois; suíte 583 passed; ruff limpo |
+| BF3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_mctf_requires_enhance_ai.py | `_mctf_ignored_reason` + aviso antes do bloco MCTF; 2 testes vermelhos antes (AttributeError), verdes depois; suíte 585 passed; ruff limpo |
 
 ### BF1 — saída pré-fix (2ª tentativa)
 
@@ -3732,3 +3733,6 @@ Passagens do SKILL.md que ainda citam o esquema antigo (não editadas): l.79 `-l
 
 `test_advanced_flow_skips_mctf_prompt_when_enhance_ai_off` REPROVOU antes do fix: `assert not True` (`any(p.startswith("MCTF mask video") ...)` verdadeiro com enhance on e enhance_ai off). O caso (b) `..._asks_mctf_prompt_when_enhance_ai_on` passou antes e depois. Após o fix: `pytest ui/` 164 passed; suíte canônica 583 passed; `ruff check .` limpo.
 
+### BF3 — saída pré-fix
+
+`enhance/test_mctf_requires_enhance_ai.py` REPROVOU antes da função: 2 failed, ambos `AttributeError: module 'Reels_Encoder_v2_FINAL' has no attribute '_mctf_ignored_reason'`. Após o fix: 2 passed; suíte canônica 585 passed; `ruff check .` limpo.

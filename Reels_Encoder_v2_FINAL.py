@@ -3991,6 +3991,15 @@ def _report_settings(args) -> dict:
     return {k: getattr(args, k, None) for k in keys if getattr(args, k, None) is not None}
 
 
+def _mctf_ignored_reason(mctf: str, enhance_ai: bool) -> Optional[str]:
+    if mctf == "on" and not enhance_ai:
+        return (
+            "[yellow]⚠ --mctf on requer --enhance on e --enhance-ai on. "
+            "Ignorando --mctf.[/yellow]"
+        )
+    return None
+
+
 def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool = False) -> None:
     """Encoda um único arquivo com as configurações de 'args'.
 
@@ -4026,6 +4035,8 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             console.print(
                 f"[yellow]Preflight falhou: {_viz_exc} — continuando sem visualizacao[/yellow]"
             )
+    if (msg := _mctf_ignored_reason(getattr(args, "mctf", "off"), enhance_ai)):
+        console.print(msg)
     # ── MCTF mask video ───────────────────────────────────────────────────────
     if getattr(args, "mctf", "off") == "on" and enhance_ai and ENHANCE_AVAILABLE and input_file:
         try:
