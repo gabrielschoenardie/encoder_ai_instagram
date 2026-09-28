@@ -1369,18 +1369,13 @@ def probe_audio_channels(input_file: str) -> int:
 
 
 def _loudnorm_channel_prefix(channels: int) -> str:
-    """Downmix p/ estéreo ANTES do loudnorm quando a fonte tem >2 canais.
+    """Converte p/ estéreo ANTES do loudnorm quando a fonte não é estéreo.
 
     Garante que a medição (Pass 1) e a normalização (Pass 2) atuem sobre o
-    MESMO layout estéreo que é efetivamente entregue — sem isso, o downmix
-    `-ac 2` aplicado depois do loudnorm desloca a loudness final do alvo.
+    MESMO layout estéreo que é efetivamente entregue: o upmix mono→estéreo e o
+    downmix >2 canais feitos só pelo `-ac 2` final deslocam a loudness do alvo.
     """
-    return "aformat=channel_layouts=stereo," if channels and channels > 2 else ""
-
-
-def _loudnorm_dual_mono(channels: int) -> str:
-    """':dual_mono=true' p/ fontes mono (correção EBU R128 de -3 LU)."""
-    return ":dual_mono=true" if channels == 1 else ""
+    return "aformat=channel_layouts=stereo," if channels and channels != 2 else ""
 
 
 def build_loudnorm_measure_filter(target: str = "instagram", channels: int = 2) -> str:
@@ -1389,7 +1384,6 @@ def build_loudnorm_measure_filter(target: str = "instagram", channels: int = 2) 
     return (
         f"{_loudnorm_channel_prefix(channels)}"
         f"loudnorm=I={t['I']}:TP={t['TP']}:LRA={t['LRA']}"
-        f"{_loudnorm_dual_mono(channels)}"
         f":print_format=json"
     )
 
@@ -1483,7 +1477,7 @@ def analyze_audio_loudness(
         console.print(f"[dim]   LRA: {stats['input_lra']} LU[/dim]")
         console.print(f"[dim]   Threshold: {stats['input_thresh']} LUFS[/dim]")
 
-        # Layout de canais p/ o Pass 2 (dual_mono / downmix estéreo)
+        # Layout de canais p/ o Pass 2 (upmix/downmix estéreo)
         stats["_channels"] = channels
 
         return stats
@@ -1523,7 +1517,6 @@ def build_loudnorm_filter(
         f"measured_LRA={stats['input_lra']}:"
         f"measured_thresh={stats['input_thresh']}"
         f"{offset_frag}"
-        f"{_loudnorm_dual_mono(channels)}"
         f":linear=true:print_format=summary"
     )
 

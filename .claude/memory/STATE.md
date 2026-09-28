@@ -3655,3 +3655,25 @@ revisão da BD8; a BD6b saiu da auditoria BD9.
 Achados novos durante a execução: `BDF15` (S4), `BDF16` (S2, mono −3 LU), `BDF17` (S4, cauda de áudio no
 Cineon) e `BDF9` ampliado — ver `FINDINGS.md`. Fila para o próximo ciclo, em ordem sugerida: `BDF16`,
 `BDF9` (item 2), `BDF10` (item 4); depois, com A/B do usuário, `BDF11`/`BDF12`/`BDF13`.
+
+## Ciclo BE
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| BE1 | done | `Reels_Encoder_v2_FINAL.py`, `enhance/test_loudnorm.py` | `dual_mono` removido, prefixo `aformat` p/ canais != 2; e2e mono −17,0 → [−15,−13]; ruff limpo; suíte 504 verdes + 1 falha pré-existente (`test_cineon_color_io.py::test_red_bt709_full_range`, idêntica sem as mudanças da BE1) |
+
+### BE1 — saída vermelha do e2e pré-fix
+
+Ambiente: `venv/` não tem pytest; usado o Python do sistema (pytest 9.0.2, ruff 0.14.10, sem `pytest-timeout`, então sem `--timeout=120`). FFmpeg = `bin/ffmpeg.exe`.
+
+```
+enhance\test_loudnorm.py:243: AssertionError
+E       AssertionError: integrated loudness -17.0 LUFS fora de [-15, -13]
+FAILED TestBuildLoudnormFilter::test_upmix_prefix_for_mono_source
+FAILED TestBuildLoudnormFilter::test_channels_read_from_stats_when_param_none
+FAILED TestBuildLoudnormMeasureFilter::test_upmix_prefix_for_mono
+FAILED TestMonoSourceE2E::test_mono_source_lands_near_target
+4 failed, 26 passed
+```
+
+Pós-fix: `30 passed` em `enhance/test_loudnorm.py`. Memória da BE1 vai no mesmo commit do código.
