@@ -101,8 +101,14 @@ Conhecimento de encoder: `skill: instagram-reels-encoder` § "Regras de Ouro" (r
 | BE4 | encodes reais + validação | validador | `.claude/memory/VALIDATION.md` | ver § "Validação" |
 | BE5 | fechamento: STATE/FINDINGS, memória do usuário, push, PR | Orquestrador | `.claude/memory/*` | — |
 
-Ordem: BE1 → BE2 → BE3 → BE4 → BE5. Nada em paralelo: BE1 e BE2 editam `Reels_Encoder_v2_FINAL.py`.
+Ordem: BE1 → BE1b → BE2 → BE3 → BE4 → BE5. Nada em paralelo: BE1 e BE2 editam `Reels_Encoder_v2_FINAL.py`.
 Um commit por ID.
+
+Adendos durante a execução (decisão do Orquestrador, registrados no STATE.md):
+
+| ID | origem | agente | arquivos | critério de done |
+|----|--------|--------|----------|------------------|
+| BE1b | revisão do Orquestrador sobre a BE1: `README.md:327` ainda diz que fonte mono recebe correção `dual_mono` (−3 LU), o que a BE1 tornou falso; o plano não listava o README | executor | `README.md` | a frase descreve o comportamento real (mono, como 5.1, é convertida para estéreo dentro da cadeia, nos dois passes, para medição e entrega usarem o mesmo layout), sem citar `dual_mono` nem prometer número; `grep -n "dual_mono\|-3 LU" README.md` → 0; `npx --yes markdownlint-cli2@0.23.1 README.md` → 0 issues; um commit |
 
 ## Validação (BE4)
 
@@ -132,8 +138,12 @@ medição. VMAF não se aplica (fixture sintética).
 
 - **Branch:** `claude/ciclo-be-loudnorm-vbv` (já em checkout, a partir de `main` `a402649`). Não trocar
   de branch. Não fazer push — o Orquestrador faz na BE5.
-- **Ambiente:** Windows local. Usar o Python do venv do projeto (`launch-config.json` → `paths.venv`);
-  `ruff==0.14.10`. FFmpeg resolvido por `ui.binaries` (`./bin` → PATH). Suíte canônica:
+- **Ambiente:** Windows local. **Usar o venv do scratchpad** (Python 3.13.3, PyAV 18.1.0, pytest,
+  pytest-timeout, `ruff==0.14.10`, projeto instalado em modo editável):
+  `C:\Users\Usuario\AppData\Local\Temp\claude\C--Users-Usuario-Documents-GitHub-encoder-ai-instagram\8689ce49-9161-4059-9952-44798e5cb700\scratchpad\venv-be\Scripts\python.exe`.
+  **Não usar o Python de sistema** (PyAV 16.1.0, abaixo do piso `av>=17.0.0` do BD2: faz
+  `test_cineon_color_io.py::test_red_bt709_full_range` reprovar por ambiente) **nem o `venv/` do projeto**
+  (sem pytest; é o venv do launcher do usuário). FFmpeg resolvido por `ui.binaries` (`./bin` → PATH). Suíte canônica:
   `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`. Para provar o "sem FFmpeg",
   rodar com um PATH que não o contenha e sem `./bin/ffmpeg*` resolvível, e registrar como foi feito.
   Ferramenta ausente (pytest, ruff, ffmpeg) → `blocked`, não instalar nada global.
