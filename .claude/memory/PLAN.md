@@ -1,161 +1,144 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo BE: loudness de fonte mono, teto de bitrate ≤15s e skill × código
+# PLAN — Ciclo BF: cauda de áudio no Cineon e MCTF sem enhance-ai
 
-Data: 2026-09-27 | Ciclo: BE | Origem: fila de fechamento do Ciclo BD — `BDF16`, `BDF9`, `BDF10`, nessa
-ordem, com aprovação explícita do usuário para o design (incluindo a mudança do áudio entregue de fonte
-mono e a medição de GOP em segundos no validador). Ciclo anterior: BD (fechado, PR #66).
-Evidência de cada achado: `.claude/memory/FINDINGS.md` § "Achados — 2026-09-27".
+Data: 2026-09-28 | Ciclo: BF | Origem: pedido do usuário — fechar `BDF17` e `BDF15`, que ele manteve
+abertos ao fim do Ciclo BE. Design aprovado pelo usuário antes deste plano, incluindo o aviso por função
+pura em vez de `parser.error()` e o `cfg.mctf = "off"` forçado no wizard. Ciclo anterior: BE (fechado, PR #67).
+Evidência: `.claude/memory/FINDINGS.md` (`BDF15`, `BDF17`) e a matriz de diagnóstico abaixo.
 
 ## Diagnóstico (medido, não presumido)
 
 | achado | medido |
 |--------|--------|
-| `BDF16` fonte mono sai 3 LU abaixo do alvo | −17,0 LUFS nos dois pipelines (3 s e 10 s), fonte −21,8 LUFS; o upmix `-ac 2` do FFmpeg preserva a loudness integrada, então o `dual_mono` vira erro de −3 LU |
-| `BDF9` 2-pass em ≤15s | base do tier `ultra_short` = 12000 = o próprio teto; `mean_q<18` → 13799 médio / 15178 maxrate; `mean_q<21` → 12960 / 14256 |
-| `BDF9` CRF padrão em ≤15s | `testsrc2` 1080×1920 60 fps 3 s → 13.656 kbps (`validate_encode.sh` ✗ `≤ 12000`); `maxrate` 13000 > teto médio 12000 |
-| `BDF10` skill × código | só o tier ≤15s difere em valor (código 12000/13000/17550 × skill 10000/11200/15000); tier 15–30s do código (9800/11000/14850) ≈ skill; Level 4.1 é aceito (`instagram-ingest-rules.md:14` "4.0 ou 4.1"); `keyint` do código = 2 s, validador exige ≤60 frames — coincidem em 30 fps (padrão), divergem em `--fps 60` |
-| cobertura | nenhum teste cobre `get_vbv_preset` nem `_adaptive_2pass_x264_params` (ambas puras); `enhance/test_loudnorm.py` tem dois testes que fixam o `dual_mono` como contrato |
+| `BDF17` áudio do Cineon 0,1 s mais longo que o vídeo | fonte de 3 s: fim do vídeo 3,000 s, fim do áudio 3,100 s no Cineon CRF real; FFmpeg CRF real: áudio 3,008 s |
+| causa de `BDF17` | matriz do `validador` (FFmpeg 6.1.3, `loudnorm` do encoder, fim real = último pacote): Cineon sem filtro 3,008; **com `loudnorm` sem `-async 1` 3,100**; com `loudnorm` e `-async 1` 3,008; caminho FFmpeg com `-async 1` 3,008; caminho FFmpeg **sem** `-async 1` 3,100. Dois pares controlados apontam o mesmo fator: o comando final do Cineon não tem `-async 1` e o do caminho FFmpeg tem (`:2743`, `:2871`). Que o `loudnorm` emite um bloco extra de 100 ms é inferência; o efeito do `-async 1` é o que está medido |
+| alternativas medidas | `-shortest` → 3,057 (não resolve); `-t 3` → 3,000 (resolve, mas corta áudio legítimo e exige a duração exata) |
+| `BDF15` no wizard | `ui/launcher.py:217-224`: `enhance_ai` e `mctf` estão sob `enhance == "on"`, mas o `mctf` não está sob `enhance_ai == "on"` |
+| `BDF15` no motor | `Reels_Encoder_v2_FINAL.py:3999-4005` avisa quando `--enhance-ai on` vem sem `--enhance on`; `:4029` só roda o MCTF se `enhance_ai` for verdadeiro e **não avisa nada** quando ele é descartado |
+| cobertura | `_build_pipe_cmd` é função aninhada em `run_ffmpeg_with_cineon` (sem teste unitário possível sem refatorar); os e2e do BD4 (`enhance/test_cineon_e2e.py`) chamam o Cineon com `loudnorm_enabled=False`, por isso nunca viram o `BDF17`; nenhum teste cobre o fluxo do MCTF no wizard |
 
 ## Decisões (Orquestrador, aprovadas pelo usuário)
 
-1. **`BDF16`: o upmix para estéreo passa a valer para toda fonte que não seja estéreo**, dentro da cadeia
-   `-af`, antes do `loudnorm`, nos dois passes. O `dual_mono` é removido, sem flag para manter o
-   comportamento antigo. **Muda o áudio entregue:** fonte mono sai perto de −14 LUFS em vez de −17.
-2. **`BDF9`: só o tier `ultra_short` desce ao perfil ≤30s da skill** (`target` 10000, `maxrate` 11200,
-   `bufsize` 15000). Tiers 15–90s intocados. `vbv_init` intocado (0,9).
-3. **`BDF9`: a Regra de Ouro 6 vira invariante do 2-pass**, independente do tier: média ≤ 12000 e
-   `maxrate` ≤ 15000 depois de aplicar o fator adaptativo.
-4. **`BDF10`: skill passa a descrever o código real** (5 tiers, Level 4.0/4.1, `keyint` ≤2 s). O
-   `validate_encode.sh` passa a medir GOP em segundos, porque a regra da plataforma é em tempo e o
-   validador é mais estrito que ela em `--fps 60`.
-5. **Se o CRF de ≤15s ainda reprovar depois da BE2** (margem estimada de ~2%: 11200 × 1,05 ≈ 11760), o
-   executor **não escolhe** a alavanca: para com `blocked` e devolve a medição. A alavanca seguinte
-   (baixar `vbv_init` em ≤15s) é decisão do Orquestrador.
-6. **Fora do ciclo:** `BDF11`/`12`/`13` (exigem A/B com o usuário), `BDF15`, `BDF17`.
+1. **`BDF17`: paridade com o caminho FFmpeg** — `"-async", "1"` no comando de saída do Cineon. Sem `-t` nem
+   `-shortest`. Pass 1 (`-an`) não muda.
+2. **`BDF15`, wizard:** o toggle de MCTF só é perguntado quando `enhance_ai == "on"`; no ramo `enhance ==
+   "on"` com `enhance_ai` off, `cfg.mctf = "off"` (o config reflete o que o usuário vê). Com `enhance` off o
+   bloco inteiro continua pulado, como hoje.
+3. **`BDF15`, motor:** aviso, não `parser.error()` — segue o precedente do `enhance-ai` (`:4000`) e cobre o
+   wizard, que monta o `Namespace` direto e não passa pelo parser. Uma **função pura mínima nova**
+   (`_mctf_ignored_reason`) só para o aviso novo, porque `_encode_single_file` tem ~140 linhas e roda FFmpeg,
+   e testar o aviso por ali exigiria stub pesado. O bloco existente do `enhance-ai` não é tocado.
+4. **Fora do ciclo:** `BDF11`/`12`/`13` (exigem A/B com o usuário). O `vbv_init` 0,9 é deliberado do usuário e
+   não entra (memória `project_vbv_init_09_deliberate`).
 
-Conhecimento de encoder: `skill: instagram-reels-encoder` § "Regras de Ouro" (regra 6),
-`references/instagram-ingest-rules.md` § vídeo e § áudio. Não transcrever — carregar a skill.
+Conhecimento de encoder: `skill: instagram-reels-encoder` § "Regras de Ouro" (áudio, loudnorm) e
+`references/instagram-ingest-rules.md` § áudio. Não transcrever — carregar a skill.
 
 ## Desenho
 
-### BE1 — loudness de fonte mono (`BDF16`)
+### BF1 — cauda de áudio no Cineon (`BDF17`)
 
-- `_loudnorm_channel_prefix(channels)` (`Reels_Encoder_v2_FINAL.py`, localizar por nome): devolve
-  `"aformat=channel_layouts=stereo,"` para `channels` truthy e `!= 2`; `""` para 2 e para
-  ausente/0 (mesmo default de estéreo que `probe_audio_channels` já usa). Atualizar a docstring: a razão
-  deixa de ser "`>2` canais" e passa a ser "medir e normalizar no layout entregue".
-- Remover `_loudnorm_dual_mono` e seus dois usos (`build_loudnorm_measure_filter`,
-  `build_loudnorm_filter`). Nenhum outro consumidor.
-- O `-ac 2` final de `_audio_output_args` fica (vira no-op).
-- **TDD:** escrever primeiro o e2e, ver reprovar, só então mudar o código (registrar a saída vermelha no
-  STATE). E2e em `enhance/test_loudnorm.py`: fonte `lavfi sine` mono (amplitude padrão, ~−21,8 LUFS),
-  medida com `build_loudnorm_measure_filter` → aplicada com `build_loudnorm_filter` → saída medida com
-  `ebur128`; afirma `I ∈ [−15, −13]`. Pula (`pytest.skip`) se o FFmpeg resolvido por `ui.binaries` não
-  executar. Pré-fix mede ≈ −17,0. Se o pré-fix **não** reproduzir ≈ −17, `blocked` (a hipótese do achado
-  seria falsa e o design muda).
-- Reescrever `test_dual_mono_for_mono_source` e `test_dual_mono_for_mono`: prefixo `aformat` presente,
-  `dual_mono` ausente. Os testes de estéreo e 5.1 ficam intocados e verdes.
+- Em `_build_pipe_cmd` (aninhada em `run_ffmpeg_with_cineon`, `Reels_Encoder_v2_FINAL.py`, localizar por
+  nome), no bloco `if pass_number != 1:` (o que adiciona `-i input_file` e os dois `-map`), acrescentar
+  `"-async", "1"` depois dos `-map`. É opção de saída (vem depois dos dois `-i` e antes do arquivo de saída),
+  como no caminho FFmpeg. Não mexer em `_audio_output_args` (o docstring diz "idênticos nos 3 pipelines", e
+  no caminho FFmpeg o `-async 1` também mora fora dela).
+- **TDD com prova vermelha.** Em `enhance/test_cineon_e2e.py`, reusar `_source`, `_streams`,
+  `_assert_av_in_sync` e o fixture `popen_calls`. Dar ao `_encode` um parâmetro `loudnorm` (default `False`, para
+  os testes atuais não mudarem) que vai para `loudnorm_enabled`. Teste novo, p.ex.
+  `test_60fps_crf_with_loudnorm_keeps_audio_in_sync`: `_encode(..., loudnorm=True)` e
+  `_assert_av_in_sync(out, 30)` (tolerância existente de 1/30 s; o esperado pós-fix é ≈0,008 s e o pré-fix ≈0,09 s).
+- **Blindagem contra verde vazio:** o teste também afirma, pelo `popen_calls`, que o comando de saída do
+  Cineon (o que tem `-map` de áudio) leva `-af` com `loudnorm` no valor. Se a fonte de 1 s do `_source` não
+  deixar o `loudnorm` ligar (a análise devolve `None` e o encoder imprime "Loudnorm desativado"), usar uma fonte
+  de 3 s só para este teste — não mudar a fonte dos testes existentes. O teste **tem** que reprovar antes da
+  mudança de código; registrar a saída vermelha no STATE. Se não reprovar, `blocked` com a medição.
 
-### BE2 — teto de bitrate ≤15s (`BDF9`)
+### BF2 — wizard: MCTF só sob enhance-ai (`BDF15`)
 
-- `VBV_PRESETS["ultra_short"]`: `target` 10000, `maxrate` 11200, `bufsize` 15000. O comentário
-  `# maxrate × 1.35s` deste tier deixa de valer (15000 ≠ 11200×1,35): trocar por
-  `# perfil ≤30s da skill`. Nada mais no dicionário muda.
-- Duas constantes de módulo com o nome da regra: `_INGEST_MAX_AVG_KBPS = 12000`,
-  `_INGEST_MAX_PEAK_KBPS = 15000`.
-- Em `_adaptive_2pass_x264_params`: `adapted_bitrate = min(adapted_bitrate, _INGEST_MAX_AVG_KBPS)`;
-  `vbv_maxrate = min(int(adapted_bitrate * 1.10), _INGEST_MAX_PEAK_KBPS)`; `vbv_bufsize` sai do
-  `vbv_maxrate` já limitado. O `return` devolve os valores limitados.
-- Testes novos em `enhance/test_vbv_ceiling.py` (sem FFmpeg, TDD — reprovam antes):
-  - `get_vbv_preset`: 15,0 s → `ultra_short` com 10000/11200/15000; 15,1 s → `short` (9800/11000/14850).
-  - `_adaptive_2pass_x264_params`: para cada duração representativa de cada tier × `mean_q` ∈
-    {10, 17, 19, 22, 30} × `log_found` ∈ {True, False}: média ≤ 12000 e `maxrate` ≤ 15000.
-  - o clamp em si: chamar com `base_bitrate=12000` e `mean_q=10` devolve média 12000 (não 13799) —
-    prova que o teto vale mesmo com a base no limite (protege contra alguém subir um tier depois).
-- Depois da mudança: `grep -rn "17550" --include=*.py --include=*.md` fora de `.claude/memory` e
-  `docs/superpowers`. Cada ocorrência que descreva o tier ≤15s é atualizada; as que não descrevem, listadas
-  no retorno.
+- `ui/launcher.py` (localizar por `"MCTF mask video"`, ~`:222`): dentro de `if cfg.enhance == "on":`, depois
+  do toggle de `enhance_ai`, perguntar o MCTF só `if cfg.enhance_ai == "on":`; `else: cfg.mctf = "off"`.
+- Teste em `ui/test_launcher.py` no padrão do `test_advanced_flow_tonemap_options_match_tonemap_algorithms`
+  (grava as chamadas de `ask_toggle`): com `enhance` on e `enhance_ai` off → o prompt de MCTF **não** é feito e
+  `cfg.mctf == "off"`; com `enhance_ai` on → o prompt é feito e a resposta vai para `cfg.mctf`. Reprova antes.
+- Depois da BF2: `ui-flow-reviewer` audita o wizard (CLAUDE.md: mexeu em seção de `ui/launcher.py`).
 
-### BE3 — skill × código (`BDF10`)
+### BF3 — aviso do MCTF no motor (`BDF15`)
 
-- `.claude/skills/instagram-reels-encoder/SKILL.md` § "Perfis de Encode": tabela com os 5 tiers reais
-  (valores pós-BE2, lidos de `VBV_PRESETS`, não copiados de memória); nota de que `keyint` é limitado a 2 s
-  (`fps × 2`, 1 s em ≤15s); nota de que Level 4.0 e 4.1 são aceitos, o encoder usa 4.1. A Regra de Ouro 6
-  não muda.
-- `.claude/skills/instagram-reels-encoder/scripts/validate_encode.sh` (linhas de GOP): comparar `MAX_GOP`
-  com `ceil(2 × fps)` em vez de `60`, com `fps` lido do stream (`avg_frame_rate` → número). O `ceil` é
-  obrigatório: a 29,97 fps o teto é 59,94 e um GOP de 60 frames é válido. Se o fps não for detectável,
-  cai no comportamento atual (`≤ 60`). Mensagens passam a citar segundos e o fps medido.
-- Prova do script, com fixtures pequenas (`lavfi testsrc2`, 2 s, `libx264 -g N -keyint_min N`, `+bt709`
-  irrelevante): 30 fps `-g 60` → ✓; 60 fps `-g 120` → ✓ (antes: ✗); 60 fps `-g 180` → ✗; 30 fps `-g 90`
-  → ✗; 29,97 fps `-g 60` → ✓. Registrar só a linha de GOP de cada caso no STATE.
-- Não alterar `references/instagram-ingest-rules.md` (já é em tempo).
+- Função de módulo em `Reels_Encoder_v2_FINAL.py`, perto de `_encode_single_file`:
+  `_mctf_ignored_reason(mctf: str, enhance_ai: bool) -> Optional[str]` — devolve a mensagem quando
+  `mctf == "on"` e não `enhance_ai`, senão `None`. Texto no estilo do aviso vizinho:
+  `"[yellow]⚠ --mctf on requer --enhance on e --enhance-ai on. Ignorando --mctf.[/yellow]"`.
+- Chamada logo antes do bloco `# ── MCTF mask video` (~`:4028`), com o `enhance_ai` local (já rebaixado a
+  `False` quando `--enhance` está off): `if (msg := _mctf_ignored_reason(getattr(args, "mctf", "off"),
+  enhance_ai)): console.print(msg)`. Não alterar a condição do bloco MCTF nem o bloco do `enhance-ai`.
+- Testes novos em `enhance/test_mctf_requires_enhance_ai.py`, puros, sem FFmpeg: `("on", False)` → mensagem
+  que cita `--mctf` e `--enhance-ai`; `("on", True)`, `("off", False)`, `("off", True)` → `None`. Reprovam antes
+  (a função não existe).
+- Se `Optional` não estiver importado no módulo, usar o que o arquivo já usa para anotações; não adicionar
+  dependência.
 
 ## Tarefas
 
 | ID | tarefa | agente alvo | arquivos | critério de done |
 |----|--------|-------------|----------|------------------|
-| BE1 | § BE1 | executor | `Reels_Encoder_v2_FINAL.py`, `enhance/test_loudnorm.py` | e2e mono reprova antes (≈−17) e passa depois (`I ∈ [−15,−13]`); `grep -n "dual_mono" Reels_Encoder_v2_FINAL.py` → 0; testes de estéreo/5.1 verdes; `ruff check .` limpo (0.14.10) |
-| BE2 | § BE2 | executor | `Reels_Encoder_v2_FINAL.py`, `enhance/test_vbv_ceiling.py` (novo) | testes reprovam antes e passam depois; suíte completa verde com e sem FFmpeg no PATH; `ruff check .` limpo |
-| BE3 | § BE3 (depois da BE2) | executor | `.claude/skills/instagram-reels-encoder/SKILL.md`, `.claude/skills/instagram-reels-encoder/scripts/validate_encode.sh` | os 5 casos de GOP dão o resultado esperado; tabela do SKILL.md bate com `VBV_PRESETS` (conferir por leitura do dicionário) |
-| BE4 | encodes reais + validação | validador | `.claude/memory/VALIDATION.md` | ver § "Validação" |
-| BE5 | fechamento: STATE/FINDINGS, memória do usuário, push, PR | Orquestrador | `.claude/memory/*` | — |
+| BF1 | § BF1 | executor | `Reels_Encoder_v2_FINAL.py`, `enhance/test_cineon_e2e.py` | teste novo reprova antes e passa depois; testes e2e existentes seguem verdes; `ruff check .` limpo (0.14.10) |
+| BF2 | § BF2 | executor | `ui/launcher.py`, `ui/test_launcher.py` | teste novo reprova antes e passa depois; `pytest ui/` verde |
+| BF2r | auditoria do wizard após BF2 | ui-flow-reviewer | `ui/launcher.py` | veredito sem achado bloqueante |
+| BF3 | § BF3 | executor | `Reels_Encoder_v2_FINAL.py`, `enhance/test_mctf_requires_enhance_ai.py` (novo) | testes reprovam antes e passam depois; suíte completa verde; `ruff check .` limpo |
+| BF4 | encodes reais + validação | validador | `.claude/memory/VALIDATION.md` | ver § "Validação" |
+| BF5 | fechamento: STATE/FINDINGS, memória do usuário, push, PR | Orquestrador | `.claude/memory/*` | — |
 
-Ordem: BE1 → BE1b → BE2 → BE3 → BE3b → BE4 → BE5. Nada em paralelo: BE1 e BE2 editam `Reels_Encoder_v2_FINAL.py`.
+Ordem: BF1 → BF2 → BF2r → BF3 → BF4 → BF5. Nada em paralelo: BF1 e BF3 editam `Reels_Encoder_v2_FINAL.py`.
 Um commit por ID.
 
-Adendos durante a execução (decisão do Orquestrador, registrados no STATE.md):
+## Validação (BF4)
 
-| ID | origem | agente | arquivos | critério de done |
-|----|--------|--------|----------|------------------|
-| BE1b | revisão do Orquestrador sobre a BE1: `README.md:327` ainda diz que fonte mono recebe correção `dual_mono` (−3 LU), o que a BE1 tornou falso; o plano não listava o README | executor | `README.md` | a frase descreve o comportamento real (mono, como 5.1, é convertida para estéreo dentro da cadeia, nos dois passes, para medição e entrega usarem o mesmo layout), sem citar `dual_mono` nem prometer número; `grep -n "dual_mono\|-3 LU" README.md` → 0; `npx --yes markdownlint-cli2@0.23.1 README.md` → 0 issues; um commit |
-| BE3b | revisão do Orquestrador sobre a BE3: o `SKILL.md` ficou com passagens que contradizem a tabela nova de tiers — as linhas 234–235 citam "Maximum Quality (≤30s)" e "Safe Premium (≥40s)", nomes que agora rotulam os tiers ≤15s e 45–60s; a linha 191 atribui à plataforma um cap de `keyint ≤ 60` em frames, enquanto a tabela diz que a regra é em tempo | executor | `.claude/skills/instagram-reels-encoder/SKILL.md` | 234–235: trocar os nomes pelas faixas de duração ("Reels ≤30s" e "Reels ≥40s"), mantendo os limiares 93 e 90; 191: verificar no código do planejador de GOP (localizar por `gop_profile`) se o cap de 60 é dele e reescrever só a atribuição ("cap do planejador, conservador; a regra da plataforma é 2 s"), sem mudar o número; linhas 79, 85 e 186 (templates de 30 fps) intocadas; um commit |
-
-## Validação (BE4)
-
-Reusar a fonte do BD10: ler o `VALIDATION.md` atual **antes de sobrescrevê-lo** para copiar os comandos
-exatos da fixture (`testsrc2` 1080×1920 60 fps 3 s + `sine` mono, tags BT.709). Três encodes pela CLI
-(`Reels_Encoder_v2_FINAL.py --help` para a sintaxe), com `--ebu-meter off`:
+Reusar a fixture do BE4: `$SP/be4/fixture_mono.mp4` (1080×1920, 60 fps, 3 s, áudio mono). Encodes pela CLI, cada
+um com a fonte copiada para uma pasta própria, `cwd` no scratchpad e `--ebu-meter off`:
 
 | # | encode | o que prova |
 |---|--------|-------------|
-| a | FFmpeg, CRF, defaults | `BDF9` no caminho padrão: bitrate ≤ 12000 kbps (era 13.656) |
-| b | FFmpeg, `--mode 2pass` | `BDF9` no 2-pass ponta a ponta com o tier novo |
-| c | `--cineon-pipeline on` (CRF) | `BDF16` no pipeline Cineon |
+| a | FFmpeg CRF, defaults | controle: o caminho FFmpeg não mudou (áudio termina em 3,008 s, como no BE4) |
+| c | `--cineon-pipeline on` (CRF) | `BDF17`: fim do áudio − fim do vídeo ≤ 0,05 s (era +0,100) |
 
-Nos três: `validate_encode.sh` sem ✗ e loudness integrada em [−15, −13] (a fonte é mono, então (a) e (c)
-provam o `BDF16`; era −17,0). Se (a) reprovar só no bitrate → `blocked` conforme a decisão 5, com a
-medição. VMAF não se aplica (fixture sintética).
+Fim real da trilha = `pts_time + duration_time` do último pacote (`ffprobe -show_entries packet=...`). Em (c),
+`validate_encode.sh` sem ❌ novo além do bitrate médio que já é limitação aceita (`FINDINGS.md` § "Decisão —
+2026-09-27"). Informativo, sem veredito: comparar o md5 do stream de vídeo de (c) com o do encode Cineon do BE4
+(`$SP/be4/in_c/fixture_mono_Cineon_Film.mp4`) via `ffmpeg -i <f> -map 0:v -c copy -f md5 -`; se diferir, só reportar
+(a mudança é só de áudio, mas x264 com threads pode variar).
 
 ## Critérios de aceite do ciclo
 
 1. CI verde nos jobs `lint`, `tests` (4 pernas), `pester` (2) e `pester-winps51` no PR.
-2. Fonte mono entregue em −14 ±1 LUFS nos pipelines FFmpeg e Cineon.
-3. Nenhum caminho de 2-pass produz média > 12000 ou `maxrate` > 15000 (teste parametrizado).
-4. `validate_encode.sh` aprova GOP de 2 s em 30 e 60 fps e reprova acima disso.
-5. Tiers 15–90s, dither, tonemap e enhance: bytes idênticos aos de antes.
+2. Cineon com `loudnorm`: |áudio − vídeo| ≤ 1/30 s no e2e e ≤ 0,05 s no encode real; caminho FFmpeg inalterado.
+3. Wizard: sem prompt de MCTF quando `enhance_ai` está off; `cfg.mctf == "off"` nesse caso.
+4. `--mctf on` sem `--enhance-ai on` (ou sem `--enhance on`) imprime o aviso e segue.
+5. Nenhuma mudança de imagem nem de bitrate: BF1 mexe só em áudio; BF2/BF3 só em fluxo de opções.
 
 ## Notas de execução
 
-- **Branch:** `claude/ciclo-be-loudnorm-vbv` (já em checkout, a partir de `main` `a402649`). Não trocar
-  de branch. Não fazer push — o Orquestrador faz na BE5.
+- **Branch:** `claude/ciclo-bf-audio-async-mctf` (já em checkout, a partir de `main` `03cf386`). Não trocar de
+  branch. Não fazer push — o Orquestrador faz na BF5.
 - **Ambiente:** Windows local. **Usar o venv do scratchpad** (Python 3.13.3, PyAV 18.1.0, pytest,
   pytest-timeout, `ruff==0.14.10`, projeto instalado em modo editável):
   `C:\Users\Usuario\AppData\Local\Temp\claude\C--Users-Usuario-Documents-GitHub-encoder-ai-instagram\8689ce49-9161-4059-9952-44798e5cb700\scratchpad\venv-be\Scripts\python.exe`.
-  **Não usar o Python de sistema** (PyAV 16.1.0, abaixo do piso `av>=17.0.0` do BD2: faz
-  `test_cineon_color_io.py::test_red_bt709_full_range` reprovar por ambiente) **nem o `venv/` do projeto**
-  (sem pytest; é o venv do launcher do usuário). FFmpeg resolvido por `ui.binaries` (`./bin` → PATH). Suíte canônica:
-  `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`. Para provar o "sem FFmpeg",
-  rodar com um PATH que não o contenha e sem `./bin/ffmpeg*` resolvível, e registrar como foi feito.
-  Ferramenta ausente (pytest, ruff, ffmpeg) → `blocked`, não instalar nada global.
+  Não usar o Python de sistema (PyAV 16.1.0, abaixo do piso `av>=17.0.0`) nem o `venv/` do projeto (sem pytest;
+  é o venv do launcher do usuário). FFmpeg: `./bin/ffmpeg.exe` resolve antes do PATH (winget 6.1.3).
+  Suíte canônica: `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`. Baseline no
+  HEAD: **579 passed** com FFmpeg. A rodada "sem FFmpeg" (worktree descartável sem `bin/` + PATH sem FFmpeg) é do
+  Orquestrador na BF5; o executor não precisa simulá-la e **não deve** renomear nem mover nada em `./bin/`.
+- **Nada na raiz do repo:** testes usam `tmp_path`; qualquer log/arquivo gerado por FFmpeg vai para o
+  scratchpad ou `tmp_path` (o Ciclo BE deixou um arquivo `C` na raiz por um `log_path` do libvmaf com
+  `C:/...`). Conferir `git status` no fim.
 - **Commits:** um por ID, mensagem convencional em português, terminando com os trailers
   `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>` e
-  `Claude-Session: https://claude.ai/code/session_01YAkCQqmjArMiXpfCyrPcuf`.
+  `Claude-Session: https://claude.ai/code/session_01VZwxJYrv8iQgzUjZcgjEgk`.
 - **Nunca `git add -A` nem `git add .`** — adicionar por caminho explícito. Não commitar `__pycache__`,
   `enhance_maps/`, `videos/`, `testResults.xml` nem os `docs/*.md` não rastreados que já estão no working
   tree. Não commitar fixtures geradas.
 - Sem `[skip ci]` em nenhum commit deste ciclo (armadilha do Ciclo BB).
-- STATE.md (261 KB — não ler inteiro): anexar `## Ciclo BE` ao fim, uma linha por ID; saída de comando
-  relevante (o e2e vermelho da BE1, os 5 casos de GOP da BE3) em subseção curta.
+- STATE.md (260 KB+ — não ler inteiro): anexar `## Ciclo BF` ao fim, uma linha por ID; saída de comando
+  relevante (o e2e vermelho da BF1, os testes vermelhos da BF2/BF3) em subseção curta.
 - Plano ambíguo ou em conflito com o código → `blocked` com a pergunta exata; não improvisar.
 - Retorno: ponteiro + veredito, uma linha por ID + SHA.
