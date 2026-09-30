@@ -1,7 +1,7 @@
 {
  "argv": [
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -13,7 +13,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -25,7 +25,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -37,7 +37,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -49,7 +49,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-y",
    "-f",
    "rawvideo",
@@ -128,7 +128,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -140,7 +140,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -152,7 +152,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -164,7 +164,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -176,7 +176,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -188,7 +188,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -200,7 +200,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -212,7 +212,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -224,7 +224,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -236,7 +236,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -248,7 +248,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -262,7 +262,7 @@
    "<TMP>/cineon_crf.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",

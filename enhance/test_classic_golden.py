@@ -56,10 +56,10 @@ def _source(tmp_path):
 
 def _norm_token(tok, tmp):
     s = str(tok).replace("\\", "/")
-    for needle, label in ((tmp, "<TMP>"),
-                          (os.path.dirname(os.path.abspath(RE.__file__)).replace("\\", "/"), "<REPO>"),
-                          (str(RE.FFMPEG).replace("\\", "/"), "<FFMPEG>"),
-                          (str(RE.FFPROBE).replace("\\", "/"), "<FFPROBE>")):
+    for needle, label in ((str(RE.FFMPEG).replace("\\", "/"), "<FFMPEG>"),
+                          (str(RE.FFPROBE).replace("\\", "/"), "<FFPROBE>"),
+                          (tmp, "<TMP>"),
+                          (os.path.dirname(os.path.abspath(RE.__file__)).replace("\\", "/"), "<REPO>")):
         s = s.replace(needle, label)
     return s
 
@@ -126,6 +126,7 @@ def _require_ffmpeg():
         pytest.skip("ffmpeg/ffprobe indisponíveis")
 
 
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
 def test_classic_path_matches_golden(tmp_path, monkeypatch, scenario):
     got = run_classic(tmp_path, monkeypatch, scenario)

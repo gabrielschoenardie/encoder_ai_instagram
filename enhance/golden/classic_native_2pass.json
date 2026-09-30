@@ -1,7 +1,7 @@
 {
  "argv": [
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -13,7 +13,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -25,7 +25,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -37,7 +37,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -49,7 +49,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-y",
    "-threads",
    "1",
@@ -101,7 +101,7 @@
    "<NULL>"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-y",
    "-threads",
    "1",
@@ -176,7 +176,7 @@
    "<TMP>/native_2pass.mp4"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -188,7 +188,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -200,7 +200,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -212,7 +212,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffmpeg.exe",
+   "<FFMPEG>",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -224,7 +224,7 @@
    "-"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -236,7 +236,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -248,7 +248,7 @@
    "<TMP>/src.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -260,7 +260,7 @@
    "<TMP>/native_2pass.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -272,7 +272,7 @@
    "<TMP>/native_2pass.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
@@ -286,7 +286,7 @@
    "<TMP>/native_2pass.mp4"
   ],
   [
-   "<REPO>/bin/ffprobe.exe",
+   "<FFPROBE>",
    "-v",
    "error",
    "-select_streams",
