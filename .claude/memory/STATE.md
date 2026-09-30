@@ -3766,3 +3766,10 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 ### Suíte final e ruff (Ciclo BG)
 
 `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120` → **597 passed**. `ruff check .` → **All checks passed!**. `git status --short` limpo além dos arquivos tocados e dos itens já não-rastreados pré-existentes (`docs/*.md`, `videos/`).
+
+## Ciclo P2-B3
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| B3-1 | done | scratchpad/b3/b3_ctrlc_probe.py | smoke none e msvcrt (3 s): exit 0, log com START/FFMPEG_PID/FFMPEG_RC 0/WORKER_DONE/EXIT 0 |
+| B3-2 | done | scratchpad/b3/B3_ROTEIRO.md | roteiro T1-T5 com comandos copiáveis e checklist por teste |
