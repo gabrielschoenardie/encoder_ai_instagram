@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import json
 import os
 import platform
@@ -100,6 +101,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 import render_queue
+import reporter as _rep
 
 # =============================================================================
 # CINEON PIPELINE IMPORTS
@@ -790,7 +792,19 @@ class ResolveProgressHUD:
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-def ffmpeg_live_reader(pipe, hud: ResolveProgressHUD, sink=None):
+def _emit(reporter, event) -> None:
+    if reporter is not None:
+        reporter.emit(event)
+
+
+def _progress_from_hud(hud) -> "_rep.Progress":
+    return _rep.Progress(
+        frame=hud.current_frame, total=hud.total_frames, fps=hud.fps,
+        speed=hud.speed, eta=hud.eta, elapsed=time.time() - hud.start_time,
+    )
+
+
+def ffmpeg_live_reader(pipe, hud: ResolveProgressHUD, sink=None, on_line=None):
     # Palavras-chave do bloco de configuração que x264 imprime no stderr.
     # Capturar aqui permite verificar se rc-lookahead configurado == efetivo.
     _x264_diag_keys = ("rc lookahead", "ref frames", "keyint", "b frames")
@@ -802,6 +816,8 @@ def ffmpeg_live_reader(pipe, hud: ResolveProgressHUD, sink=None):
         # eram descartadas aqui e o CalledProcessError vinha sem stderr.
         if sink is not None:
             sink.append(line)
+        if on_line is not None:
+            on_line(line.rstrip())
         if "frame=" in line:
             parts = line.split("frame=")
             if len(parts) > 1:
@@ -2023,7 +2039,7 @@ def _build_metadata_args(
 
 
 def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps: int = 30,
-                  source=None, output=None, fit: str = "contain", src_dims=None):
+                  source=None, output=None, fit: str = "contain", src_dims=None, reporter=None):
     """Executa encoding com progress bar."""
     # O reader consome TODO o stderr (linha a linha) para o HUD; acumula no deque
     # para que, em caso de falha, o erro real do ffmpeg seja exibido/propagado.
@@ -2052,14 +2068,20 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
     )
     _register_ffmpeg(process)
     try:
+        _on_line = None if reporter is None else (lambda s: reporter.emit(_rep.FfmpegLine(s)))
         t = threading.Thread(
-            target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail), daemon=True
+            target=ffmpeg_live_reader, args=(process.stderr, hud, stderr_tail, _on_line), daemon=True
         )
         t.start()
-        with Live(hud.render(), refresh_per_second=7, console=console) as live:
+        if reporter is None:
+            with Live(hud.render(), refresh_per_second=7, console=console) as live:
+                while process.poll() is None:
+                    time.sleep(0.1)
+                    live.update(hud.render())
+        else:
             while process.poll() is None:
                 time.sleep(0.1)
-                live.update(hud.render())
+                reporter.emit(_progress_from_hud(hud))
     finally:
         if process.poll() is None:
             process.terminate()
@@ -2502,6 +2524,7 @@ def run_ffmpeg(
     selective_masks: dict | None = None,
     dither_enabled: bool = False,
     fit: str = "contain",
+    reporter=None,
 ):
     """
     Função principal de encoding - Hollywood LUT Transport.
@@ -2518,6 +2541,7 @@ def run_ffmpeg(
 
     # Hardware detection
     hw_profile = detect_hardware()
+    _emit(reporter, _rep.Hardware(dataclasses.asdict(hw_profile)))
     if show_hardware:
         print_hardware_profile(hw_profile)
 
@@ -2561,7 +2585,10 @@ def run_ffmpeg(
 
     # Probe único — 1 ffprobe call substitui get_input_resolution, get_input_fps,
     # get_video_duration, get_total_frames, detect_hdr_metadata, detect_rotation_metadata_pyav
+    _emit(reporter, _rep.Stage(_rep.PROBING))
     _probe = probe_video(input_file)
+    _emit(reporter, _rep.Probe(_probe.duration, _probe.nb_frames, _probe.fps_int,
+                               _probe.width, _probe.height, _probe.is_hdr))
 
     # Input SDR sem color metadata → forçar interpretação BT.709 ANTES do -i.
     # Sem isso, o zscale aborta com "no path between colorspaces" ao redimensionar
@@ -2647,6 +2674,7 @@ def run_ffmpeg(
     if ENHANCE_AVAILABLE and enhance_enabled:
         _ai_label = " [AI]" if enhance_ai else ""
         console.print(f"[cyan]✨ Enhance{_ai_label}: analisando conteúdo (5 frames)...[/cyan]")
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "enhance"))
         try:
             _enh_profile = build_enhance_profile(
                 input_file, n_sample_frames=5, use_ai=enhance_ai,
@@ -2715,6 +2743,10 @@ def run_ffmpeg(
     total_frames = _probe.nb_frames
 
     vbv = get_vbv_preset(duration)
+    _emit(reporter, _rep.EncodeParams(
+        next(k for k, v in VBV_PRESETS.items() if v is vbv),
+        vbv["target"], vbv["maxrate"], vbv["bufsize"], vbv["vbv_init"],
+        hw_profile.recommended_preset, mode))
     vbv_description = vbv["description"]
     video_bitrate = vbv["target"]
 
@@ -2727,6 +2759,7 @@ def run_ffmpeg(
     audio_filter = None
     if loudnorm_enabled:
         console.print("[cyan]🔊 Loudnorm EBU R128 ativado[/cyan]")
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "loudness"))
         loudness_stats = analyze_audio_loudness(input_file, target="instagram")
         if loudness_stats:
             audio_filter = build_loudnorm_filter(loudness_stats, target="instagram")
@@ -2776,9 +2809,12 @@ def run_ffmpeg(
         ffmpeg_cmd.extend([*metadata_args, output_file])
 
 
+        _emit(reporter, _rep.Stage(_rep.PASS, "1"))
+        _emit(reporter, _rep.Pass(1, 1, "Encode", "start"))
         _run_encoding(ffmpeg_cmd, total_frames, cwd=script_dir, fps=output_fps,
                       source=input_file, output=output_file, fit=fit,
-                      src_dims=(_probe.width, _probe.height))
+                      src_dims=(_probe.width, _probe.height), reporter=reporter)
+        _emit(reporter, _rep.Pass(1, 1, "Encode", "end"))
         console.print("[green]✓ Render finalizado![/green]")
 
         # O filter_complex seletivo propaga o display matrix do input 0; com fonte
@@ -2840,13 +2876,17 @@ def run_ffmpeg(
     ]
 
 
+    _emit(reporter, _rep.Stage(_rep.PASS, "1"))
+    _emit(reporter, _rep.Pass(1, 2, "Pass 1", "start"))
     _run_encoding(pass1_cmd, total_frames, cwd=script_dir, fps=output_fps,
                   source=input_file, output=output_file, fit=fit,
-                  src_dims=(_probe.width, _probe.height))
+                  src_dims=(_probe.width, _probe.height), reporter=reporter)
+    _emit(reporter, _rep.Pass(1, 2, "Pass 1", "end"))
     console.print("[green]✓ Pass 1 completo![/green]")
 
     # ── Análise Pass 1 → Parâmetros Adaptativos Pass 2 ───────────────────────
     console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
+    _emit(reporter, _rep.Stage(_rep.BETWEEN_PASSES, "pass1_log"))
     _p1_stats = _analyze_pass1_log(logfile)
     x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
         base_bitrate=video_bitrate,
@@ -2906,9 +2946,12 @@ def run_ffmpeg(
     pass2_cmd.extend([*metadata_args, output_file])
 
 
+    _emit(reporter, _rep.Stage(_rep.PASS, "2"))
+    _emit(reporter, _rep.Pass(2, 2, "Pass 2", "start"))
     _run_encoding(pass2_cmd, total_frames, cwd=script_dir, fps=output_fps,
                   source=input_file, output=output_file, fit=fit,
-                  src_dims=(_probe.width, _probe.height))
+                  src_dims=(_probe.width, _probe.height), reporter=reporter)
+    _emit(reporter, _rep.Pass(2, 2, "Pass 2", "end"))
 
     # Limpar logs temporários
     for ext in ["-0.log", "-0.log.mbtree"]:
@@ -4027,12 +4070,13 @@ def _mctf_ignored_reason(mctf: str, enhance_ai: bool) -> Optional[str]:
     return None
 
 
-def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool = False) -> None:
+def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool = False, reporter=None) -> None:
     """Encoda um único arquivo com as configurações de 'args'.
 
     is_batch: em batch, as janelas FFplay do monitor EBU R128 são suprimidas
     (a auditoria de loudness ainda roda para cada arquivo).
     """
+    _emit(reporter, _rep.Stage(_rep.PREPARING))
     enhance_ai = (args.enhance_ai == "on") if hasattr(args, 'enhance_ai') else False
     if enhance_ai and args.enhance != "on":
         console.print(
@@ -4043,6 +4087,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
     # ── Preflight visual para --enhance-ai ───────────────────────────────────
     _selective_masks: dict = {}   # {"deband": path, "sharpen": path} ou {}
     if enhance_ai and input_file:
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "preflight"))
         try:
             from enhance_visualizer import run_preflight
             console.print(
@@ -4066,12 +4111,13 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
         console.print(msg)
     # ── MCTF mask video ───────────────────────────────────────────────────────
     if getattr(args, "mctf", "off") == "on" and enhance_ai and ENHANCE_AVAILABLE and input_file:
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "mctf_mask"))
         try:
             from enhance_visualizer import generate_mctf_mask_video
             console.print(
                 "[cyan]✨ MCTF: gerando vídeo de máscaras (todos os frames)...[/cyan]"
             )
-            _mctf_result = generate_mctf_mask_video(input_file, out_dir="enhance_maps", show_progress=not is_batch)
+            _mctf_result = generate_mctf_mask_video(input_file, out_dir="enhance_maps", show_progress=not is_batch and reporter is None)
             if _mctf_result:
                 _mctf_masks = {
                     "deband":  _mctf_result.get("deband", ""),
@@ -4137,14 +4183,16 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             selective_masks=_selective_masks,
             dither_enabled=_dither_active,
             fit=args.fit,
+            reporter=reporter,
         )
     _encode_seconds = time.time() - _t0
 
     # ── EBU R128 — auditoria pós-encode (sempre) + monitor FFplay (opcional) ──
+    _emit(reporter, _rep.Stage(_rep.QC))
     try:
         from ebu_meter import run_post_encode_qc
         _show_meter = (getattr(args, "ebu_meter", "on") == "on") and not is_batch
-        run_post_encode_qc(
+        _qc_payload = run_post_encode_qc(
             input_file,
             output_file,
             target="instagram",
@@ -4155,8 +4203,11 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             settings=_report_settings(args),
             encode_seconds=_encode_seconds,
         )
+        _emit(reporter, _rep.Qc(_qc_payload))
     except Exception as _ebu_exc:
         console.print(f"[yellow]⚠ Auditoria EBU R128 falhou: {_ebu_exc}[/yellow]")
+    _emit(reporter, _rep.Stage(_rep.DONE))
+    _emit(reporter, _rep.Done(output_file, time.time() - _t0))
 
 
 # =============================================================================
