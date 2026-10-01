@@ -41,6 +41,13 @@ class KeyReader:
             old = termios.tcgetattr(fd)
             tty.setcbreak(fd)
             self._restore = lambda: termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        try:
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        except Exception:
+            pass
         self._thread = threading.Thread(target=_reader_loop, args=(self,), daemon=True)
         self._thread.start()
 

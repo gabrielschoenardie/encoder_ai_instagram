@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import queue
 import sys
 import time
@@ -16,7 +17,7 @@ from ui import tui_driver as D
 from ui.theme import get_console
 from ui.tui import state as S
 from ui.tui.keys import KeyReader
-from ui.tui.screens import render
+from ui.tui.screens import error_message, partial_wording, render
 from ui.tui_capture import ConsoleCapture, _Sink
 
 TICK_S = 0.1
@@ -47,7 +48,7 @@ class App:
         self._size = size or (lambda: (self._console.size.width, self._console.size.height))
         self._terminate = terminate or RE.terminate_active_ffmpeg
         out = output_path if output_path is not None else D._single_output_path(ns)
-        self.state = S.UIState(config=dict(vars(ns)), output_path=out)
+        self.state = S.UIState(config=dict(vars(ns)), output_path=out, output_preexisted=os.path.exists(out))
         self._queue: queue.Queue = queue.Queue()
         self._control = R.CancelControl(terminate=self._terminate)
         self._live = None
@@ -71,7 +72,20 @@ class App:
         finally:
             sys.stderr = orig_stderr
             reader.restore()
+        self._summary(code)
         return code
+
+    def _summary(self, code: int) -> None:
+        s = self.state
+        if s.screen == S.COMPLETED:
+            line = Text(f"✓ entregue: {s.output_path}", style="ok")
+        elif s.screen == S.ERROR:
+            line = Text(f"✗ erro (código {code}): {error_message(s)}", style="err")
+        elif s.screen == S.CANCELLED:
+            line = Text(f"⚠ cancelado: {partial_wording(s)}", style="warn")
+        else:
+            return
+        self._console.print(line)
 
     def _session(self) -> int:
         self._until(lambda s: s.action in ("start", "exit"))
@@ -79,6 +93,7 @@ class App:
             return 0
         self.state = replace(self.state, action=None)
         code = self._run_single(self._ns, self._queue, self._control, self._tick)
+        self._drain()
         self.state = S.apply(self.state, S.Finished(code))
         self._until(lambda s: s.action == "exit")
         return code
@@ -114,6 +129,7 @@ class App:
             self.state = S.apply(self.state, ev)
             if self.state.action == "cancel":
                 self.state = replace(self.state, action=None)
-                self._control.request_cancel()
+                if self._control.request_cancel():
+                    self._queue.put(R.Cancel("requested"))
             elif self.state.action in ("start", "exit"):
                 break

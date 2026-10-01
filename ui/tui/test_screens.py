@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from dataclasses import replace
 
 import reporter as R
 from ui.theme import get_console
@@ -190,7 +191,7 @@ def test_error_screen_handles_bytes_and_none_stderr():
     base = S.apply(encoding_state(), R.Error("CalledProcessError", "ffmpeg saiu com 1",
                                              b"linha a\r\nlinha b\xff\n", 1, None, ts=250.0))
     out = text_of(S.apply(base, S.Finished(1)))
-    assert "ffmpeg saiu com 1" in out and "linha a" in out and "linha b" in out
+    assert "ffmpeg saiu com código 1" in out and "linha a" in out and "linha b" in out
     assert "FFMPEG STDERR" in out and "ESTADO" in out and "SAIR" in out
     none_err = S.apply(encoding_state(), R.Error("RuntimeError", "x", None, None, "tb", ts=250.0))
     out = text_of(S.apply(none_err, S.Finished(1)))
@@ -209,8 +210,117 @@ def test_cancelled_screen_partial_results():
     assert "Encode interrompido pelo usuário" in text_of(removed)
     assert "output parcial removido" in text_of(removed)
     kept = S.apply(S.apply(base, R.Cancel("cleaned", False, ts=251.0)), S.Finished(130))
-    assert "NÃO foi possível remover" in text_of(kept)
+    assert "NÃO foi possível remover" not in text_of(kept)
     none = S.apply(base, S.Finished(130))
     out = text_of(none)
     assert "nenhum output parcial" in out
     assert_fits(out)
+
+
+def cancelled_state(*evs, preexisted=False):
+    s = S.apply(encoding_state(), R.Cancel("requested", ts=250.0))
+    s = replace(s, output_preexisted=preexisted)
+    for ev in evs:
+        s = S.apply(s, ev)
+    return S.apply(s, S.Finished(130))
+
+
+def test_cancelled_wording_partial_removed():
+    out = text_of(cancelled_state(R.Cancel("cleaned", True, ts=251.0)))
+    assert "output parcial removido: clip_final_Hollywood_2Pass.mp4" in out
+
+
+def test_cancelled_wording_removal_failed():
+    out = text_of(cancelled_state(R.Cancel("cleaned", False, ts=251.0),
+                                  R.Info("NÃO foi possível remover clip_final_Hollywood_2Pass.mp4", ts=251.1)))
+    assert "NÃO foi possível remover clip_final_Hollywood_2Pass.mp4" in out and "apague à mão" in out
+
+
+def test_cancelled_wording_no_file_written_is_not_an_alarm():
+    out = text_of(cancelled_state(R.Cancel("cleaned", False, ts=251.0)))
+    assert "nenhum output parcial" in out and "apague à mão" not in out
+    assert_fits(out)
+
+
+def test_cancelled_wording_preexisting_output_kept():
+    out = text_of(cancelled_state(R.Cancel("terminated", ts=251.0), preexisted=True))
+    assert ("o arquivo existente foi mantido: clip_final_Hollywood_2Pass.mp4 "
+            "(pode ter sido sobrescrito em parte)") in out
+    assert "nenhum output parcial" not in out
+    assert_fits(out)
+
+
+def test_error_long_message_keeps_layout():
+    argv = "Command '['ffmpeg', '-y', '-i', 'C:/v/clip_final.mov', " + "'-x264-params', 'a=b:c=d', " * 60
+    msg = (argv + "]' returned non-zero exit status 1.\n") * 3
+    msg = (msg + "\n" + "z" * 3000)[:3000]
+    s = S.apply(encoding_state(), R.Error("CalledProcessError", msg, b"linha a\nlinha b\n", 1, None, ts=250.0))
+    out = text_of(S.apply(s, S.Finished(1)))
+    assert "CalledProcessError: ffmpeg saiu com código 1" in out
+    for txt in ("FFMPEG STDERR", "ESTADO", "SAIR", "linha a"):
+        assert txt in out, txt
+    assert "-x264-params" not in out
+    assert_fits(out)
+    lines = out.splitlines()
+    assert len(lines) == 40 and "[ESC] Sair" in "\n".join(lines[-3:])
+
+
+def test_error_message_without_returncode_is_first_line_truncated():
+    s = st(screen=S.ERROR, exit_code=1, error=R.Error("RuntimeError", "y" * 300 + "\nsegunda", None, None, None))
+    assert V.error_message(s) == "RuntimeError: " + "y" * 200 + "…"
+    short = st(screen=S.ERROR, exit_code=1, error=R.Error("validation", "modo inválido", None, None, None))
+    assert V.error_message(short) == "validation: modo inválido"
+
+
+def test_cancel_requested_header_status_and_footer():
+    s = S.apply(encoding_state(), R.Cancel("requested", ts=250.0))
+    out = text_of(s)
+    assert "⚠ CANCELAMENTO SOLICITADO · encerrando FFmpeg…" in out
+    assert "⚠ CANCELANDO" in out and "░[C] Cancel" in out
+    assert_fits(out)
+    assert_no_emoji(out)
+
+
+def footer_of(out):
+    return "\n".join(out.splitlines()[-3:])
+
+
+def test_footer_modal_keys():
+    foot = footer_of(text_of(S.apply(encoding_state(), S.Key("C"))))
+    assert "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt" in foot
+    assert "[D] Details" not in foot
+
+
+def test_footer_overlays_from_final_screen():
+    done = S.apply(S.apply(qc_state(True), S.Finished(0)), S.Tick(400.0, (120, 40)))
+    qc = S.apply(S.apply(done, S.Key("RIGHT")), S.Key("ENTER"))
+    assert qc.screen == S.QC
+    foot = footer_of(text_of(qc))
+    assert "[ESC] Voltar" in foot and "[D]" not in foot and "[C]" not in foot and "Ctrl+C" not in foot
+    log = S.apply(S.apply(S.apply(done, S.Key("RIGHT")), S.Key("RIGHT")), S.Key("ENTER"))
+    assert log.screen == S.LOG
+    foot = footer_of(text_of(log))
+    assert "[←→] Filtro" in foot and "[ESC] Voltar" in foot and "[D]" not in foot and "Ctrl+C" not in foot
+    det = S.apply(log, S.Key("D"))
+    assert det.screen == S.DETAILS
+    foot = footer_of(text_of(det))
+    assert "[ESC] Voltar" in foot and "[L]" not in foot and "Ctrl+C" not in foot
+
+
+def test_cineon_crf_film_render_rail_and_title():
+    s = S.UIState(config={**CFG, "cineon_pipeline": "on"}, output_path="C:/v/clip_final_Cineon_Film.mp4",
+                  screen=S.ENCODING, now=10.0)
+    for ev in (R.Stage(R.PREPARING, ts=1.0), R.Stage(R.PROBING, ts=2.0), R.Stage(R.PASS, "1", ts=3.0),
+               R.Pass(1, 1, "Cineon", "start", ts=3.0)):
+        s = S.apply(s, ev)
+    rail = V.stage_rail(s).plain
+    assert "FILM RENDER" in rail and "PASS 1" not in rail
+    assert "ENCODING · FILM LOOK (CINEON)" in text_of(s)
+
+
+def test_stage_rail_done_by_order():
+    s = S.UIState(config={**CFG, "cineon_pipeline": "on"}, output_path="o.mp4", screen=S.ENCODING)
+    for ev in (R.Stage(R.PREPARING, ts=1.0), R.Stage(R.ANALYZING, "preflight", ts=2.0), R.Stage(R.PROBING, ts=3.0)):
+        s = S.apply(s, ev)
+    rail = V.stage_rail(s).plain
+    assert "✓ PREPARING" in rail and "✓ ANALYZING" not in rail and "○ ANALYZING" in rail

@@ -5,7 +5,9 @@ import pytest
 
 import Reels_Encoder_v2_FINAL as RE
 import reporter as R
+from ui.theme import get_console
 from ui.tui import app as A
+from ui.tui import screens as V
 from ui.tui import state as S
 
 
@@ -62,9 +64,16 @@ def ns(tmp_path):
 def make(tmp_path, keys, run_single, **kw):
     live = FakeLive()
     reader = FakeReader(keys)
+    holder = []
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS:
+            holder[0]._queue.put(S.Key("ENTER"))
+
     app = A.App(ns(tmp_path), run_single=run_single, reader_factory=reader, live_factory=lambda c: live,
-                clock=Clock(), sleep=lambda s: None, perf=lambda: (10.0, 20.0, 1.0),
+                clock=Clock(), sleep=sleep, perf=lambda: (10.0, 20.0, 1.0),
                 size=lambda: (120, 40), output_path=str(tmp_path / "out.mp4"), **kw)
+    holder.append(app)
     return app, live, reader
 
 
@@ -73,7 +82,6 @@ def fake_success(events_to_emit, code=0):
         for ev in events_to_emit:
             q.put(ev)
             on_tick()
-        q.put(S.Key("ENTER"))
         return code
     return run
 
@@ -90,7 +98,6 @@ def test_ready_keys_after_enter_stay_queued(tmp_path):
 
     def run(ns_, q, control, on_tick):
         seen.append(q.qsize())
-        q.put(S.Key("ENTER"))
         return 0
 
     app, _, _ = make(tmp_path, ["ENTER", "D"], run)
@@ -124,7 +131,6 @@ def test_c_confirm_calls_request_cancel(tmp_path):
         q.put(S.Key("ENTER"))
         on_tick()
         calls.append(control.cancelled)
-        q.put(S.Key("ENTER"))
         return 130
 
     app, _, _ = make(tmp_path, ["ENTER"], run, terminate=lambda: True)
@@ -159,7 +165,6 @@ def test_render_exception_does_not_escape_on_tick(tmp_path, monkeypatch):
     def run(ns_, q, control, on_tick):
         on_tick()
         seen.append("still-running")
-        q.put(S.Key("ENTER"))
         return 0
 
     app, live, _ = make(tmp_path, ["ENTER"], run)
@@ -180,7 +185,6 @@ def test_stderr_writes_become_log_rows(tmp_path):
     def run(ns_, q, control, on_tick):
         sys.stderr.write("Traceback (most recent call last):\n  oops\n")
         on_tick()
-        q.put(S.Key("ENTER"))
         return 1
 
     app, _, _ = make(tmp_path, ["ENTER"], run)
@@ -194,7 +198,6 @@ def test_perf_and_live_update_exceptions_do_not_escape_on_tick(tmp_path):
     def run(ns_, q, control, on_tick):
         on_tick()
         seen.append("still-running")
-        q.put(S.Key("ENTER"))
         return 0
 
     def bad_perf():
@@ -205,3 +208,94 @@ def test_perf_and_live_update_exceptions_do_not_escape_on_tick(tmp_path):
     live.update = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("live bug"))
     assert app.run() == 0
     assert seen == ["still-running"]
+
+
+def screen_text(state):
+    con = get_console(record=True, width=120, height=40, force_terminal=True, color_system="truecolor")
+    con.print(V.render(state))
+    return con.export_text()
+
+
+def test_output_preexisted_detected_at_start(tmp_path):
+    app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0)
+    assert app.state.output_preexisted is False
+    (tmp_path / "out.mp4").write_bytes(b"old")
+    app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0)
+    assert app.state.output_preexisted is True
+
+
+def test_confirmed_cancel_draws_cancel_requested_and_c_does_not_reopen(tmp_path):
+    seen = {}
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.Stage(R.PASS, "1", ts=1.0))
+        q.put(R.Pass(1, 1, "Encode", "start", ts=1.0))
+        on_tick()
+        for k in ("C", "RIGHT", "ENTER"):
+            q.put(S.Key(k))
+        on_tick()
+        seen["phase"] = app.state.cancel_phase
+        seen["text"] = screen_text(app.state)
+        q.put(S.Key("C"))
+        on_tick()
+        seen["modal"] = app.state.modal
+        return 130
+
+    app, _, _ = make(tmp_path, ["ENTER"], run, terminate=lambda: True)
+    assert app.run() == 130
+    assert seen["phase"] == "requested" and "CANCELAMENTO SOLICITADO" in seen["text"]
+    assert seen["modal"] is None
+
+
+def test_events_queued_before_return_apply_before_finished(tmp_path):
+    payload = {"summary": {"ready": True}, "checks": []}
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.Stage(R.QC, ts=1.0))
+        q.put(R.Qc(payload, ts=1.1))
+        return 0
+
+    app, _, _ = make(tmp_path, ["ENTER"], run)
+    screens = []
+    inner = app._sleep
+    app._sleep = lambda t: (screens.append(app.state.screen), inner(t))
+    assert app.run() == 0
+    assert app.state.screen == S.COMPLETED and app.state.seal_reveal_start is not None
+    assert S.QC in screens and screens.index(S.QC) < screens.index(S.COMPLETED)
+
+
+def recording():
+    return get_console(record=True, width=400, force_terminal=False)
+
+
+def test_summary_line_completed(tmp_path):
+    con = recording()
+    app, _, _ = make(tmp_path, ["ENTER"], fake_success([R.Stage(R.PASS, "1", ts=1.0)]), console=con)
+    assert app.run() == 0
+    lines = [ln for ln in con.export_text().splitlines() if ln.strip()]
+    assert lines == [f"✓ entregue: {tmp_path / 'out.mp4'}"]
+
+
+def test_summary_line_error(tmp_path):
+    con = recording()
+    err = R.Error("CalledProcessError", "Command '['ffmpeg', '-y']' returned 1", None, 1, None, ts=1.0)
+    app, _, _ = make(tmp_path, ["ENTER"], fake_success([err], code=1), console=con)
+    assert app.run() == 1
+    lines = [ln for ln in con.export_text().splitlines() if ln.strip()]
+    assert lines == ["✗ erro (código 1): CalledProcessError: ffmpeg saiu com código 1"]
+
+
+def test_summary_line_cancelled(tmp_path):
+    con = recording()
+    evs = [R.Stage(R.PASS, "1", ts=1.0), R.Cancel("requested", ts=2.0), R.Cancel("cleaned", True, ts=3.0)]
+    app, _, _ = make(tmp_path, ["ENTER"], fake_success(evs, code=130), console=con)
+    assert app.run() == 130
+    lines = [ln for ln in con.export_text().splitlines() if ln.strip()]
+    assert lines == ["⚠ cancelado: output parcial removido: out.mp4"]
+
+
+def test_summary_line_absent_on_ready_esc(tmp_path):
+    con = recording()
+    app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0, console=con)
+    assert app.run() == 0
+    assert con.export_text().strip() == ""

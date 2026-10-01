@@ -91,6 +91,8 @@ class UIState:
     error: R.Error | None = None
     cancel_phase: str | None = None
     partial_removed: bool | None = None
+    removal_failed: bool = False
+    output_preexisted: bool = False
     exit_code: int | None = None
     seal_reveal_start: float | None = None
     action: str | None = None
@@ -98,6 +100,10 @@ class UIState:
 
 def cancel_blocked(s: UIState) -> bool:
     return (s.stage, s.substep) in R.CANCEL_BLOCKED
+
+
+def seal_revealed(s: UIState) -> bool:
+    return s.seal_reveal_start is not None and s.now - s.seal_reveal_start >= SEAL_REVEAL_S - 1e-6
 
 
 def active_pass(s: UIState) -> PassTrack | None:
@@ -179,6 +185,8 @@ def _engine(s: UIState, ev) -> UIState:
         parts = [p for p in ev.line.split("\r") if p.strip()]
         return _log(s, "FFMPEG", parts[-1].strip() if parts else "")
     if isinstance(ev, R.Info):
+        if "NÃO foi possível remover" in ev.text:
+            s = replace(s, removal_failed=True)
         return _log(s, "WARNING" if _WARNING_RE.search(ev.text) else "INFO", ev.text)
     if isinstance(ev, R.Qc):
         return replace(s, qc=ev.payload)
@@ -199,10 +207,7 @@ def _tick(s: UIState, ev: Tick) -> UIState:
     if s.screen == QC and s.qc is not None and s.seal_reveal_start is None:
         s = replace(s, seal_reveal_start=ev.ts)
     if s.exit_code == 0 and s.screen == QC and s.back != COMPLETED:
-        revealed = s.qc is None or (
-            s.seal_reveal_start is not None and ev.ts - s.seal_reveal_start >= SEAL_REVEAL_S
-        )
-        if revealed:
+        if s.qc is None or seal_revealed(s):
             s = replace(s, screen=COMPLETED, action_focus=0)
     return s
 

@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from ui.tui import keys as K
@@ -21,7 +23,19 @@ def test_decode_posix(seq, want):
     assert K.decode_posix(seq) == want
 
 
+class FakeMsvcrt:
+    def __init__(self, pending):
+        self.pending = list(pending)
+
+    def kbhit(self):
+        return bool(self.pending)
+
+    def getwch(self):
+        return self.pending.pop(0)
+
+
 def test_reader_start_stop_without_console(monkeypatch):
+    monkeypatch.setitem(sys.modules, "msvcrt", FakeMsvcrt([]))
     got = []
     r = K.KeyReader(got.append)
     monkeypatch.setattr(K, "_reader_loop", lambda self: self._stop.wait(5))
@@ -29,3 +43,14 @@ def test_reader_start_stop_without_console(monkeypatch):
     r.stop()
     r.restore()
     assert not r._thread.is_alive()
+
+
+def test_start_flushes_pending_console_input(monkeypatch):
+    fake = FakeMsvcrt(["\r", "x"])
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    got = []
+    r = K.KeyReader(got.append)
+    monkeypatch.setattr(K, "_reader_loop", lambda self: self._stop.wait(5))
+    r.start()
+    r.stop()
+    assert fake.pending == [] and got == []

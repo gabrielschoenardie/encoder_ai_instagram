@@ -37,6 +37,7 @@ FOOTER_KEYS = {
     S.ERROR: "[↑↓] Rolar   [←→] Choose   [ENTER] Confirmar   [ESC] Sair",
     S.CANCELLED: "[←→] Choose   [ENTER] Confirmar   [ESC] Sair",
 }
+MODAL_KEYS = "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt"
 SCREEN_RENDERERS: dict[str, Callable[[S.UIState], RenderableType]] = {}
 
 
@@ -49,6 +50,10 @@ def fmt_secs(seconds: float | None) -> str:
         return "—"
     seconds = max(0, int(seconds))
     return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def cineon_crf(cfg: dict) -> bool:
+    return cfg.get("cineon_pipeline") == "on" and cfg.get("mode") != "2pass"
 
 
 def pipeline_label(cfg: dict) -> str:
@@ -87,6 +92,8 @@ def _status(s: S.UIState) -> str:
     base = STATUS.get(s.screen, s.screen)
     if s.modal == "CANCEL":
         return "⚠ CANCEL?"
+    if s.cancel_phase is not None and s.screen not in S.FINAL_SCREENS and s.screen != S.READY:
+        return "⚠ CANCELANDO"
     if s.screen in (S.ENCODING, S.QC) and s.exit_code is None:
         spin = SPINNER[int(s.now * 10) % len(SPINNER)]
         track = S.active_pass(s)
@@ -126,7 +133,13 @@ def header(s: S.UIState) -> RenderableType:
 
 def footer(s: S.UIState) -> RenderableType:
     keys = FOOTER_KEYS.get(s.screen, "")
-    if s.screen == S.ENCODING and S.cancel_blocked(s):
+    if s.modal == "CANCEL":
+        keys = MODAL_KEYS
+    elif s.screen in (S.QC, S.DETAILS) and s.back in S.FINAL_SCREENS:
+        keys = "[ESC] Voltar"
+    elif s.screen == S.LOG and s.back in S.FINAL_SCREENS:
+        keys = "[←→] Filtro   [ESC] Voltar"
+    elif s.screen == S.ENCODING and (S.cancel_blocked(s) or s.cancel_phase is not None):
         keys = keys.replace("[C] Cancel", "░[C] Cancel")
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
 
@@ -210,19 +223,18 @@ def stage_rail(s: S.UIState) -> Text:
     g = glyphs()
     total = 2 if s.config.get("mode") == "2pass" else 1
     names = list(STAGE_ORDER) + [f"PASS {i}" for i in range(1, total + 1)] + [R.QC, "COMPLETED"]
-    done_tracks = {f"PASS {t.index}" for t in s.passes if t.done}
     current = f"PASS {s.substep}" if s.stage == R.PASS else s.stage
     finished = s.exit_code == 0 and s.screen in (S.COMPLETED,)
+    cur = names.index(current) if current in names else (len(names) - 1 if s.stage == R.DONE else -1)
     out = Text(" ")
-    for name in names:
-        is_done = finished or name in s.stages_done or name in done_tracks or (
-            name in STAGE_ORDER and current not in STAGE_ORDER and current is not None)
+    for i, name in enumerate(names):
+        label = "FILM RENDER" if name == "PASS 1" and cineon_crf(s.config) else name
         if name == current and not finished:
-            out.append(f"{g['tab_l']}{g['bullet']} {name}    ", style="tab.active")
-        elif is_done:
-            out.append(f"{g['ok']} {name}    ", style="ok")
+            out.append(f"{g['tab_l']}{g['bullet']} {label}    ", style="tab.active")
+        elif finished or i < cur:
+            out.append(f"{g['ok']} {label}    ", style="ok")
         else:
-            out.append(f"○ {name}    ", style="muted")
+            out.append(f"○ {label}    ", style="muted")
     return out
 
 
@@ -273,7 +285,10 @@ def _job_strip(s: S.UIState) -> RenderableType:
 def _progress_header(s: S.UIState) -> Panel:
     track = S.active_pass(s)
     title = f"ENCODING · PASS {track.index} / {track.total}" if track else "ENCODING"
-    return panel(Group(stage_rail(s), Text(""), *pass_lines(s)), title, height=7)
+    if cineon_crf(s.config):
+        title = "ENCODING · FILM LOOK (CINEON)"
+    warn = [Text(" ⚠ CANCELAMENTO SOLICITADO · encerrando FFmpeg…", style="warn")] if s.cancel_phase else []
+    return panel(Group(stage_rail(s), Text(""), *warn, *pass_lines(s)), title, height=7)
 
 
 def _timeline(s: S.UIState) -> Panel:
@@ -490,8 +505,7 @@ def _seal_checks(qc: dict) -> list:
 
 def _seal(s: S.UIState) -> RenderableType:
     qc = s.qc or {}
-    revealed = s.seal_reveal_start is not None and s.now - s.seal_reveal_start >= S.SEAL_REVEAL_S - 1e-6
-    if not revealed:
+    if not S.seal_revealed(s):
         chips = [C.quality_chip(c.get("label", ""), c.get("passed")) for c in qc.get("checks", [])]
         return Panel(Group(Text(" verificando…", style="muted"), *chips), title="[panel.title]MASTER QC[/]",
                      title_align="left", box=HEAVY_BOX, border_style="panel.border", height=14)
@@ -554,10 +568,20 @@ def _completed(s: S.UIState) -> RenderableType:
     return Group(top, mid, _delivery(s), action_row(s))
 
 
+def error_message(s: S.UIState) -> str:
+    err = s.error
+    if err is None:
+        return f"Encode terminou com erro (código {s.exit_code})"
+    if err.returncode is not None:
+        return f"{err.kind}: ffmpeg saiu com código {err.returncode}"
+    first = next(iter((err.message or "").splitlines()), "")
+    return f"{err.kind}: {first[:200] + '…' if len(first) > 200 else first}"
+
+
 def _error(s: S.UIState) -> RenderableType:
     err = s.error
-    msg = f"{err.kind}: {err.message}" if err is not None else f"Encode terminou com erro (código {s.exit_code})"
-    card = C.error_card(msg)
+    card = C.error_card(error_message(s))
+    card.height, card.padding = 5, (0, 2)
     lines = stderr_lines(err, s.log)
     start = min(s.error_scroll, max(0, len(lines) - 17))
     body = Group(*[Text(ln, overflow="ellipsis", no_wrap=True) for ln in lines[start:start + 17]]) if lines \
@@ -571,13 +595,19 @@ def _error(s: S.UIState) -> RenderableType:
     return Group(card, panel(body, "FFMPEG STDERR", height=19), state, action_row(s))
 
 
-def _cancelled(s: S.UIState) -> RenderableType:
+def partial_wording(s: S.UIState) -> str:
+    name = basename(s.output_path)
     if s.partial_removed is True:
-        partial = f"output parcial removido: {basename(s.output_path)}"
-    elif s.partial_removed is False:
-        partial = f"NÃO foi possível remover {basename(s.output_path)} — apague à mão antes de rodar de novo"
-    else:
-        partial = "nenhum output parcial"
+        return f"output parcial removido: {name}"
+    if s.removal_failed:
+        return f"NÃO foi possível remover {name} — apague à mão antes de rodar de novo"
+    if s.output_preexisted:
+        return f"o arquivo existente foi mantido: {name} (pode ter sido sobrescrito em parte)"
+    return "nenhum output parcial"
+
+
+def _cancelled(s: S.UIState) -> RenderableType:
+    partial = partial_wording(s)
     card = Panel(Group(Text(""), Text("   ⚠ Encode interrompido pelo usuário", style="warn"), Text(""),
                        Text(f"   {partial}")), box=HEAVY_BOX, border_style="warn", height=8)
     return Group(card, _log_panel(s), action_row(s))

@@ -181,3 +181,20 @@ def test_error_scroll_bounds():
 def test_tick_records_size_and_perf():
     s = S.apply(_s(), S.Tick(3.0, (100, 30), cpu=12.0, ram=40.0, ram_used_gb=6.5))
     assert s.size == (100, 30) and s.now == 3.0 and s.cpu == 12.0 and s.ram_used_gb == 6.5
+
+
+def test_removal_failed_only_from_driver_warning():
+    s = _run(_s(screen=S.ENCODING), R.Cancel("requested", ts=1.0), R.Cancel("cleaned", False, ts=2.0))
+    assert s.removal_failed is False and s.output_preexisted is False
+    s = S.apply(s, R.Info("NÃO foi possível remover out.mp4", ts=3.0))
+    assert s.removal_failed is True
+
+
+def test_seal_reveal_tolerates_float_error():
+    payload = {"summary": {"ready": True}, "checks": []}
+    s = _run(_s(screen=S.ENCODING), R.Stage(R.QC, ts=300.0), R.Qc(payload, ts=301.0),
+             S.Tick(301.0, (120, 40)), S.Finished(0))
+    s = S.apply(s, S.Tick(301.0 + S.SEAL_REVEAL_S, (120, 40)))
+    assert s.screen == S.COMPLETED
+    assert S.seal_revealed(s)
+    assert not S.seal_revealed(dataclasses.replace(s, now=301.5))
