@@ -71,10 +71,10 @@ Regras: eventos são cópias imutáveis; campo sem dado no momento fica `None` (
 ### 4.1 Ordem de `Stage` (auditada — Sign-off #7)
 
 ```text
-NATIVE : PREPARING → [ANALYZING·mctf_mask] → PROBING → ANALYZING·enhance → ANALYZING·loudness
-         → PASS 1 → BETWEEN_PASSES·pass1_log → PASS 2 → QC → DONE
-CINEON : PREPARING → PROBING → ANALYZING·loudness → ANALYZING·enhance
-         → PASS 1 → PASS 2 → FINALIZING·remux → QC → DONE
+NATIVE : PREPARING → [ANALYZING·preflight] → [ANALYZING·mctf_mask] → PROBING → ANALYZING·enhance
+         → ANALYZING·loudness → PASS 1 → BETWEEN_PASSES·pass1_log → PASS 2 → QC → DONE
+CINEON : PREPARING → [ANALYZING·preflight] → [ANALYZING·mctf_mask] → PROBING → ANALYZING·loudness
+         → ANALYZING·enhance → PASS 1 → BETWEEN_PASSES·pass1_log → PASS 2 → FINALIZING·remux → QC → DONE
 ```
 
 CRF: um passe, sem `BETWEEN_PASSES`. `ANALYZING·mctf_mask` só com MCTF ativo, emitido em `_encode_single_file` antes de `generate_mctf_mask_video` (`RE:4070`); o `Stage` seguinte encerra o período. A TUI renderiza na ordem de chegada, sem ordem fixa (spec §128).
