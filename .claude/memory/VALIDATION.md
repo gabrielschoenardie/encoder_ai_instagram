@@ -231,3 +231,18 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 ---
 
 **Relatório preparado por:** Validador (haiku) — 2ª rodada | **Metodologia:** Sequencial: encode → validate_encode.sh → medir timing → compilar tabela | **Critério:** Cauda de áudio ≤ +0,05 s → ✅ PASSOU
+---
+
+# Validação manual — Ciclo P3A (canal Encoder → TUI, Task 9)
+
+**Data:** 2026-10-01 | **Executor do teste:** usuário, Windows Terminal (PowerShell) | **Script:** `scratchpad\b4\b4_driver_probe.py` (fora do repo) sobre `ui.tui_driver.run_single` + `ConsoleCapture` + leitor `msvcrt` | **Fonte:** cópia isolada de `videos\copy_2B208774-…​.mov` (34 MB)
+
+| T | ação | log | eventos-chave | exit | ffmpeg órfão | terminal |
+|---|------|-----|---------------|------|--------------|----------|
+| T1 | Ctrl+C (caiu em PROBING) | b4_005311 | Cancel requested → terminated → cleaned(False) | 130 | não | ok |
+| T2 | tecla `c` em PROBING | b4_005851 | `C_REQUEST -> True`; abortou no Stage seguinte (ANALYZING·loudness), PASS 1 não iniciou | 130 | não | ok |
+| T3 | MCTF on, `c` em mctf_mask, depois Ctrl+C | b4_010343 | `C_REQUEST -> False` (D-22); Ctrl+C → requested/terminated/cleaned; Info "MCTF falhou: [Errno 22]" (sinal atingiu os ffmpeg da máscara) | 130 | não | ok |
+| T4 | crf até o fim (QC rápido demais para Ctrl+C manual) | b4_010656 | QC → DELIVERY READY → Qc → DONE → Done, certificado gerado | 0 | não | ok |
+| T5 | Ctrl+C ×2 | b4_011033 | requested; Info "Loudnorm Pass 1 falhou" (sinal no ffmpeg de análise); abortou no Stage PASS 1 | 130 | não | ok |
+
+**Veredito:** PASSA. Ctrl+C e `C` preservam o comportamento (exit 130, sem órfão, sem traceback, terminal utilizável); `C` recusado na máscara MCTF; caminho feliz completo (exit 0) pelo condutor. **Não cobertos manualmente:** Ctrl+C durante PASS 1 em andamento e durante QC — cobertos por `ui/test_tui_driver.py` (`test_ctrl_c_during_qc_*`, `test_ctrl_c_wait_keeps_ticking_*`). Observação: no Windows o Ctrl+C também chega aos processos de análise do mesmo console (ffprobe/loudnorm/MCTF); o encoder registra como aviso e o resultado continua 130.

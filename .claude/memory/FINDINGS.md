@@ -1453,3 +1453,27 @@ Abertos após o Ciclo BF: `BDF11`, `BDF12`, `BDF13` (exigem A/B com o usuário),
 | BFF3 | **corrigido** | BG3 `0254ca5` (`_report_settings` grava `enhance_ai`/`mctf` efetivos) + BG4 `db0aaa6` (chip "AI" exige `enhance`; chip novo "MCTF") |
 
 Abertos após o Ciclo BG: `BDF11`, `BDF12`, `BDF13` (exigem A/B com o usuário).
+
+## Ciclo P3A — canal Encoder → TUI (2026-10-01)
+
+Origem: revisão final da branch `claude/ciclo-p3a-reporter-seam` (e54bae2..225ecb2) e revisões por tarefa. Ledger
+completo: `.superpowers/sdd/2026-09-30-tui-reporter-seam/progress.md` (git-ignorado).
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| P3AF1 | S4 | HUD clássico (linha `options:` do x264) | Rich interpreta `:-1:` em `deblock=1:-1:-1` como emoji 👎 (visível no golden `classic_native_*.json` como `deblock=N👎-N`). Pré-existente, só visual | aberto |
+| P3AF2 | S3 | CI | portabilidade dos goldens native no Linux (texto do stderr do ffmpeg/libx264 apt 6.1.1 vs BtbN 6.1.3) e tempo de CI (~9 encodes Cineon por perna Linux) não medidos — exige 1 run de CI | aberto |
+| P3AF3 | S4 | `ui/tui_driver.py` `_run_one` | 2º Ctrl+C por sinal durante `worker_done.wait` escapa e a limpeza roda com o worker possivelmente vivo | aceito (force-quit) |
+| P3AF4 | S4 | `render_queue.run_job` | worker captura só `Exception`; `SystemExit` no encode marcaria o job "ok" (spec §7 pede BaseException). Nenhum `sys.exit` no caminho hoje | aberto |
+
+### Contrato para as telas da Phase 3 (obrigatório ao consumir `reporter`/`tui_driver`)
+
+- Redirecionar também `sys.stderr` no modo TUI: o cancel `C` no Cineon passa por `traceback.print_exc()` (`RE`, loop de frames), fora da `ConsoleCapture`.
+- Fila de eventos **sem limite** (`queue.Queue()`): fila limitada bloquearia as threads de stderr e travaria o ffmpeg.
+- Tratar `Pass(..., "end")` como 100%: não há `Progress` final garantido.
+- Ignorar eventos que chegam depois de um `Cancel` (o `Stage` que dispara `CancelRequested` já foi enfileirado).
+- `CancelControl` novo por execução (não tem reset).
+- Batch: job cancelado por `C` recebe `JobDone(status="falha")` (inferir cancel pelo `Cancel` seguinte); job do Ctrl+C não recebe `JobDone`; validação/pasta ausente emitem `Error` sem `QueueDone`; Ctrl+C entre jobs sai como `KeyboardInterrupt` cru → a entrada da TUI mapeia para 130.
+- `FfmpegLine` do Cineon pode conter `\r` embutido.
+- DETAILS do 2-pass: `EncodeParams` é emitido uma vez (valores antes da adaptação do pass 2); considerar um segundo `EncodeParams` após `BETWEEN_PASSES`.
+- Usar `job.log` não funciona no caminho TUI (console descartável no `run_job`).
