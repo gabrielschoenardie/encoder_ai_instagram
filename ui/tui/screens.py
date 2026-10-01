@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Callable
 
+from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.layout import Layout
 from rich.panel import Panel
@@ -10,6 +11,8 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+import reporter as R
+from ui import components as C
 from ui.theme import HEAVY_BOX, PANEL_BOX, glyphs
 from ui.tui import state as S
 
@@ -189,6 +192,244 @@ def _ready(s: S.UIState) -> RenderableType:
 
 
 SCREEN_RENDERERS[S.READY] = _ready
+
+
+STAGE_ORDER = (R.PREPARING, R.PROBING, R.ANALYZING)
+KIND_STYLE = {"SYSTEM": "info", "INFO": "value", "WARNING": "warn", "FFMPEG": "muted"}
+
+
+def pass_label(track: S.PassTrack, cfg: dict) -> str:
+    if track.label == "Pass 1":
+        return "ANÁLISE"
+    if track.label == "Pass 2":
+        return "ENCODE FINAL"
+    return "FILM RENDER" if cfg.get("cineon_pipeline") == "on" else "ENCODE"
+
+
+def stage_rail(s: S.UIState) -> Text:
+    g = glyphs()
+    total = 2 if s.config.get("mode") == "2pass" else 1
+    names = list(STAGE_ORDER) + [f"PASS {i}" for i in range(1, total + 1)] + [R.QC, "COMPLETED"]
+    done_tracks = {f"PASS {t.index}" for t in s.passes if t.done}
+    current = f"PASS {s.substep}" if s.stage == R.PASS else s.stage
+    finished = s.exit_code == 0 and s.screen in (S.COMPLETED,)
+    out = Text(" ")
+    for name in names:
+        is_done = finished or name in s.stages_done or name in done_tracks or (
+            name in STAGE_ORDER and current not in STAGE_ORDER and current is not None)
+        if name == current and not finished:
+            out.append(f"{g['tab_l']}{g['bullet']} {name}    ", style="tab.active")
+        elif is_done:
+            out.append(f"{g['ok']} {name}    ", style="ok")
+        else:
+            out.append(f"○ {name}    ", style="muted")
+    return out
+
+
+def pass_lines(s: S.UIState) -> list:
+    if not s.passes:
+        return [Text(" aguardando o primeiro passe…", style="muted")]
+    lines = []
+    for t in s.passes:
+        line = Text(f" PASS {t.index} / {t.total}   {pass_label(t, s.config):<14}")
+        line.append_text(bar(t.pct))
+        tail = f"   {t.pct:6.1f}%   "
+        tail += f"{glyphs()['ok']} {fmt_secs(t.seconds)}" if t.done else f"ETA {t.eta or '—'}"
+        line.append(tail, style="ok" if t.done else "value")
+        lines.append(line)
+    return lines
+
+
+def log_rows(rows, limit: int) -> Table:
+    t = Table.grid(padding=(0, 2))
+    t.add_column(no_wrap=True, width=8)
+    t.add_column(overflow="ellipsis", no_wrap=True, max_width=104)
+    for r in rows[-limit:]:
+        t.add_row(Text(r.kind, style=KIND_STYLE.get(r.kind, "value")), Text(r.text))
+    return t
+
+
+def _log_panel(s: S.UIState) -> Panel:
+    title = "LOG" + (f" [warn]⚠ {s.warnings}[/]" if s.warnings else "")
+    return panel(log_rows(s.log, 9), title, height=11)
+
+
+def _src_dims(s: S.UIState):
+    return (s.probe.width, s.probe.height) if s.probe else None
+
+
+def _job_strip(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    line = Text(" ")
+    line.append(basename(s.config.get("input")), style="value")
+    line.append(f"  {g['arrow']}  ", style="accent")
+    line.append(basename(s.output_path), style="info")
+    dims = _src_dims(s)
+    if dims:
+        line.append(f"   ·  {C.classify_aspect(*dims)} {dims[0]}×{dims[1]}", style="info.dim")
+    return line
+
+
+def _progress_header(s: S.UIState) -> Panel:
+    track = S.active_pass(s)
+    title = f"ENCODING · PASS {track.index} / {track.total}" if track else "ENCODING"
+    return panel(Group(stage_rail(s), Text(""), *pass_lines(s)), title, height=7)
+
+
+def _timeline(s: S.UIState) -> Panel:
+    p = s.progress
+    track = S.active_pass(s)
+    job = (s.now - s.job_started) if s.job_started is not None else None
+    return panel(kv_table([
+        ("pass", f"{track.index} / {track.total} · {pass_label(track, s.config)}" if track else "—"),
+        ("frame", f"{p.frame} / {p.total}" if p else "—"),
+        ("fps", f"{p.fps:.1f}" if p else "—"),
+        ("speed", f"{p.speed:.2f}x" if p else "—"),
+        ("eta", p.eta if p else "—"),
+        ("elapsed", fmt_secs(p.elapsed) if p else "—"),
+        ("job elapsed", fmt_secs(job)),
+    ]), "TIMELINE", height=13)
+
+
+def _gauge(pct):
+    return C.gauge_bar(pct) if pct is not None else Text("—")
+
+
+def _performance(s: S.UIState) -> Panel:
+    hw = s.hardware or {}
+    threads = s.config.get("threads")
+    return panel(kv_table([
+        ("cpu", _gauge(s.cpu)),
+        ("ram", _gauge(s.ram)),
+        ("ram used", f"{s.ram_used_gb:.1f} GB" if s.ram_used_gb is not None else "—"),
+        ("", ""),
+        ("threads", f"{threads} (auto)" if threads in (0, None) else str(threads)),
+        ("performance", s.config.get("performance", "—")),
+        ("tier", hw.get("tier", "—")),
+    ]), "PERFORMANCE", height=13)
+
+
+def _middle(s: S.UIState) -> RenderableType:
+    row = Table.grid(expand=True)
+    row.add_column(width=30)
+    row.add_column(ratio=1)
+    row.add_column(ratio=1)
+    viewer = C.viewer_frame(fit=s.config.get("fit", "contain"), src_dims=_src_dims(s), title="PROGRAM")
+    row.add_row(Panel(viewer, height=13, box=PANEL_BOX, border_style="panel.border"), _timeline(s), _performance(s))
+    return row
+
+
+def cancel_modal(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    track = S.active_pass(s)
+    where = f"{s.stage or '—'}{' · ' + s.substep if s.substep else ''}"
+    pct = f" · {track.pct:.0f}%" if track else ""
+    buttons = Text("   ")
+    for i, label in enumerate(("CONTINUAR ENCODE", "CANCELAR ENCODE")):
+        focused = s.modal_focus == i
+        buttons.append(f"{g['arrow'] if focused else ' '}[ {label} ]   ", style="tab.active" if focused else "muted")
+    body = Group(
+        Text(""),
+        Text(f"  etapa ativa: {where}{pct}"),
+        Text("  usa o caminho de interrupção existente (o mesmo do Ctrl+C)", style="muted"),
+        Text(f"  parcial: {basename(s.output_path)}", style="muted"),
+        Text(""),
+        buttons,
+    )
+    box = Panel(body, title="[warn]CANCELAR ENCODE?[/]", box=PANEL_BOX, border_style="warn", width=64, height=12)
+    return Align.center(box, vertical="middle", height=13)
+
+
+def dashboard(s: S.UIState, middle: RenderableType) -> RenderableType:
+    return Group(_job_strip(s), _progress_header(s), Text(""), middle, Text(""), _log_panel(s))
+
+
+def _encoding(s: S.UIState) -> RenderableType:
+    return dashboard(s, cancel_modal(s) if s.modal == "CANCEL" else _middle(s))
+
+
+def _prov(value, tag: str) -> Text:
+    out = Text(str(value) if value not in (None, "") else "—")
+    out.append(f"  {tag}", style="muted")
+    return out
+
+
+def _mini(s: S.UIState) -> Text:
+    track = S.active_pass(s)
+    return Text(f" {s.stage or '—'}{' · ' + s.substep if s.substep else ''}"
+                f"{f'   PASS {track.index}/{track.total} {track.pct:.1f}%' if track else ''}", style="muted")
+
+
+def _details(s: S.UIState) -> RenderableType:
+    p, hw, ep, pr, cfg = s.probe, s.hardware or {}, s.encode_params, s.progress, s.config
+    track = S.active_pass(s)
+    src = panel(kv_table([
+        ("resolução", _prov(f"{p.width} × {p.height}" if p else None, "DET")),
+        ("duração", _prov(fmt_secs(p.duration) if p else None, "DET")),
+        ("frames", _prov(p.total_frames if p else None, "DET")),
+        ("fps", _prov(p.fps if p else None, "DET")),
+        ("HDR", _prov(("sim" if p.is_hdr else "não") if p else None, "DET")),
+    ]), "SOURCE", height=15)
+    hwp = panel(kv_table([
+        ("cpu", _prov(hw.get("cpu_name"), "DET")),
+        ("cores/threads", _prov(f"{hw['cpu_cores']} / {hw['cpu_threads']}" if "cpu_cores" in hw and "cpu_threads" in hw else None, "DET")),
+        ("ram", _prov(f"{hw['ram_total_gb']:.1f} GB" if "ram_total_gb" in hw else None, "DET")),
+        ("tier", _prov(hw.get("tier"), "DER")),
+        ("preset rec.", _prov(hw.get("recommended_preset"), "DER")),
+    ]), "HARDWARE", height=15)
+    enc = panel(kv_table([
+        ("modo", _prov(cfg.get("mode"), "CFG")),
+        ("pass", _prov(f"{track.index} / {track.total}" if track else None, "LIVE")),
+        ("VBV", _prov(ep.vbv_key if ep else None, "CALC")),
+        ("target", _prov(ep.target if ep else None, "CALC")),
+        ("maxrate", _prov(ep.maxrate if ep else None, "CALC")),
+        ("bufsize", _prov(ep.bufsize if ep else None, "CALC")),
+        ("vbv_init", _prov(ep.vbv_init if ep else None, "CALC")),
+        ("x264 preset", _prov(ep.x264_preset if ep else None, "CALC")),
+    ]), "ENCODING", height=15)
+    con = panel(kv_table([
+        ("pipeline", _prov(pipeline_label(cfg), "CFG")),
+        ("LUT", _prov(cfg.get("lut"), "CFG")),
+        ("loudnorm", _prov(cfg.get("loudnorm"), "CFG")),
+        ("enhance", _prov(cfg.get("enhance"), "CFG")),
+        ("AI", _prov(cfg.get("enhance_ai"), "CFG")),
+        ("MCTF", _prov(cfg.get("mctf"), "CFG")),
+        ("dither", _prov(cfg.get("dither"), "CFG")),
+    ]), "CONFIG", height=15)
+    out = panel(kv_table([
+        ("output", _prov(basename(s.output_path), "CFG")),
+        ("report", _prov(cfg.get("report"), "CFG")),
+        ("ebu meter", _prov(cfg.get("ebu_meter"), "CFG")),
+    ]), "OUTPUT", height=15)
+    prog = panel(kv_table([
+        ("frame", _prov(f"{pr.frame} / {pr.total}" if pr else None, "LIVE")),
+        ("fps", _prov(f"{pr.fps:.1f}" if pr else None, "LIVE")),
+        ("speed", _prov(f"{pr.speed:.2f}x" if pr else None, "LIVE")),
+        ("eta", _prov(pr.eta if pr else None, "LIVE")),
+        ("elapsed", _prov(fmt_secs(pr.elapsed) if pr else None, "LIVE")),
+    ]), "PROGRESS", height=15)
+    grid = Table.grid(expand=True)
+    for _ in range(3):
+        grid.add_column(ratio=1)
+    grid.add_row(src, hwp, enc)
+    grid.add_row(con, out, prog)
+    return Group(_mini(s), grid)
+
+
+def _log_screen(s: S.UIState) -> RenderableType:
+    tabs = Text(" ")
+    for i, name in enumerate(S.LOG_FILTERS):
+        tabs.append(f" {name} ", style="tab.active" if i == s.log_filter else "tab.inactive")
+        tabs.append("  ")
+    rows = S.filtered_log(s)
+    status = Text(f" {len(rows)} linhas · filtro {S.LOG_FILTERS[s.log_filter]}", style="muted")
+    return Group(_mini(s), tabs, Rule(style="muted"), log_rows(rows, 28),
+                 Rule(style="muted"), status)
+
+
+SCREEN_RENDERERS[S.ENCODING] = _encoding
+SCREEN_RENDERERS[S.DETAILS] = _details
+SCREEN_RENDERERS[S.LOG] = _log_screen
 
 
 def _small(s: S.UIState) -> RenderableType:
