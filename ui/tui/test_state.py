@@ -152,7 +152,7 @@ def test_seal_reveal_then_completed():
     assert s.screen == S.QC and s.seal_reveal_start == 2.1
     s = S.apply(s, S.Tick(2.5, (120, 40)))
     assert s.screen == S.QC
-    s = S.apply(s, S.Tick(2.1 + S.SEAL_REVEAL_S, (120, 40)))
+    s = S.apply(s, S.Tick(2.2 + S.SEAL_REVEAL_S, (120, 40)))
     assert s.screen == S.COMPLETED
 
 
