@@ -165,19 +165,21 @@ def _require_ffmpeg(request):
 @pytest.mark.timeout(300)
 @pytest.mark.parametrize("scenario", sorted(SCENARIOS))
 def test_classic_path_matches_golden(tmp_path, monkeypatch, scenario):
-    got = run_classic(tmp_path, monkeypatch, scenario)
-    got.pop("output")
     path = os.path.join(GOLDEN_DIR, f"classic_{scenario}.json")
     env = _env_fingerprint()
+    want = None
+    if not UPDATE:
+        with open(path, encoding="utf-8") as fh:
+            want = json.load(fh)
+        motivo = _env_mismatch(want.get("env"), env)
+        if motivo is not None:
+            pytest.skip(f"golden gravado em outro ambiente: {motivo}")
+    got = run_classic(tmp_path, monkeypatch, scenario)
+    got.pop("output")
     if UPDATE:
         os.makedirs(GOLDEN_DIR, exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"env": env, **got}, fh, ensure_ascii=False, indent=1)
         pytest.skip("golden gravado")
-    with open(path, encoding="utf-8") as fh:
-        want = json.load(fh)
-    motivo = _env_mismatch(want.get("env"), env)
-    if motivo is not None:
-        pytest.skip(f"golden gravado em outro ambiente: {motivo}")
     assert got["argv"] == want["argv"]
     assert got["console"] == want["console"]
