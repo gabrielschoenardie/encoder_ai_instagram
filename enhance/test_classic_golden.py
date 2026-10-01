@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 
 import pytest
 
@@ -26,6 +27,30 @@ def _runs(binary):
                               capture_output=True, timeout=60).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+def _env_fingerprint():
+    try:
+        out = subprocess.run([RE.FFMPEG, "-version"], capture_output=True, timeout=60)
+        ffmpeg = out.stdout.decode("utf-8", "ignore").splitlines()[0].strip()
+    except (OSError, subprocess.SubprocessError, IndexError):
+        ffmpeg = None
+    try:
+        import numpy
+        np_ver = numpy.__version__
+    except ImportError:
+        np_ver = None
+    return {"ffmpeg": ffmpeg, "python": f"{sys.version_info[0]}.{sys.version_info[1]}",
+            "numpy": np_ver}
+
+
+def _env_mismatch(recorded, current):
+    if recorded is None:
+        return "golden sem impressão digital de ambiente"
+    diffs = [f"{k}: gravado={recorded.get(k)!r} atual={current.get(k)!r}"
+             for k in sorted(set(recorded) | set(current))
+             if recorded.get(k) != current.get(k)]
+    return "; ".join(diffs) or None
 
 
 def _fixed_hardware():
@@ -120,8 +145,19 @@ def run_classic(tmp_path, monkeypatch, scenario, reporter=None):
     }
 
 
+def test_env_mismatch_unit():
+    env = {"ffmpeg": "ffmpeg version A", "python": "3.11", "numpy": "1.0"}
+    assert _env_mismatch(dict(env), dict(env)) is None
+    reason = _env_mismatch(env, {**env, "python": "3.12"})
+    assert "python" in reason and "3.11" in reason and "3.12" in reason
+    assert "ffmpeg" not in reason
+    assert _env_mismatch(None, env) is not None
+
+
 @pytest.fixture(autouse=True)
-def _require_ffmpeg():
+def _require_ffmpeg(request):
+    if request.node.name == "test_env_mismatch_unit":
+        return
     if not (_runs(RE.FFMPEG) and _runs(RE.FFPROBE)):
         pytest.skip("ffmpeg/ffprobe indisponíveis")
 
@@ -132,12 +168,16 @@ def test_classic_path_matches_golden(tmp_path, monkeypatch, scenario):
     got = run_classic(tmp_path, monkeypatch, scenario)
     got.pop("output")
     path = os.path.join(GOLDEN_DIR, f"classic_{scenario}.json")
+    env = _env_fingerprint()
     if UPDATE:
         os.makedirs(GOLDEN_DIR, exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump(got, fh, ensure_ascii=False, indent=1)
+            json.dump({"env": env, **got}, fh, ensure_ascii=False, indent=1)
         pytest.skip("golden gravado")
     with open(path, encoding="utf-8") as fh:
         want = json.load(fh)
+    motivo = _env_mismatch(want.get("env"), env)
+    if motivo is not None:
+        pytest.skip(f"golden gravado em outro ambiente: {motivo}")
     assert got["argv"] == want["argv"]
     assert got["console"] == want["console"]
