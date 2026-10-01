@@ -1,0 +1,162 @@
+import os
+import queue
+import threading
+
+import pytest
+
+import Reels_Encoder_v2_FINAL as RE
+import reporter as R
+from ui import tui_driver as D
+from ui.config import EncodeConfig
+
+
+@pytest.fixture
+def ns(tmp_path):
+    src = tmp_path / "in.mp4"
+    src.write_bytes(b"x")
+    return EncodeConfig(input=str(src), ebu_meter="off", report="off").to_namespace()
+
+
+def _out(ns):
+    return D._single_output_path(ns)
+
+
+def _drain(q):
+    out = []
+    while not q.empty():
+        out.append(q.get_nowait())
+    return out
+
+
+def _ctl(calls=None):
+    return R.CancelControl(terminate=lambda: (calls.append(1) if calls is not None else None) or True)
+
+
+def _fake_encode(monkeypatch, body):
+    def fake(inp, out, args, is_batch=False, reporter=None):
+        body(inp, out, reporter)
+    monkeypatch.setattr(RE, "_encode_single_file", fake)
+
+
+def test_success_returns_0(ns, monkeypatch):
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.PASS, "1"))
+        open(out, "wb").close()
+        rep.emit(R.Done(out, 0.1))
+    _fake_encode(monkeypatch, body)
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=lambda: None) == 0
+    assert isinstance(_drain(q)[-1], R.Done)
+
+
+def test_error_returns_1_with_traceback(ns, monkeypatch):
+    def body(inp, out, rep):
+        raise ValueError("falhou")
+    _fake_encode(monkeypatch, body)
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=lambda: None) == 1
+    err = next(e for e in _drain(q) if isinstance(e, R.Error))
+    assert err.kind == "ValueError" and "falhou" in err.traceback
+
+
+def test_validation_error_returns_2(ns, monkeypatch):
+    monkeypatch.setattr(RE, "_validate_args_consistency", lambda a: "combinação inválida")
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=lambda: None) == 2
+    assert _drain(q)[-1].kind == "validation"
+
+
+def test_cancel_before_ffmpeg_stops_at_next_stage(ns, monkeypatch):
+    ctl = _ctl()
+    started = []
+
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.ANALYZING, "preflight"))
+        assert ctl.request_cancel()
+        rep.emit(R.Stage(R.PROBING))
+        started.append("pass1")
+    _fake_encode(monkeypatch, body)
+    assert D.run_single(ns, queue.Queue(), ctl, on_tick=lambda: None) == 130
+    assert started == []
+
+
+def test_cancel_refused_during_mctf_and_qc(ns, monkeypatch):
+    ctl = _ctl()
+    answers = []
+
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.ANALYZING, "mctf_mask"))
+        answers.append(ctl.request_cancel())
+        rep.emit(R.Stage(R.QC))
+        answers.append(ctl.request_cancel())
+        open(out, "wb").close()
+    _fake_encode(monkeypatch, body)
+    assert D.run_single(ns, queue.Queue(), ctl, on_tick=lambda: None) == 0
+    assert answers == [False, False]
+
+
+def _ctrl_c_on_first_tick():
+    fired = []
+
+    def tick():
+        if not fired:
+            fired.append(1)
+            raise KeyboardInterrupt
+    return tick
+
+
+def test_ctrl_c_during_qc_deletes_new_master(ns, monkeypatch):
+    in_qc = threading.Event()
+    release = threading.Event()
+
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        rep.emit(R.Stage(R.QC))
+        in_qc.set()
+        release.wait(5)
+
+    _fake_encode(monkeypatch, body)
+    terminated = []
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: terminated.append(1) or False)
+
+    def tick():
+        if in_qc.is_set() and not terminated:
+            release.set()
+            raise KeyboardInterrupt
+
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=tick) == 130
+    assert not os.path.exists(_out(ns))
+    assert any(isinstance(e, R.Cancel) and e.phase == "cleaned" and e.partial_removed for e in _drain(q))
+
+
+def test_ctrl_c_keeps_preexisting_output(ns, monkeypatch):
+    out = _out(ns)
+    with open(out, "wb") as fh:
+        fh.write(b"old")
+    release = threading.Event()
+
+    def body(inp, o, rep):
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: release.set() or False)
+    assert D.run_single(ns, queue.Queue(), _ctl(), on_tick=_ctrl_c_on_first_tick()) == 130
+    with open(out, "rb") as fh:
+        assert fh.read() == b"old"
+
+
+def _call_main(monkeypatch, ns):
+    monkeypatch.setattr("ui.preflight.missing_ffmpeg_binaries", lambda *a, **k: [])
+    monkeypatch.setattr(RE, "parse_cli", lambda *a, **k: ns)
+    try:
+        RE.main()
+    except SystemExit:
+        pass
+
+
+def test_single_output_path_matches_main(ns, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(RE, "_encode_single_file",
+                        lambda i, o, a, is_batch=False, reporter=None: seen.setdefault("out", o))
+    _call_main(monkeypatch, ns)
+    assert D._single_output_path(ns) == seen["out"]
