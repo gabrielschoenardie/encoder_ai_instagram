@@ -448,3 +448,142 @@ def render(s: S.UIState) -> RenderableType:
     root.split_column(Layout(header(s), name="header", size=3), Layout(body, name="body", size=34),
                       Layout(footer(s), name="footer", size=3))
     return root
+
+
+def stderr_lines(err, log) -> list:
+    raw = getattr(err, "stderr_tail", None) if err is not None else None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if raw:
+        return [ln for ln in raw.replace("\r", "\n").split("\n") if ln.strip()]
+    return [r.text for r in log if r.kind == "FFMPEG"][-40:]
+
+
+def action_row(s: S.UIState) -> Text:
+    g = glyphs()
+    out = Text("   ")
+    for i, name in enumerate(S.final_actions(s)):
+        focused = i == s.action_focus
+        out.append(f"{g['arrow'] if focused else ' '}[ {name} ]   ", style="tab.active" if focused else "muted")
+    return out
+
+
+def _fmt(v, unit=""):
+    return f"{v:.1f}{unit}" if isinstance(v, (int, float)) else "—"
+
+
+def _ebu_table(qc) -> Table:
+    audio = (qc or {}).get("audio", {})
+    before, after = audio.get("before") or {}, audio.get("after") or {}
+    targets = (qc or {}).get("targets") or {}
+    t = Table(box=None, expand=True, padding=(0, 2))
+    for col in ("", "ANTES", "DEPOIS", "Alvo"):
+        t.add_column(col, style="label" if not col else "value")
+    for key, unit in (("I", " LUFS"), ("TP", " dBTP"), ("LRA", " LU")):
+        t.add_row(key, _fmt(before.get(key), unit), _fmt(after.get(key), unit), _fmt(targets.get(key), unit))
+    return t
+
+
+def _seal_checks(qc: dict) -> list:
+    return [(c.get("label", ""), c.get("value", ""), c.get("passed")) for c in qc.get("checks", [])]
+
+
+def _seal(s: S.UIState) -> RenderableType:
+    qc = s.qc or {}
+    revealed = s.seal_reveal_start is not None and s.now - s.seal_reveal_start >= S.SEAL_REVEAL_S - 1e-6
+    if not revealed:
+        chips = [C.quality_chip(c.get("label", ""), c.get("passed")) for c in qc.get("checks", [])]
+        return Panel(Group(Text(" verificando…", style="muted"), *chips), title="[panel.title]MASTER QC[/]",
+                     title_align="left", box=HEAVY_BOX, border_style="panel.border", height=14)
+    return C.delivery_seal(_seal_checks(qc), ready=qc.get("summary", {}).get("ready"))
+
+
+def _delivery(s: S.UIState) -> Panel:
+    cfg = s.config
+    base = os.path.splitext(basename(s.output_path))[0]
+    cert = f"{base}.qc.html · .qc.json" if cfg.get("report", "on") == "on" else "certificado desativado (--report off)"
+    meter = "FFplay ANTES / DEPOIS" if cfg.get("ebu_meter", "on") == "on" else "desligado"
+    return panel(kv_table([("certificado", cert), ("monitor EBU", meter)]), "DELIVERY", height=5)
+
+
+def _qc(s: S.UIState) -> RenderableType:
+    spin = SPINNER[int(s.now * 10) % len(SPINNER)]
+    sub = Text(f" {spin} medindo loudness · checks do master" if s.qc is None else " checks concluídos",
+               style="muted")
+    return Group(_job_strip(s), panel(Group(stage_rail(s), sub), "QC", height=5),
+                 panel(_ebu_table(s.qc), "EBU R128 — AUDITORIA PÓS-ENCODE", height=9),
+                 _seal(s),
+                 _delivery(s))
+
+
+def _verdict(qc) -> Text:
+    if qc is None:
+        return Text("   QC indisponível", style="muted")
+    ready = qc.get("summary", {}).get("ready")
+    if ready:
+        return Text("   ★ DELIVERY READY ★", style="seal")
+    return Text("   ⚠ REVISAR ENTREGA ⚠", style="warn")
+
+
+def _completed(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    qc = s.qc or {}
+    out_info, enc, video = qc.get("output", {}), qc.get("encode", {}), qc.get("video", {})
+    summary, after = qc.get("summary", {}), (qc.get("audio", {}) or {}).get("after") or {}
+    top = hero([Text(""), Text(f"   {g['ok']} ENCODE COMPLETE", style="ok"), Text(""), _verdict(s.qc),
+                Text(f"   {basename(s.output_path)}", style="muted")], height=8)
+    res = f"{video.get('width')} × {video.get('height')}" if video.get("width") else "—"
+    left = panel(kv_table([
+        ("arquivo", basename(s.output_path)),
+        ("tamanho", out_info.get("size_human") or "—"),
+        ("duração", enc.get("duration_human") or fmt_secs(s.done.seconds if s.done else None)),
+        ("vídeo", f"{video.get('codec') or '—'} · {res} · {_fmt(video.get('fps'))} fps"),
+    ]), "OUTPUT", height=14)
+    right = panel(kv_table([
+        ("passed", summary.get("passed", "—")),
+        ("warnings", summary.get("warnings", "—")),
+        ("failed", summary.get("failed", "—")),
+        ("I depois", _fmt(after.get("I"), " LUFS")),
+        ("TP depois", _fmt(after.get("TP"), " dBTP")),
+        ("LRA depois", _fmt(after.get("LRA"), " LU")),
+    ]), "MASTER QC · RESUMO", height=14)
+    mid = Table.grid(expand=True)
+    mid.add_column(ratio=1)
+    mid.add_column(ratio=1)
+    mid.add_row(left, right)
+    return Group(top, mid, _delivery(s), action_row(s))
+
+
+def _error(s: S.UIState) -> RenderableType:
+    err = s.error
+    msg = f"{err.kind}: {err.message}" if err is not None else f"Encode terminou com erro (código {s.exit_code})"
+    card = C.error_card(msg)
+    lines = stderr_lines(err, s.log)
+    start = min(s.error_scroll, max(0, len(lines) - 17))
+    body = Group(*[Text(ln, overflow="ellipsis", no_wrap=True) for ln in lines[start:start + 17]]) if lines \
+        else Text("—", style="muted")
+    p = s.progress
+    state = panel(kv_table([
+        ("etapa", f"{s.stage or '—'}{' · ' + s.substep if s.substep else ''}"),
+        ("último frame", f"{p.frame} / {p.total}" if p else "—"),
+        ("output", f"o output parcial pode existir: {basename(s.output_path)}"),
+    ]), "ESTADO", height=5)
+    return Group(card, panel(body, "FFMPEG STDERR", height=19), state, action_row(s))
+
+
+def _cancelled(s: S.UIState) -> RenderableType:
+    if s.partial_removed is True:
+        partial = f"output parcial removido: {basename(s.output_path)}"
+    elif s.partial_removed is False:
+        partial = f"NÃO foi possível remover {basename(s.output_path)} — apague à mão antes de rodar de novo"
+    else:
+        partial = "nenhum output parcial"
+    card = Panel(Group(Text(""), Text("   ⚠ Encode interrompido pelo usuário", style="warn"), Text(""),
+                       Text(f"   {partial}")), box=HEAVY_BOX, border_style="warn", height=8)
+    return Group(card, _log_panel(s), action_row(s))
+
+
+SCREEN_RENDERERS[S.QC] = _qc
+SCREEN_RENDERERS[S.COMPLETED] = _completed
+SCREEN_RENDERERS[S.ERROR] = _error
+SCREEN_RENDERERS[S.CANCELLED] = _cancelled
