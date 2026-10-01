@@ -129,7 +129,91 @@ def test_ctrl_c_during_qc_deletes_new_master(ns, monkeypatch):
     q = queue.Queue()
     assert D.run_single(ns, q, _ctl(), on_tick=tick) == 130
     assert not os.path.exists(_out(ns))
-    assert any(isinstance(e, R.Cancel) and e.phase == "cleaned" and e.partial_removed for e in _drain(q))
+    ev = _drain(q)
+    assert any(isinstance(e, R.Cancel) and e.phase == "cleaned" and e.partial_removed for e in ev)
+    phases = [e.phase for e in ev if isinstance(e, R.Cancel)]
+    assert phases.index("requested") < phases.index("terminated")
+
+
+def test_ctrl_c_wait_keeps_ticking_and_ignores_second_ctrl_c(ns, monkeypatch):
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        threading.Event().wait(0.8)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: False)
+    ticks = []
+
+    def tick():
+        ticks.append(1)
+        raise KeyboardInterrupt
+
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=tick) == 130
+    assert len(ticks) >= 3
+    assert not os.path.exists(_out(ns))
+    ev = _drain(q)
+    phases = [e.phase for e in ev if isinstance(e, R.Cancel)]
+    assert phases[:2] == ["requested", "terminated"]
+    assert any(isinstance(e, R.Cancel) and e.phase == "cleaned" and e.partial_removed for e in ev)
+
+
+def _qc_paths(out):
+    base = os.path.splitext(out)[0]
+    return base + ".qc.html", base + ".qc.json"
+
+
+def _write_master_and_certificate(out):
+    for path in (out, *_qc_paths(out)):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("novo")
+
+
+def test_ctrl_c_during_qc_removes_new_certificate_keeps_preexisting(ns, monkeypatch):
+    html, json_ = _qc_paths(_out(ns))
+    with open(html, "w", encoding="utf-8") as fh:
+        fh.write("antigo")
+    in_qc = threading.Event()
+
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.QC))
+        _write_master_and_certificate(out)
+        in_qc.set()
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: False)
+    release = threading.Event()
+
+    def tick():
+        if in_qc.is_set() and not release.is_set():
+            release.set()
+            raise KeyboardInterrupt
+
+    assert D.run_single(ns, queue.Queue(), _ctl(), on_tick=tick) == 130
+    assert not os.path.exists(_out(ns))
+    assert not os.path.exists(json_)
+    assert os.path.exists(html)
+
+
+def test_batch_ctrl_c_during_qc_removes_new_certificate(batch_ns, monkeypatch):
+    in_qc = threading.Event()
+
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.QC))
+        _write_master_and_certificate(out)
+        in_qc.set()
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: False)
+    release = threading.Event()
+
+    def tick():
+        if in_qc.is_set() and not release.is_set():
+            release.set()
+            raise KeyboardInterrupt
+
+    _, jobs = D._batch_jobs(batch_ns)
+    assert D.run_batch(batch_ns, queue.Queue(), _ctl(), on_tick=tick) == 130
+    assert not any(os.path.exists(p) for p in (jobs[0].output_path, *_qc_paths(jobs[0].output_path)))
 
 
 def test_ctrl_c_keeps_preexisting_output(ns, monkeypatch):
@@ -277,8 +361,11 @@ def test_batch_ctrl_c_discards_current_even_if_complete(batch_ns, monkeypatch):
     _fake_encode(monkeypatch, body)
     monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: release.set() or False)
     _, jobs = D._batch_jobs(batch_ns)
-    assert D.run_batch(batch_ns, queue.Queue(), _ctl(), on_tick=_ctrl_c_on_first_tick()) == 130
+    q = queue.Queue()
+    assert D.run_batch(batch_ns, q, _ctl(), on_tick=_ctrl_c_on_first_tick()) == 130
     assert not os.path.exists(jobs[0].output_path)
+    phases = [e.phase for e in _drain(q) if isinstance(e, R.Cancel)]
+    assert phases.index("requested") < phases.index("terminated")
 
 
 def test_batch_cancel_key_stops_queue_and_cleans(batch_ns, monkeypatch):

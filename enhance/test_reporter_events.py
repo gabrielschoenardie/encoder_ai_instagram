@@ -3,7 +3,10 @@ import queue
 import pytest
 
 import reporter as R
-from enhance.test_classic_golden import run_classic
+from enhance.test_classic_golden import (
+    _require_ffmpeg,  # noqa: F401
+    run_classic,
+)
 
 
 def _events(tmp_path, monkeypatch, scenario):

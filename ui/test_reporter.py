@@ -1,5 +1,6 @@
 import dataclasses
 import queue
+import threading
 
 import pytest
 
@@ -76,3 +77,45 @@ def test_force_cancel_ignores_blocked_stage_and_does_not_terminate():
     ctl.stage = (R.QC, None)
     ctl.force_cancel()
     assert ctl.cancelled and calls == []
+
+
+def test_request_cancel_checks_stage_under_lock():
+    ctl = R.CancelControl(terminate=lambda: True)
+    ctl.stage = (R.PASS, "1")
+    result = []
+    with ctl._lock:
+        t = threading.Thread(target=lambda: result.append(ctl.request_cancel()))
+        t.start()
+        t.join(0.2)
+        ctl.stage = (R.QC, None)
+    t.join(5)
+    assert result == [False] and not ctl.cancelled
+
+
+def test_stage_qc_emit_waits_for_inflight_cancel():
+    ctl = R.CancelControl(terminate=lambda: True)
+    rep = R.QueueReporter(queue.Queue(), control=ctl)
+    rep.emit(R.Stage(R.PASS, "1"))
+    outcome = []
+    threads = []
+
+    def enter_qc():
+        try:
+            rep.emit(R.Stage(R.QC))
+            outcome.append("qc")
+        except R.CancelRequested:
+            outcome.append("cancelled")
+
+    real_set = ctl._flag.set
+
+    def racing_set():
+        t = threading.Thread(target=enter_qc)
+        threads.append(t)
+        t.start()
+        t.join(0.2)
+        real_set()
+
+    ctl._flag.set = racing_set
+    assert ctl.request_cancel() is True
+    threads[0].join(5)
+    assert outcome == ["cancelled"]

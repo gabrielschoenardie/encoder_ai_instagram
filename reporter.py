@@ -175,6 +175,7 @@ class CancelControl:
     def __init__(self, terminate: Callable[[], bool]):
         self._terminate = terminate
         self._flag = threading.Event()
+        self._lock = threading.Lock()
         self.stage: tuple[str, str | None] | None = None
 
     @property
@@ -182,9 +183,10 @@ class CancelControl:
         return self._flag.is_set()
 
     def request_cancel(self) -> bool:
-        if self.stage in CANCEL_BLOCKED:
-            return False
-        self._flag.set()
+        with self._lock:
+            if self.stage in CANCEL_BLOCKED:
+                return False
+            self._flag.set()
         self._terminate()
         return True
 
@@ -217,7 +219,8 @@ class QueueReporter:
                 return
             self._last_progress = now
         if isinstance(event, Stage) and self._control is not None:
-            self._control.stage = (event.name, event.substep)
+            with self._control._lock:
+                self._control.stage = (event.name, event.substep)
         self._events.put(dataclasses.replace(event, job_id=self._job_id, ts=now))
         if (
             self._control is not None

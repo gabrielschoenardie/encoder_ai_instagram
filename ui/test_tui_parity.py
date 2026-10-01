@@ -6,7 +6,11 @@ import pytest
 
 import Reels_Encoder_v2_FINAL as RE
 import reporter as R
-from enhance.test_classic_golden import SCENARIOS, run_classic
+from enhance.test_classic_golden import (
+    SCENARIOS,
+    _require_ffmpeg,  # noqa: F401
+    run_classic,
+)
 
 
 def _sha(path):
@@ -20,14 +24,14 @@ def _streamhash(path):
          "-f", "streamhash", "-"],
         capture_output=True, text=True, check=True,
     )
-    return r.stdout
+    out = r.stdout
+    assert out.strip()
+    return out
 
 
 def _same_output(a, b):
     if _sha(a) == _sha(b):
-        print("PARITY-DECIDED-BY: sha")
         return True
-    print("PARITY-DECIDED-BY: streamhash")
     return _streamhash(a) == _streamhash(b)
 
 
