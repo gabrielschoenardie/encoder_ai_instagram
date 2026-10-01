@@ -5,9 +5,11 @@ import threading
 import pytest
 
 import Reels_Encoder_v2_FINAL as RE
+import render_queue
 import reporter as R
 from ui import tui_driver as D
 from ui.config import EncodeConfig
+from ui.tui_capture import ConsoleCapture
 
 
 @pytest.fixture
@@ -143,6 +145,64 @@ def test_ctrl_c_keeps_preexisting_output(ns, monkeypatch):
     assert D.run_single(ns, queue.Queue(), _ctl(), on_tick=_ctrl_c_on_first_tick()) == 130
     with open(out, "rb") as fh:
         assert fh.read() == b"old"
+
+
+def test_cancel_after_done_keeps_master(ns, monkeypatch):
+    ctl = _ctl()
+
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        rep.emit(R.Stage(R.DONE))
+        assert ctl.request_cancel()
+    _fake_encode(monkeypatch, body)
+    assert D.run_single(ns, queue.Queue(), ctl, on_tick=lambda: None) == 0
+    assert os.path.exists(_out(ns))
+
+
+def test_worker_prints_reach_console_capture(ns, monkeypatch):
+    def body(inp, out, rep):
+        RE.console.print("✓ LUT carregada")
+    _fake_encode(monkeypatch, body)
+    q = queue.Queue()
+    with ConsoleCapture(RE.console, q.put):
+        assert D.run_single(ns, q, _ctl(), on_tick=lambda: None) == 0
+    assert any(isinstance(e, R.Info) and e.text == "LUT carregada" for e in _drain(q))
+
+
+def test_ctrl_c_unremovable_output_emits_yf1_warning(ns, monkeypatch):
+    written = threading.Event()
+    release = threading.Event()
+
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        written.set()
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: release.set() or False)
+    monkeypatch.setattr(render_queue, "discard_partial_output", lambda job: False)
+
+    def tick():
+        if written.is_set() and not release.is_set():
+            raise KeyboardInterrupt
+
+    q = queue.Queue()
+    assert D.run_single(ns, q, _ctl(), on_tick=tick) == 130
+    infos = [e.text for e in _drain(q) if isinstance(e, R.Info)]
+    assert any("NÃO foi possível remover" in t for t in infos)
+    assert any("NÃO passou pelo controle de qualidade" in t for t in infos)
+
+
+def test_cancel_during_pass_generic_error_returns_130(ns, monkeypatch):
+    ctl = _ctl()
+
+    def body(inp, out, rep):
+        rep.emit(R.Stage(R.PASS, "1"))
+        assert ctl.request_cancel()
+        raise RuntimeError("Encoding interrompido por erro no processamento")
+    _fake_encode(monkeypatch, body)
+    q = queue.Queue()
+    assert D.run_single(ns, q, ctl, on_tick=lambda: None) == 130
+    assert not any(isinstance(e, R.Error) for e in _drain(q))
 
 
 def _call_main(monkeypatch, ns):

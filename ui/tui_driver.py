@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
 import os
 import queue
 import threading
 import traceback
 from typing import Callable
+
+from rich.console import Console
 
 import Reels_Encoder_v2_FINAL as RE
 import render_queue
@@ -43,14 +46,14 @@ def _run_one(job, ns, events, control, on_tick, job_id, is_batch) -> str:
             worker_done.set()
 
     try:
-        render_queue.run_job(job, encode_fn, RE.console, on_tick=on_tick)
+        render_queue.run_job(job, encode_fn, Console(file=io.StringIO()), on_tick=on_tick)
     except KeyboardInterrupt:
         control.force_cancel()
         RE.terminate_active_ffmpeg()
         worker_done.wait(WORKER_WAIT_S)
         raise
     worker_done.wait(WORKER_WAIT_S)
-    if control.cancelled:
+    if control.cancelled and job.status == "falha":
         return "cancelado"
     if job.status == "falha":
         exc = state.get("exc")
@@ -68,6 +71,14 @@ def _cancel_cleanup(job, events, remove_partial: bool, job_id: int) -> None:
     if remove_partial:
         removed = render_queue.discard_partial_output(job)
         events.put(R.Cancel("cleaned", removed, job_id=job_id))
+        if not removed and os.path.exists(job.output_path):
+            events.put(R.Info(
+                f"NÃO foi possível remover {os.path.basename(job.output_path)}",
+                job_id=job_id))
+            events.put(R.Info(
+                "Este arquivo está incompleto e NÃO passou pelo controle de qualidade. "
+                "Apague-o à mão antes de rodar o encode de novo, ou ele será tratado "
+                "como pronto.", job_id=job_id))
 
 
 def run_single(ns, events: queue.Queue, control: R.CancelControl,
