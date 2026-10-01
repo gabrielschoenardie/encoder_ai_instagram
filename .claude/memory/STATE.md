@@ -3766,3 +3766,30 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 ### Suíte final e ruff (Ciclo BG)
 
 `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120` → **597 passed**. `ruff check .` → **All checks passed!**. `git status --short` limpo além dos arquivos tocados e dos itens já não-rastreados pré-existentes (`docs/*.md`, `videos/`).
+
+## Ciclo P2-B3
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| B3-1 | done | scratchpad/b3/b3_ctrlc_probe.py | smoke none e msvcrt (3 s): exit 0, log com START/FFMPEG_PID/FFMPEG_RC 0/WORKER_DONE/EXIT 0 |
+| B3-2 | done | scratchpad/b3/B3_ROTEIRO.md | roteiro T1-T5 com comandos copiáveis e checklist por teste |
+
+## Ciclo P3A
+
+| ID | done ou blocked | arquivo | resultado em 1 linha |
+|----|-----------------|---------|----------------------|
+| P3A-1 | done | reporter.py, ui/test_reporter.py | 7 tests passed, ruff clean, commit 95e6e6c |
+
+**Baseline**: 597 passed (no regression).
+| P3A-2 | blocked | enhance/test_classic_golden.py, enhance/golden/ | goldens oscilam entre runs: creation_time no argv; spinner/barra cpu/enderecos hex de log ffmpeg no console; ver task-2-report.md |
+| P3A-2 | blocked | enhance/test_classic_golden.py | pos-ruling: native_* ainda oscila (ponteiro hex sem 0x em '[libx264 @ ...]'); ver task-2-report.md |
+| P3A-2 | done | enhance/test_classic_golden.py, enhance/golden/*.json | goldens estáveis 3x (4 passed), suite 604 passed, ruff ok, commitado |
+| P3A-2 | done | enhance/test_classic_golden.py, enhance/golden/*.json | fix round 1: <FFMPEG>/<FFPROBE> portáveis, timeout(300); 608 passed, ruff ok |
+| P3A-3 | done | Reels_Encoder_v2_FINAL.py, enhance/test_reporter_events.py | seam native (reporter=None idêntico: 4 goldens ok); 4 novos testes; 612 passed, ruff ok; commit 38e3f03 |
+| P3A-4 | done | Reels_Encoder_v2_FINAL.py, enhance/test_reporter_events.py | seam Cineon (reporter=None idêntico: 4 goldens ok); fatos (a) _analyze_pass1_log em RE:3838 e (b) remux incondicional após _render_pass (RE:3880) confirmados, EXPECTED sem ajuste; 615 passed, ruff ok; commit f374935 |
+| P3A-5 | done | ui/tui_capture.py, ui/test_tui_capture.py | 4 tests passed, ui/ 178 passed, ruff ok, commit ca4330c |
+| P3A-6 | done | ui/tui_driver.py, ui/test_tui_driver.py | run_single/_run_one: 8 tests passed 3x sem flake; ui/+test_render_queue 212 passed; ruff ok; commit c15bd7a |
+| P3A-6 | done | ui/tui_driver.py, ui/test_tui_driver.py | fix round 1: cancel tardio preserva master, Console descartável no run_job, aviso YF1 como Info; 12 passed 3x, 216 passed, ruff ok; commit fd9174a |
+| P3A-7 | done | ui/tui_driver.py, ui/test_tui_driver.py | run_batch/_batch_jobs (cópia de RE:4562-4602) + _cancel_cleanup(batch=) c/ texto "rodar a fila de novo"; 19 passed 3x, 223 passed, ruff ok; commit 0485f32 |
+| P3A-8 | done | ui/test_tui_parity.py | 4 passed (527s): argv igual nos 4; sha decidiu cineon_*, streamhash decidiu native_*; ruff ok |
+| P3A-FINAL | done | reporter.py, ui/tui_driver.py, ui/test_tui_driver.py, ui/test_reporter.py, ui/test_tui_parity.py, enhance/test_reporter_events.py | C1 skip ffmpeg importado, I4 Cancel(requested)+ticks no wait, I5 certificado .qc.* novo removido, m6 lock no cancel, m8 prints fora; 35 passed 3x, 232 passed, full 647 passed, ruff ok; commit 225ecb2; ver .superpowers/sdd/2026-09-30-tui-reporter-seam/final-fix-report.md |
