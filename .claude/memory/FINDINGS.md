@@ -1477,3 +1477,11 @@ completo: `.superpowers/sdd/2026-09-30-tui-reporter-seam/progress.md` (git-ignor
 - `FfmpegLine` do Cineon pode conter `\r` embutido.
 - DETAILS do 2-pass: `EncodeParams` é emitido uma vez (valores antes da adaptação do pass 2); considerar um segundo `EncodeParams` após `BETWEEN_PASSES`.
 - Usar `job.log` não funciona no caminho TUI (console descartável no `run_job`).
+
+### Status (2026-10-01, P3A-11) — substitui a linha "aberto" de P3AF2
+
+| ID | status | onde |
+|----|--------|------|
+| P3AF2 | **resolvido** | `e645d5b` + `1b656c8`: goldens com impressão digital do ambiente (ffmpeg/python/numpy); ambiente diferente → skip antes do encode. CI do PR #70 verde nas 8 jobs (run 36822297276); paridade cobre o CI. Merge `4c95462` |
+
+Abertos após o Ciclo P3A: `P3AF1`, `P3AF4` (S4); `BDF11`, `BDF12`, `BDF13`.
