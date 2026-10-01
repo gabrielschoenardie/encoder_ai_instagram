@@ -220,3 +220,107 @@ def test_single_output_path_matches_main(ns, monkeypatch):
                         lambda i, o, a, is_batch=False, reporter=None: seen.setdefault("out", o))
     _call_main(monkeypatch, ns)
     assert D._single_output_path(ns) == seen["out"]
+
+
+@pytest.fixture
+def batch_ns(tmp_path):
+    folder = tmp_path / "lote"
+    folder.mkdir()
+    for n in ("a.mp4", "b.mp4"):
+        (folder / n).write_bytes(b"x")
+    return EncodeConfig(batch=str(folder), ebu_meter="off", report="off").to_namespace()
+
+
+def test_batch_zero_videos_returns_0(tmp_path):
+    folder = tmp_path / "vazio"
+    folder.mkdir()
+    ns = EncodeConfig(batch=str(folder), ebu_meter="off", report="off").to_namespace()
+    q = queue.Queue()
+    assert D.run_batch(ns, q, _ctl(), on_tick=lambda: None) == 0
+    assert _drain(q)[-1].exit_code == 0
+
+
+def test_batch_jobs_match_classic_main(batch_ns, monkeypatch):
+    seen = []
+    monkeypatch.setattr(RE, "_encode_single_file",
+                        lambda i, o, a, is_batch=False, reporter=None: seen.append((i, o)))
+    _call_main(monkeypatch, batch_ns)
+    _, jobs = D._batch_jobs(batch_ns)
+    assert [(j.input_path, j.output_path) for j in jobs] == seen
+
+
+def test_batch_skip_fail_and_exit_1(batch_ns, monkeypatch):
+    _, jobs = D._batch_jobs(batch_ns)
+    open(jobs[0].output_path, "wb").close()
+
+    def body(inp, out, rep):
+        raise ValueError("x")
+    _fake_encode(monkeypatch, body)
+    q = queue.Queue()
+    assert D.run_batch(batch_ns, q, _ctl(), on_tick=lambda: None) == 1
+    ev = _drain(q)
+    assert any(isinstance(e, R.JobSkip) and e.index == 0 for e in ev)
+    assert any(isinstance(e, R.JobDone) and e.index == 1 and e.status == "falha" for e in ev)
+
+
+def test_batch_all_ok_returns_0(batch_ns, monkeypatch):
+    _fake_encode(monkeypatch, lambda inp, out, rep: open(out, "wb").close())
+    assert D.run_batch(batch_ns, queue.Queue(), _ctl(), on_tick=lambda: None) == 0
+
+
+def test_batch_ctrl_c_discards_current_even_if_complete(batch_ns, monkeypatch):
+    release = threading.Event()
+
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: release.set() or False)
+    _, jobs = D._batch_jobs(batch_ns)
+    assert D.run_batch(batch_ns, queue.Queue(), _ctl(), on_tick=_ctrl_c_on_first_tick()) == 130
+    assert not os.path.exists(jobs[0].output_path)
+
+
+def test_batch_cancel_key_stops_queue_and_cleans(batch_ns, monkeypatch):
+    ctl = _ctl()
+    started = []
+
+    def body(inp, out, rep):
+        started.append(inp)
+        open(out, "wb").close()
+        rep.emit(R.Stage(R.PASS, "1"))
+        assert ctl.request_cancel()
+        raise RuntimeError("Encoding interrompido por erro no processamento")
+    _fake_encode(monkeypatch, body)
+    _, jobs = D._batch_jobs(batch_ns)
+    q = queue.Queue()
+    assert D.run_batch(batch_ns, q, ctl, on_tick=lambda: None) == 130
+    ev = _drain(q)
+    assert len(started) == 1
+    assert not os.path.exists(jobs[0].output_path)
+    assert any(isinstance(e, R.Cancel) and e.phase == "cleaned" for e in ev)
+    assert ev[-1] == R.QueueDone(130, ts=ev[-1].ts)
+
+
+def test_batch_ctrl_c_unremovable_output_uses_queue_wording(batch_ns, monkeypatch):
+    written = threading.Event()
+    release = threading.Event()
+
+    def body(inp, out, rep):
+        open(out, "wb").close()
+        written.set()
+        release.wait(5)
+    _fake_encode(monkeypatch, body)
+    monkeypatch.setattr(RE, "terminate_active_ffmpeg", lambda *a, **k: release.set() or False)
+    monkeypatch.setattr(render_queue, "discard_partial_output", lambda job: False)
+
+    def tick():
+        if written.is_set() and not release.is_set():
+            raise KeyboardInterrupt
+
+    q = queue.Queue()
+    assert D.run_batch(batch_ns, q, _ctl(), on_tick=tick) == 130
+    infos = [e.text for e in _drain(q) if isinstance(e, R.Info)]
+    assert any("NÃO foi possível remover" in t for t in infos)
+    assert any("rodar a fila de novo" in t for t in infos)
+    assert not any("rodar o encode de novo" in t for t in infos)
