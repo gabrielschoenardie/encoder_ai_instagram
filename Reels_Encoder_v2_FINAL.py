@@ -72,6 +72,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import dataclasses
 import json
 import os
@@ -3211,6 +3212,7 @@ def run_ffmpeg_with_cineon(
     enhance_ai: bool = False,
     fit: str = "contain",
     dither_enabled: bool = True,
+    reporter=None,
 ):
     """
     Encoding com pipeline Cineon (PyAV + 5 nodes + Portra 400).
@@ -3248,7 +3250,10 @@ def run_ffmpeg_with_cineon(
     input_file = os.path.abspath(input_file)
 
     # Probe único — 1 ffprobe call para rotation/dimensions/fps/duration/nb_frames
+    _emit(reporter, _rep.Stage(_rep.PROBING))
     _probe = probe_video(input_file)
+    _emit(reporter, _rep.Probe(_probe.duration, _probe.nb_frames, _probe.fps_int,
+                               _probe.width, _probe.height, _probe.is_hdr))
 
     if _probe.is_hdr:
         raise RuntimeError(
@@ -3289,6 +3294,7 @@ def run_ffmpeg_with_cineon(
     # ═══════════════════════════════════════════════════════════════
 
     hw_profile = detect_hardware()
+    _emit(reporter, _rep.Hardware(dataclasses.asdict(hw_profile)))
     if show_hardware:
         print_hardware_profile(hw_profile)
 
@@ -3367,6 +3373,10 @@ def run_ffmpeg_with_cineon(
     )
 
     vbv = get_vbv_preset(duration)
+    _emit(reporter, _rep.EncodeParams(
+        next(k for k, v in VBV_PRESETS.items() if v is vbv),
+        vbv["target"], vbv["maxrate"], vbv["bufsize"], vbv["vbv_init"],
+        hw_profile.recommended_preset, mode))
     vbv_description = vbv["description"]
     video_bitrate = vbv["target"]
 
@@ -3382,6 +3392,7 @@ def run_ffmpeg_with_cineon(
     audio_filter = None
     if loudnorm_enabled:
         console.print("[cyan]🔊 Loudnorm EBU R128 ativado[/cyan]")
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "loudness"))
         loudness_stats = analyze_audio_loudness(input_file, target="instagram")
         if loudness_stats:
             audio_filter = build_loudnorm_filter(loudness_stats, target="instagram")
@@ -3460,6 +3471,7 @@ def run_ffmpeg_with_cineon(
     if ENHANCE_AVAILABLE and enhance_enabled:
         _ai_label = " [AI]" if enhance_ai else ""
         console.print(f"[cyan]✨ Enhance{_ai_label}: analisando conteúdo (5 frames)...[/cyan]")
+        _emit(reporter, _rep.Stage(_rep.ANALYZING, "enhance"))
         try:
             _enh_profile = build_enhance_profile(
                 input_file, n_sample_frames=5, use_ai=enhance_ai,
@@ -3615,7 +3627,7 @@ def run_ffmpeg_with_cineon(
         stderr_tail = collections.deque(maxlen=50)
 
         # Thread para capturar stderr do FFmpeg em tempo real
-        def ffmpeg_stderr_reader(pipe, hud):
+        def ffmpeg_stderr_reader(pipe, hud, on_line=None):
             """Lê stderr do FFmpeg: atualiza o HUD e guarda as últimas 50 linhas."""
             try:
                 for line in iter(pipe.readline, b""):
@@ -3624,6 +3636,8 @@ def run_ffmpeg_with_cineon(
                     try:
                         line_str = line.decode("utf-8", errors="ignore")
                         stderr_tail.extend(line_str.splitlines())
+                        if on_line is not None:
+                            on_line(line_str.rstrip())
                         if "frame=" in line_str:
                             parts = line_str.split("frame=")
                             if len(parts) > 1:
@@ -3637,8 +3651,9 @@ def run_ffmpeg_with_cineon(
             except (OSError, ValueError):
                 pass
 
+        _on_line = None if reporter is None else (lambda s: reporter.emit(_rep.FfmpegLine(s)))
         stderr_thread = threading.Thread(
-            target=ffmpeg_stderr_reader, args=(ffmpeg_process.stderr, hud), daemon=True
+            target=ffmpeg_stderr_reader, args=(ffmpeg_process.stderr, hud, _on_line), daemon=True
         )
         stderr_thread.start()
 
@@ -3653,7 +3668,9 @@ def run_ffmpeg_with_cineon(
         error_occurred = False
         interrupted = False
 
-        with Live(hud.render(), refresh_per_second=7, console=console) as live:
+        _live_cm = (Live(hud.render(), refresh_per_second=7, console=console)
+                    if reporter is None else contextlib.nullcontext())
+        with _live_cm as live:
             try:
                 for frame, is_repeat in _cfr_resample(container.decode(video=0), output_fps, _in_fps):
                     if not is_repeat:
@@ -3722,7 +3739,10 @@ def run_ffmpeg_with_cineon(
 
                     frame_count += 1
                     hud.update_frame(frame_count)
-                    live.update(hud.render())
+                    if reporter is None:
+                        live.update(hud.render())
+                    else:
+                        reporter.emit(_progress_from_hud(hud))
 
                     # Check se FFmpeg morreu prematuramente
                     if ffmpeg_process.poll() is not None:
@@ -3806,11 +3826,15 @@ def run_ffmpeg_with_cineon(
         if mode == "2pass":
             console.print()
             console.print("[cyan]📊 Pass 1: Mapeando complexidade (pipeline Cineon completo)...[/cyan]")
+            _emit(reporter, _rep.Stage(_rep.PASS, "1"))
+            _emit(reporter, _rep.Pass(1, 2, "Pass 1", "start"))
             _render_pass(_build_pipe_cmd(1, video_bitrate, x264_params), "Pass 1")
+            _emit(reporter, _rep.Pass(1, 2, "Pass 1", "end"))
             console.print("[green]✓ Pass 1 Cineon completo![/green]")
 
             # Análise do stats.log → parâmetros adaptativos para Pass 2
             console.print("[cyan]🔬 Analisando stats.log (otimização adaptativa)...[/cyan]")
+            _emit(reporter, _rep.Stage(_rep.BETWEEN_PASSES, "pass1_log"))
             _p1_stats = _analyze_pass1_log(logfile_2pass)
             x264_params, video_bitrate, _p2_maxrate, _p2_bufsize = _adaptive_2pass_x264_params(
                 base_bitrate=video_bitrate,
@@ -3840,7 +3864,12 @@ def run_ffmpeg_with_cineon(
             "[dim]   Container flags: +faststart+write_colr (escrita forçada)[/dim]"
         )
 
-        _render_pass(ffmpeg_cmd, "Pass 2" if mode == "2pass" else "Encode")
+        _lbl = "Pass 2" if mode == "2pass" else "Encode"
+        _idx, _tot = (2, 2) if mode == "2pass" else (1, 1)
+        _emit(reporter, _rep.Stage(_rep.PASS, str(_idx)))
+        _emit(reporter, _rep.Pass(_idx, _tot, _lbl, "start"))
+        _render_pass(ffmpeg_cmd, _lbl)
+        _emit(reporter, _rep.Pass(_idx, _tot, _lbl, "end"))
 
         # ═══════════════════════════════════════════════════════════
         # FIX 9.1: REMUX PARA INJETAR 'COLR' ATOM (v2.0.3)
@@ -3848,6 +3877,7 @@ def run_ffmpeg_with_cineon(
         # Problema: rawvideo pipe stdin não permite MP4 muxer escrever 'colr' atom
         # Solução: Remux com stream copy + metadados de cor explícitos
 
+        _emit(reporter, _rep.Stage(_rep.FINALIZING, "remux"))
         console.print()
         console.print(
             "[cyan]🔄 Pós-processamento: Injetando 'colr' atom no container MP4...[/cyan]"
@@ -4163,6 +4193,7 @@ def _encode_single_file(input_file: str, output_file: str, args, is_batch: bool 
             enhance_ai=enhance_ai,
             fit=args.fit,
             dither_enabled=_dither_active,
+            reporter=reporter,
         )
     else:
         run_ffmpeg(
