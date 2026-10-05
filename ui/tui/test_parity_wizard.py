@@ -24,10 +24,11 @@ SCENARIOS = [
 ]
 
 
-def wizard_ns(monkeypatch, preset, path, answers):
+def wizard_ns(monkeypatch, preset, path, answers, used):
     def pick(message, default):
         for k, v in answers.items():
             if k in message:
+                used.add(k)
                 return v
         return default
 
@@ -101,6 +102,10 @@ def tui_ns(preset, path, values):
 def test_tui_form_matches_line_wizard(monkeypatch, tmp_path, preset, answers, values):
     src = tmp_path / "clip.mov"
     src.write_bytes(b"x")
-    want = wizard_ns(monkeypatch, preset, str(src), answers)
+    used = set()
+    want = wizard_ns(monkeypatch, preset, str(src), answers, used)
+    assert set(answers) == used
     got = tui_ns(preset, str(src), values)
+    for k, v in values.items():
+        assert getattr(got, k) == v, k
     assert vars(got) == vars(want)

@@ -357,7 +357,7 @@ def test_full_flow_home_to_completed(tmp_path):
         return 0
 
     def sleep(_):
-        if holder and holder[0].state.screen in S.FINAL_SCREENS:
+        if holder and holder[0].state.screen in S.FINAL_SCREENS | {S.READY}:
             holder[0]._queue.put(S.Key("ENTER"))
 
     keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 6
@@ -368,6 +368,99 @@ def test_full_flow_home_to_completed(tmp_path):
     holder.append(app)
     assert app.run() == 0
     assert seen and seen[0].input == str(src) and seen[0].cineon_pipeline == "off"
+
+
+@pytest.mark.timeout(30)
+def test_enters_queued_after_arm_do_not_start_encode(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    ran = []
+    first_pause = []
+    holder = []
+
+    def sleep(_):
+        app = holder[0]
+        if not first_pause:
+            first_pause.append(app.state.screen)
+        app._queue.put(S.Key("ESC"))
+
+    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 5 + ["ENTER", "ENTER", ("CHAR", "x")]
+    app = A.App(run_single=lambda *a: ran.append(1) or 0, reader_factory=CharReader(keys),
+                live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    holder.append(app)
+    assert app.run() == 0
+    assert ran == [] and first_pause == [S.READY]
+
+
+def test_arm_drops_only_key_events(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+    tick = S.Tick(1.0, (120, 40))
+    for ev in (S.Key("ENTER"), tick, S.Key("ESC")):
+        app._queue.put(ev)
+    app._arm()
+    assert app.state.screen == S.READY
+    left = []
+    while not app._queue.empty():
+        left.append(app._queue.get_nowait())
+    assert left == [tick]
+
+
+def test_arm_error_keeps_preview_and_queued_keys(tmp_path):
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "threads": "muitas"}),))
+    app._queue.put(S.Key("ESC"))
+    app._arm()
+    assert app.state.screen == S.PREVIEW and app.state.field_error
+    assert app._queue.qsize() == 1
+
+
+@pytest.mark.parametrize("exc", [ValueError("ruim"), TypeError("tipo")])
+def test_arm_exceptions_become_field_error(tmp_path, monkeypatch, exc):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+
+    def boom(ns_):
+        raise exc
+
+    monkeypatch.setattr(A.RE, "_validate_args_consistency", boom)
+    app._arm()
+    assert app.state.screen == S.PREVIEW and app.state.field_error == str(exc)
+
+
+def test_empty_system_rows_are_kept(tmp_path):
+    app = A.App(reader_factory=CharReader([]), live_factory=lambda c: FakeLive(), system=())
+    assert app.state.system == ()
+
+
+def test_tools_exception_restores_terminal_and_propagates(tmp_path):
+    class ExitLive(FakeLive):
+        exited = False
+
+        def __exit__(self, *exc):
+            self.exited = True
+            return False
+
+    orig_err, orig_file = sys.stderr, RE.console.file
+    first, second = CharReader([("CHAR", "4")]), CharReader([])
+    readers = iter([first, second])
+    live = ExitLive()
+    app = A.App(reader_factory=lambda emit: next(readers)(emit), live_factory=lambda c: live, clock=Clock(),
+                sleep=lambda _: None, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
+                probe=lambda p: None, tools=lambda c: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        app.run()
+    assert first.restored and second.restored and second.stopped
+    assert live.exited and live.stops == 1
+    assert sys.stderr is orig_err and RE.console.file is orig_file
 
 
 def test_check_source_quoted_path_with_spaces_is_valid(tmp_path):

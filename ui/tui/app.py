@@ -9,6 +9,7 @@ import time
 from dataclasses import replace
 from typing import Callable
 
+from pydantic import ValidationError
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
@@ -68,7 +69,8 @@ class App:
         self._probe = probe or _default_probe
         self._probed: tuple | None = None
         if ns is None:
-            self.state = S.UIState(config={}, screen=S.HOME, system=system or self._system_rows())
+            self.state = S.UIState(config={}, screen=S.HOME,
+                                    system=system if system is not None else self._system_rows())
         else:
             out = output_path if output_path is not None else D._single_output_path(ns)
             self.state = S.UIState(config=dict(vars(ns)), output_path=out, output_preexisted=os.path.exists(out))
@@ -172,11 +174,29 @@ class App:
         self.state = S.apply(self.state, S.SourceChecked(path, status, dims))
 
     def _arm(self) -> None:
-        cfg = EncodeConfig.model_validate(S.draft(self.state))
-        ns = cfg.to_namespace()
-        err = RE._validate_args_consistency(ns)
-        out = D._single_output_path(ns)
-        self.state = S.apply(self.state, S.Armed(vars(ns), out, os.path.exists(out), err))
+        try:
+            cfg = EncodeConfig.model_validate(S.draft(self.state))
+            ns = cfg.to_namespace()
+            err = RE._validate_args_consistency(ns)
+            out = D._single_output_path(ns)
+            armed = S.Armed(vars(ns), out, os.path.exists(out), err)
+        except (ValidationError, ValueError, TypeError) as e:
+            armed = S.Armed({}, "", False, str(e))
+        if not armed.error:
+            self._drop_queued_keys()
+        self.state = S.apply(self.state, armed)
+
+    def _drop_queued_keys(self) -> None:
+        kept = []
+        while True:
+            try:
+                ev = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if not isinstance(ev, S.Key):
+                kept.append(ev)
+        for ev in kept:
+            self._queue.put(ev)
 
     def _run_tools(self) -> None:
         self._reader.stop()
