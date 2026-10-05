@@ -1485,3 +1485,16 @@ completo: `.superpowers/sdd/2026-09-30-tui-reporter-seam/progress.md` (git-ignor
 | P3AF2 | **resolvido** | `e645d5b` + `1b656c8`: goldens com impressão digital do ambiente (ffmpeg/python/numpy); ambiente diferente → skip antes do encode. CI do PR #70 verde nas 8 jobs (run 36822297276); paridade cobre o CI. Merge `4c95462` |
 
 Abertos após o Ciclo P3A: `P3AF1`, `P3AF4` (S4); `BDF11`, `BDF12`, `BDF13`.
+
+## Ciclo P3B — casca da TUI (2026-10-05)
+
+Origem: revisões por tarefa e revisão final da branch `claude/ciclo-p3b-tui-shell`. Ledger: `.superpowers/sdd/2026-10-01-tui-shell-encode/progress.md` (git-ignorado).
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| P3BF1 | S4 | suíte canônica | `test_red_bt709_full_range` falhou 1× no baseline e passou ao rodar de novo (intermitente) | aberto |
+| P3BF2 | S4 | `ui/tui/__main__.py` | mensagem da guarda não diz "abra no Windows Terminal (wt)" quando o console é legado (conhost) | aberto (P3E) |
+| P3BF3 | S4 | `launcher.ps1` | sem aba/opção para a TUI (NB-1) | aberto (P3E) |
+| P3BF4 | S4 | `render_queue.run_job` | tick de 4 Hz durante o encode (spec §7 pede 10 Hz) — exige mudança no código do P3A | aberto |
+
+Dívida visual para o P3E (sem impacto funcional): READY com ~5 linhas vazias; DETAILS com rótulos espremidos e proveniência não alinhada à direita; mini-linha "PASS · 2"; LOG sem margem; `error_scroll` sem limite superior; linha "CANCEL · requested" duplicada no LOG; leitura POSIX de setas partidas (SSH); preflight do FFmpeg roda depois do wizard; argv ignorado no caminho TUI.

@@ -3794,3 +3794,18 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 | P3A-8 | done | ui/test_tui_parity.py | 4 passed (527s): argv igual nos 4; sha decidiu cineon_*, streamhash decidiu native_*; ruff ok |
 | P3A-FINAL | done | reporter.py, ui/tui_driver.py, ui/test_tui_driver.py, ui/test_reporter.py, ui/test_tui_parity.py, enhance/test_reporter_events.py | C1 skip ffmpeg importado, I4 Cancel(requested)+ticks no wait, I5 certificado .qc.* novo removido, m6 lock no cancel, m8 prints fora; 35 passed 3x, 232 passed, full 647 passed, ruff ok; commit 225ecb2; ver .superpowers/sdd/2026-09-30-tui-reporter-seam/final-fix-report.md |
 | P3A-11 | done | enhance/test_classic_golden.py, enhance/golden/classic_*.json | golden carrega env (ffmpeg/python/numpy) e pula se difere; argv/console identicos a 225ecb2; 244 passed, ruff ok |
+
+## Ciclo P3B
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|-----------------|----------------|----------------------|
+| P3B-2 | done | ui/tui/keys.py, ui/tui/test_keys.py | decode_windows/decode_posix/KeyReader impl; 25 tests passed, ruff clean, commit 5529068 |
+| P3B-3 | done | ui/tui/screens.py, ui/tui/test_screens.py | moldura, READY e aviso de terminal pequeno; 50 tests passed, ruff clean; rules via rich Rule (largura 119 no Windows) |
+| P3B-4 | done | ui/tui/screens.py, ui/tui/test_screens.py | ENCODING/CANCEL/DETAILS/LOG; 56 tests passed, ruff clean, commit 018cc9f; job strip próprio de 1 linha (C.job_strip = 3 linhas + emoji) |
+| P3B-5 | done | ui/tui/screens.py, ui/tui/test_screens.py | QC/COMPLETED/ERROR/CANCELLED; 63 tests passed, ruff clean; tolerância 1e-6 no limiar do selo (float 301.0+1.2) |
+| P3B-6 | done | ui/tui/app.py, ui/tui/test_app.py | App (Live único, ConsoleCapture, stderr→_Sink, KeyReader, READY→encode→final); _tick blinda perf/apply/render/live.update (só KeyboardInterrupt escapa) + teste extra; 11 tests 3× verdes, suíte ui+render_queue 306 passed, ruff clean |
+| P3B-7 | done | ui/tui/__main__.py, ui/tui/test_main.py | entrada python -m ui.tui; 7 tests, ui/tui 81 passed, suíte canônica 729 passed, ruff clean, commit 8ac268c |
+| P3B-FIX | done | ui/tui/state.py, ui/tui/screens.py, ui/tui/app.py, ui/tui/keys.py, ui/tui/test_*.py | revisão final I1-I3 + m1-m7; commit 18e3e8b; ui/tui 102 passed 3×, canônica 750 passed, ruff clean; relatório .superpowers/sdd/2026-10-01-tui-shell-encode/final-fix-report.md |
+| P3B-1 | done | ui/tui/__init__.py, ui/tui/state.py, ui/tui/test_state.py | reducer puro; 21 passed após fix do teste de fronteira de float (tick 2.2+SEAL_REVEAL_S), commits 3aa2d4b + 35a761e |
+| Baseline P3B | done | test_render_queue.py, enhance/, ui/, tools/ | 643 passed, 1 failed (intermitente: test_red_bt709_full_range — passou ao rodar de novo), 4 skipped |
+| P3B-8 | done | (manual) | usuário rodou T1–T9 no Windows Terminal portátil: tudo conforme; VALIDATION.md |
