@@ -14,7 +14,9 @@ from rich.text import Text
 import reporter as R
 from ui import components as C
 from ui.theme import HEAVY_BOX, PANEL_BOX, glyphs
+from ui.tui import forms as F
 from ui.tui import state as S
+from ui.tui import widgets as W
 
 try:
     from version import __version__
@@ -24,10 +26,17 @@ except Exception:
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 RAIL = ("HOME", "SOURCE", "CONFIG", "PREVIEW", "READY", "ENCODE", "QC", "DELIVERY")
 STATUS = {
+    S.HOME: "● HOME", S.SOURCE: "● SOURCE", S.CONFIGURATION: "● CONFIG", S.ADVANCED: "● ADVANCED",
+    S.PREVIEW: "● PREVIEW",
     S.READY: "● READY", S.ENCODING: "ENCODING", S.DETAILS: "DETAILS", S.LOG: "LOG", S.QC: "QC",
     S.COMPLETED: "✓ COMPLETED", S.ERROR: "✗ ERROR", S.CANCELLED: "⚠ CANCELLED",
 }
 FOOTER_KEYS = {
+    S.HOME: "[↑↓] Navegar   [1-5] Abrir   [ENTER] Abrir   [ESC] Sair",
+    S.SOURCE: "[digite] Caminho   [←→] Cursor   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair",
+    S.CONFIGURATION: "[↑↓] Campo   [←→/SPACE] Valor   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
+    S.ADVANCED: "[↑↓] Campo   [←→] Valor/Aba   [SPACE] On/Off   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
+    S.PREVIEW: "[←→] Escolher   [ENTER] Confirmar   [ESC] Voltar   [Ctrl+C] Sair",
     S.READY: "[←→] Choose   [ENTER] Start encode   [ESC] Sair",
     S.ENCODING: "[D] Details   [L] Log   [C] Cancel   [Ctrl+C] Interrupt",
     S.DETAILS: "[D] Voltar   [L] Log   [ESC] Voltar   [Ctrl+C] Interrupt",
@@ -103,6 +112,14 @@ def _status(s: S.UIState) -> str:
 
 
 def _rail_active(s: S.UIState) -> str:
+    if s.screen == S.HOME:
+        return "HOME"
+    if s.screen == S.SOURCE:
+        return "SOURCE"
+    if s.screen in (S.CONFIGURATION, S.ADVANCED):
+        return "CONFIG"
+    if s.screen == S.PREVIEW:
+        return "PREVIEW"
     if s.screen == S.READY:
         return "READY"
     if s.screen in (S.COMPLETED,):
@@ -122,7 +139,7 @@ def header(s: S.UIState) -> RenderableType:
     idx = RAIL.index(active)
     rail = Text(" ")
     for i, name in enumerate(RAIL):
-        if i < 4 or i < idx or (s.screen == S.COMPLETED and name != "DELIVERY"):
+        if i < idx or (s.screen == S.COMPLETED and name != "DELIVERY"):
             rail.append(f"{g['ok']} {name}   ", style="ok")
         elif name == active:
             rail.append(f"{g['tab_l']}{name}   ", style="tab.active")
@@ -617,3 +634,75 @@ SCREEN_RENDERERS[S.QC] = _qc
 SCREEN_RENDERERS[S.COMPLETED] = _completed
 SCREEN_RENDERERS[S.ERROR] = _error
 SCREEN_RENDERERS[S.CANCELLED] = _cancelled
+
+
+def path_field(buf: W.TextBuf, width: int) -> Text:
+    text, cur = buf.text, buf.cursor
+    start = max(0, min(cur - width // 2, len(text) + 1 - width))
+    view = text[start:start + width]
+    pos = cur - start
+    out = Text()
+    out.append(view[:pos], style="value")
+    out.append(view[pos:pos + 1] or " ", style="reverse")
+    out.append(view[pos + 1:], style="value")
+    return out
+
+
+def _home(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    top = hero([Text(""), Text("   REELS ENCODER", style="title"),
+                Text("   Premiere Workspace · escolha um fluxo", style="muted")], height=7)
+    menu = Text()
+    for i, label in enumerate(F.PRESET_LABELS):
+        n = i + 1
+        enabled = n in F.ENABLED_PRESETS
+        focused = i == s.home_focus
+        prefix = f"{g['tab_l']}{g['arrow']} " if focused else "   "
+        line = f"{prefix}{n}  {label}" + ("" if enabled else "   — chega no P3D")
+        menu.append(line + "\n\n", style="tab.active" if focused else ("value" if enabled else "muted"))
+    help_txt = Text(F.PRESET_HELP[s.home_focus + 1], style="value")
+    mid = Table.grid(expand=True)
+    mid.add_column(ratio=1)
+    mid.add_column(ratio=1)
+    mid.add_row(panel(menu, "FLUXOS", height=17), panel(help_txt, "O QUE FAZ", height=17))
+    half = (len(s.system) + 1) // 2
+    sysrow = Table.grid(expand=True)
+    sysrow.add_column(ratio=1)
+    sysrow.add_column(ratio=1)
+    sysrow.add_row(kv_table(s.system[:half]), kv_table(s.system[half:]))
+    return Group(top, mid, panel(sysrow, "SYSTEM", height=5))
+
+
+_SOURCE_STATUS = {
+    "VALID": ("✓ arquivo encontrado", "ok"),
+    "NOT_FOUND": ("✗ arquivo não encontrado", "err"),
+    "INVALID": ("⚠ informe um arquivo de vídeo", "warn"),
+    "CHECKING": ("verificando…", "muted"),
+}
+
+
+def _source(s: S.UIState) -> RenderableType:
+    d = {**S.draft(s), "input": W.clean_path(s.source.text) or None}
+    msg, style = _SOURCE_STATUS.get(s.source_status, ("—", "muted"))
+    rows = []
+    if s.preset == 5:
+        rows.append(("BATCH", Text("É um batch de pasta?  off  — chega no P3D", style="muted")))
+    rows += [
+        ("ARQUIVO", path_field(s.source, 60)),
+        ("STATUS", Text(msg, style=style)),
+        ("DIMENSÕES", f"{s.source_dims[0]} × {s.source_dims[1]}" if s.source_dims else "—"),
+        ("SAÍDA", F.output_name(d)),
+    ]
+    left = panel(kv_table(rows), "SOURCE", height=26)
+    right = Panel(C.viewer_frame(fit=d.get("fit", "contain"), src_dims=s.source_dims, title="PROGRAM"),
+                  height=26, box=PANEL_BOX, border_style="panel.border")
+    mid = Table.grid(expand=True)
+    mid.add_column(ratio=76)
+    mid.add_column(ratio=40)
+    mid.add_row(left, right)
+    nxt = "ENTER → ADVANCED" if s.preset == 5 else "ENTER → CONFIGURATION"
+    return Group(mid, panel(Text(f" {nxt}", style="accent"), "PRÓXIMO", height=4))
+
+
+SCREEN_RENDERERS[S.HOME] = _home
+SCREEN_RENDERERS[S.SOURCE] = _source
