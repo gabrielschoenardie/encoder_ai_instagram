@@ -14,8 +14,9 @@ def test_home_screen():
     out = text_of(home())
     for txt in ("REELS ENCODER", "Encode rápido (FFmpeg)", "Film look (Cineon)", "Batch de pasta",
                 "chega no P3D", "Tools", "Configurar avançado", "O QUE FAZ", "SYSTEM", "ffprobe.exe",
-                "detectado no início do encode", "[1-5]"):
+                "detectado no início do encode", "[1 2 4 5] Abrir"):
         assert txt in out, txt
+    assert "[1-5]" not in out
     assert "▸" in out
     assert_fits(out)
     assert_no_emoji(out)
@@ -68,7 +69,32 @@ def test_configuration_quick():
 def test_configuration_cineon_numbers_and_error():
     s = cfg_state(2, field_error="Máximo é 2.")
     out = text_of(s)
-    assert "+0.0" in out and "1.00" in out and "Máximo é 2." in out
+    assert "Máximo é 2." in out
+
+
+def test_configuration_numbers_shown_as_stored():
+    s = cfg_state(2)
+    s = S.UIState(**{**s.__dict__, "drafts": ((2, {**S.draft(s), "exposure_offset": 0.05, "saturation": 1.234}),)})
+    out = text_of(s)
+    assert "0.05" in out and "1.234" in out
+    assert "+0.1" not in out and "1.23 " not in out
+
+
+def test_configuration_footer_lists_digit_typing_not_space():
+    lines = text_of(cfg_state(1)).splitlines()
+    foot = "\n".join(lines[-2:])
+    assert "[0-9] Digitar" in foot and "SPACE" not in foot
+    assert "[↑↓] Campo" in foot and "[ENTER] Próximo" in foot and "[ESC] Voltar" in foot
+
+
+def test_ready_esc_label_is_voltar_in_tui_flow_and_sair_without_preset():
+    base = {"input": "C:/v/clip.mov", "mode": "crf", "cineon_pipeline": "off"}
+    out = text_of(S.UIState(config=base, screen=S.READY, preset=1, output_path="C:/v/o.mp4"))
+    foot = "\n".join(out.splitlines()[-2:])
+    assert "[ESC] Voltar" in foot and "Sair" not in foot
+    assert "[ ESC  Voltar ]" in out and "[ ESC  Sair ]" not in out
+    out = text_of(S.UIState(config=base, screen=S.READY, output_path="C:/v/o.mp4"))
+    assert "[ESC] Sair" in "\n".join(out.splitlines()[-2:]) and "[ ESC  Sair ]" in out
 
 
 def test_configuration_number_edit_shows_buffer():

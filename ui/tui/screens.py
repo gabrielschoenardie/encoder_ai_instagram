@@ -32,9 +32,9 @@ STATUS = {
     S.COMPLETED: "✓ COMPLETED", S.ERROR: "✗ ERROR", S.CANCELLED: "⚠ CANCELLED",
 }
 FOOTER_KEYS = {
-    S.HOME: "[↑↓] Navegar   [1-5] Abrir   [ENTER] Abrir   [ESC] Sair",
+    S.HOME: "[↑↓] Navegar   [1 2 4 5] Abrir   [ENTER] Abrir   [ESC] Sair",
     S.SOURCE: "[digite] Caminho   [←→] Cursor   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair",
-    S.CONFIGURATION: "[↑↓] Campo   [←→/SPACE] Valor   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
+    S.CONFIGURATION: "[↑↓] Campo   [←→] Valor   [0-9] Digitar   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
     S.ADVANCED: "[↑↓] Campo   [←→] Valor/Aba   [SPACE] On/Off   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
     S.PREVIEW: "[←→] Escolher   [ENTER] Confirmar   [ESC] Voltar   [Ctrl+C] Sair",
     S.READY: "[←→] Choose   [ENTER] Start encode   [ESC] Sair",
@@ -158,6 +158,8 @@ def footer(s: S.UIState) -> RenderableType:
         keys = "[←→] Filtro   [ESC] Voltar"
     elif s.screen == S.ENCODING and (S.cancel_blocked(s) or s.cancel_phase is not None):
         keys = keys.replace("[C] Cancel", "░[C] Cancel")
+    elif s.screen == S.READY and s.preset:
+        keys = keys.replace("[ESC] Sair", "[ESC] Voltar")
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
 
 
@@ -217,7 +219,8 @@ def _ready(s: S.UIState) -> RenderableType:
     actions = Table.grid(expand=True)
     actions.add_column(justify="left")
     actions.add_column(justify="right")
-    actions.add_row(Text("   [ ESC  Sair ]", style="muted"), Text(f"{g['tab_l']}{g['arrow']}   START ENCODE   ", style="tab.active"))
+    esc = "Voltar" if s.preset else "Sair"
+    actions.add_row(Text(f"   [ ESC  {esc} ]", style="muted"),Text(f"{g['tab_l']}{g['arrow']}   START ENCODE   ", style="tab.active"))
     parts = [top, mid, qc]
     if s.ready_error:
         parts.append(Text(f"   {s.ready_error}", style="err"))
@@ -722,10 +725,8 @@ def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
         return Text(f"◂ {v} ▸")
     if field.kind == "toggle":
         return Text(f"[{v}]", style="ok" if v == "on" else "muted")
-    if field.name == "exposure_offset":
-        return Text(f"{float(v):+.1f}")
-    if field.name == "saturation":
-        return Text(f"{float(v):.2f}")
+    if field.kind == "number":
+        return Text(W._fmt(v))
     return Text(str(v))
 
 
