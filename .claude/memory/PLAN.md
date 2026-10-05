@@ -26,7 +26,7 @@ O executor lê os dois inteiros antes da sua tarefa e executa **só** a Task ind
 ## Notas de execução
 
 - **Branch:** `claude/ciclo-p3b-tui-shell` (já em checkout; spec em `b4aa09b`). Sem push.
-- **Python:** `C:\Users\Usuario\AppData\Local\Temp\claude\C--Users-Usuario-Documents-GitHub-encoder-ai-instagram\8689ce49-9161-4059-9952-44798e5cb700\scratchpad\venv-be\Scripts\python.exe`. FFmpeg: `./bin/ffmpeg.exe`.
+- **Python:** `venv\Scripts\python.exe` do projeto (tem pytest, pytest-timeout e ruff==0.14.10 desde 2026-10-05). Não usar venv em `AppData\Local\Temp` — o antigo `venv-be` foi apagado pela limpeza de temporários no meio de uma suíte. FFmpeg: `./bin/ffmpeg.exe`.
 - **Commits:** um por Task, mensagem do plano, terminando com
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` e
   `Claude-Session: https://claude.ai/code/session_01SXsnXWdtHrM5BGaCfeq1qB`.
