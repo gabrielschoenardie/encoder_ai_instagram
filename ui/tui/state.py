@@ -350,6 +350,11 @@ def _commit(s: UIState, field) -> UIState:
     return _set_value(s, field.name, value)
 
 
+def _to_preview(s: UIState) -> UIState:
+    origin = s.came_from if s.screen == ADVANCED and s.adv_back == PREVIEW else s.screen
+    return replace(s, screen=PREVIEW, came_from=origin, action_focus=0, field_error=None)
+
+
 def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
     if s.screen == ADVANCED and s.tab_focus:
         if k in ("LEFT", "RIGHT"):
@@ -376,7 +381,7 @@ def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
         if k == "ENTER":
             nxt = min(i + 1, len(items) - 1)
             if items[nxt] is F.CONTINUE:
-                return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0)
+                return _to_preview(s)
             return _set_focus(s, key, nxt)
     if k == "ESC":
         return form_back(s)
@@ -388,12 +393,12 @@ def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
         return _set_focus(s, key, min(len(items) - 1, i + 1))
     if item is F.CONTINUE:
         if k == "ENTER":
-            return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0, field_error=None)
+            return _to_preview(s)
         return s
     if k == "ENTER":
         nxt = min(i + 1, len(items) - 1)
         if items[nxt] is F.CONTINUE:
-            return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0, field_error=None)
+            return _to_preview(s)
         return _set_focus(s, key, nxt)
     if item.kind == "number" and k == "CHAR" and ch and (ch.isdigit() or ch in ".,-"):
         return replace(s, edit=W.TextBuf(ch, 1), field_error=None)

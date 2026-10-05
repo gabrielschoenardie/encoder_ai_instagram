@@ -220,3 +220,20 @@ def test_preview_actions():
     assert rev.screen == S.ADVANCED and rev.adv_back == S.PREVIEW and rev.tab == 0
     assert S.apply(rev, key("ESC")).screen == S.PREVIEW
     assert S.apply(s, key("ESC")).screen == S.CONFIGURATION
+
+
+def test_esc_from_preview_after_revisar_escapes_to_origin():
+    s = at_config(1)
+    s = S.apply(S.apply(S.apply(s, key("ENTER")), key("ENTER")), key("ENTER"))
+    s = S.apply(S.apply(s, key("RIGHT")), key("ENTER"))
+    assert s.screen == S.ADVANCED
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.CONFIGURATION
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.SOURCE
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.HOME
