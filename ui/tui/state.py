@@ -316,11 +316,102 @@ def _finished(s: UIState, code: int) -> UIState:
     return replace(s, screen=CANCELLED if code == 130 else ERROR)
 
 
+_EDIT_KEYS = frozenset({"CHAR", "SPACE", "BACKSPACE", "DELETE", "LEFT", "RIGHT", "D", "L", "C"})
+
+
 def _config_key(s: UIState, k: str, ch: str | None) -> UIState:
     if s.screen == HOME:
         return _home_key(s, k, ch)
     if s.screen == SOURCE:
         return _source_key(s, k, ch)
+    if s.screen == PREVIEW:
+        return _preview_key(s, k)
+    return _form_key(s, k, ch)
+
+
+def form_back(s: UIState) -> UIState:
+    target = SOURCE if s.screen == CONFIGURATION else s.adv_back
+    return replace(s, screen=target, edit=None, field_error=None, tab_focus=False)
+
+
+def _set_value(s: UIState, name: str, value) -> UIState:
+    new, err = F.apply_change(draft(s), name, value)
+    if err:
+        return replace(s, field_error=err, edit=None)
+    s = replace(_with_draft(s, new), field_error=None, edit=None)
+    key = focus_key(s)
+    return _set_focus(s, key, min(focus_of(s, key), len(form_items(s)) - 1))
+
+
+def _commit(s: UIState, field) -> UIState:
+    value, err = W.parse_number(s.edit.text, field.lo, field.hi, field.integer)
+    if err:
+        return replace(s, field_error=err, edit=None)
+    return _set_value(s, field.name, value)
+
+
+def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
+    if s.screen == ADVANCED and s.tab_focus:
+        if k in ("LEFT", "RIGHT"):
+            return replace(s, tab=(s.tab + (1 if k == "RIGHT" else -1)) % len(F.TABS))
+        if k == "DOWN":
+            return replace(s, tab_focus=False)
+        if k == "ESC":
+            return form_back(s)
+        return s
+    items = form_items(s)
+    key = focus_key(s)
+    i = min(focus_of(s, key), len(items) - 1)
+    item = items[i]
+    if s.edit is not None:
+        if k == "ESC":
+            return replace(s, edit=None, field_error=None)
+        if k in _EDIT_KEYS:
+            return replace(s, edit=W.edit_text(s.edit, k, ch))
+        s = _commit(s, item)
+        if s.field_error:
+            return s
+        items = form_items(s)
+        i = min(focus_of(s, key), len(items) - 1)
+        if k == "ENTER":
+            nxt = min(i + 1, len(items) - 1)
+            if items[nxt] is F.CONTINUE:
+                return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0)
+            return _set_focus(s, key, nxt)
+    if k == "ESC":
+        return form_back(s)
+    if k == "UP":
+        if i == 0 and s.screen == ADVANCED:
+            return replace(s, tab_focus=True)
+        return _set_focus(s, key, max(0, i - 1))
+    if k == "DOWN":
+        return _set_focus(s, key, min(len(items) - 1, i + 1))
+    if item is F.CONTINUE:
+        if k == "ENTER":
+            return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0, field_error=None)
+        return s
+    if k == "ENTER":
+        nxt = min(i + 1, len(items) - 1)
+        if items[nxt] is F.CONTINUE:
+            return replace(s, screen=PREVIEW, came_from=s.screen, action_focus=0, field_error=None)
+        return _set_focus(s, key, nxt)
+    if item.kind == "number" and k == "CHAR" and ch and (ch.isdigit() or ch in ".,-"):
+        return replace(s, edit=W.TextBuf(ch, 1), field_error=None)
+    value = W.change(item, draft(s)[item.name], k)
+    if value is None:
+        return s
+    return _set_value(s, item.name, value)
+
+
+def _preview_key(s: UIState, k: str) -> UIState:
+    if k in ("LEFT", "RIGHT"):
+        return replace(s, action_focus=1 - s.action_focus)
+    if k == "ESC":
+        return replace(s, screen=s.came_from, field_error=None)
+    if k == "ENTER":
+        if s.action_focus == 0:
+            return replace(s, action="arm")
+        return replace(s, screen=ADVANCED, adv_back=PREVIEW, tab=0, tab_focus=False, edit=None, field_error=None)
     return s
 
 
