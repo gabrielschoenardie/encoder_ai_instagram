@@ -239,6 +239,64 @@ def test_esc_from_preview_after_revisar_escapes_to_origin():
     assert s.screen == S.HOME
 
 
+def test_advanced_enter_on_last_field_walks_tabs_then_preview():
+    s = at_config(5)
+    for tab in range(len(F.TABS)):
+        assert s.screen == S.ADVANCED and s.tab == tab and not s.tab_focus
+        assert S.focus_of(s, S.focus_key(s)) == 0
+        while S.form_items(s)[S.focus_of(s, S.focus_key(s)) + 1] is not F.CONTINUE:
+            s = S.apply(s, key("ENTER"))
+        s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW
+
+
+def test_advanced_continue_action_on_first_tab_goes_to_preview():
+    s = at_config(5)
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW and s.tab == 0
+
+
+def test_advanced_enter_on_cineon_color_tab_moves_to_audio():
+    s = at_config(5)
+    s = S.apply(s, key("SPACE"))
+    s = S.apply(S.apply(S.apply(s, key("ENTER")), key("ENTER")), key("ENTER"))
+    s = S.apply(S.apply(S.apply(s, key("ENTER")), key("ENTER")), key("ENTER"))
+    assert s.tab == 1 and focused(s).name == "exposure_offset"
+    s = S.apply(S.apply(s, key("CHAR", "1")), key("ENTER"))
+    s = S.apply(S.apply(s, key("ENTER")), key("ENTER"))
+    assert focused(s).name == "tonemap"
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.ADVANCED and s.tab == 2 and focused(s).name == "loudnorm"
+
+
+def test_advanced_threads_commit_on_last_tab_goes_to_preview():
+    from dataclasses import replace
+    s = replace(at_config(5), tab=4)
+    s = S.apply(s, key("DOWN"))
+    assert focused(s).name == "threads"
+    s = S.apply(S.apply(s, key("CHAR", "4")), key("ENTER"))
+    assert s.screen == S.PREVIEW and S.draft(s)["threads"] == 4
+
+
+def test_up_down_clear_field_error():
+    s = at_config(2)
+    s = S.apply(S.apply(s, key("CHAR", "3")), key("ENTER"))
+    assert s.field_error == "Máximo é 2."
+    assert S.apply(s, key("DOWN")).field_error is None
+    s = S.apply(S.apply(S.apply(s, key("DOWN")), key("CHAR", "3")), key("ENTER"))
+    assert s.field_error == "Máximo é 2."
+    assert S.apply(s, key("UP")).field_error is None
+
+
+def test_down_from_tab_bar_lands_on_first_field():
+    from dataclasses import replace
+    s = replace(at_config(5), focus=((f"{S.ADVANCED}:0", 6),), tab_focus=True)
+    s = S.apply(s, key("DOWN"))
+    assert not s.tab_focus and focused(s).name == "cineon_pipeline"
+
+
 def test_esc_preset5_after_revisar_escapes_to_source_and_home():
     s = at_config(5)
     assert s.screen == S.ADVANCED

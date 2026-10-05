@@ -52,8 +52,9 @@ QUICK = (
     Field("mode", "choice", "Modo", MODE),
 )
 CINEON = (
-    Field("exposure_offset", "number", "Exposure offset (EV, -2..+2)", lo=-2.0, hi=2.0, step=0.1),
-    Field("saturation", "number", "Saturação (0..2)", lo=0.0, hi=2.0, step=0.05),
+    Field("exposure_offset", "number", "Exposure offset (EV, -2..+2)", lo=-2.0, hi=2.0, step=0.1,
+          visible_if=_cineon_on),
+    Field("saturation", "number", "Saturação (0..2)", lo=0.0, hi=2.0, step=0.05, visible_if=_cineon_on),
     Field("fit", "choice", "Enquadramento", FIT),
 )
 TABS = ("Source", "Color/LUT", "Audio", "Enhance", "Export")

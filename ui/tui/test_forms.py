@@ -36,6 +36,12 @@ def test_quick_and_cineon_field_order():
     assert [f.name for f in F.CINEON] == ["exposure_offset", "saturation", "fit"]
 
 
+def test_cineon_form_hides_exposure_and_saturation_when_cineon_off():
+    d = F.new_draft(2)
+    assert [f.name for f in F.visible(F.CINEON, d)] == ["exposure_offset", "saturation", "fit"]
+    assert [f.name for f in F.visible(F.CINEON, {**d, "cineon_pipeline": "off"})] == ["fit"]
+
+
 def test_advanced_tabs_and_conditions():
     d = F.new_draft(5)
 

@@ -355,12 +355,22 @@ def _to_preview(s: UIState) -> UIState:
     return replace(s, screen=PREVIEW, came_from=origin, action_focus=0, field_error=None)
 
 
+def _enter_next(s: UIState, key: str, items: tuple, i: int) -> UIState:
+    nxt = min(i + 1, len(items) - 1)
+    if items[nxt] is not F.CONTINUE:
+        return _set_focus(s, key, nxt)
+    if s.screen == ADVANCED and s.tab < len(F.TABS) - 1:
+        s = replace(s, tab=s.tab + 1, tab_focus=False)
+        return _set_focus(s, focus_key(s), 0)
+    return _to_preview(s)
+
+
 def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
     if s.screen == ADVANCED and s.tab_focus:
         if k in ("LEFT", "RIGHT"):
             return replace(s, tab=(s.tab + (1 if k == "RIGHT" else -1)) % len(F.TABS))
         if k == "DOWN":
-            return replace(s, tab_focus=False)
+            return _set_focus(replace(s, tab_focus=False), focus_key(s), 0)
         if k == "ESC":
             return form_back(s)
         return s
@@ -379,27 +389,21 @@ def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
         items = form_items(s)
         i = min(focus_of(s, key), len(items) - 1)
         if k == "ENTER":
-            nxt = min(i + 1, len(items) - 1)
-            if items[nxt] is F.CONTINUE:
-                return _to_preview(s)
-            return _set_focus(s, key, nxt)
+            return _enter_next(s, key, items, i)
     if k == "ESC":
         return form_back(s)
     if k == "UP":
         if i == 0 and s.screen == ADVANCED:
-            return replace(s, tab_focus=True)
-        return _set_focus(s, key, max(0, i - 1))
+            return replace(s, tab_focus=True, field_error=None)
+        return _set_focus(replace(s, field_error=None), key, max(0, i - 1))
     if k == "DOWN":
-        return _set_focus(s, key, min(len(items) - 1, i + 1))
+        return _set_focus(replace(s, field_error=None), key, min(len(items) - 1, i + 1))
     if item is F.CONTINUE:
         if k == "ENTER":
             return _to_preview(s)
         return s
     if k == "ENTER":
-        nxt = min(i + 1, len(items) - 1)
-        if items[nxt] is F.CONTINUE:
-            return _to_preview(s)
-        return _set_focus(s, key, nxt)
+        return _enter_next(s, key, items, i)
     if item.kind == "number" and k == "CHAR" and ch and (ch.isdigit() or ch in ".,-"):
         return replace(s, edit=W.TextBuf(ch, 1), field_error=None)
     value = W.change(item, draft(s)[item.name], k)
