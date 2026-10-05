@@ -714,7 +714,7 @@ SCREEN_RENDERERS[S.SOURCE] = _source
 
 def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
     if field is F.CONTINUE:
-        return Text("[ CONTINUAR ▶ ]", style="tab.active" if focused else "accent")
+        return Text("[ CONTINUAR ▸ ]", style="tab.active" if focused else "accent")
     if focused and s.edit is not None and field.kind == "number":
         return path_field(s.edit, 20)
     v = d.get(field.name)
@@ -841,7 +841,7 @@ def _preview(s: S.UIState) -> RenderableType:
     card = Panel(Group(inner, _chips_line(d)), title=f"[panel.title]{title}[/]", title_align="left",
                  box=PANEL_BOX, border_style="accent", height=28)
     actions = Text("   ")
-    for i, label in enumerate(("CONTINUAR ▶ READY", "REVISAR")):
+    for i, label in enumerate(("CONTINUAR ▸ READY", "REVISAR")):
         focused = s.action_focus == i
         actions.append(f"{g['arrow'] if focused else ' '}[ {label} ]   ", style="tab.active" if focused else "muted")
     parts = [card]

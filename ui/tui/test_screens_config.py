@@ -1,12 +1,7 @@
 from ui.tui import forms as F
 from ui.tui import state as S
 from ui.tui import widgets as W
-from ui.tui.test_screens import assert_fits, text_of
-from ui.tui.test_screens import assert_no_emoji as _assert_no_emoji
-
-
-def assert_no_emoji(out):
-    _assert_no_emoji(out.replace("◂", "").replace("▶", ""))
+from ui.tui.test_screens import assert_fits, assert_no_emoji, text_of
 
 
 def home(**kw):

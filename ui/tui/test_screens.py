@@ -25,7 +25,7 @@ def assert_fits(out):
 
 
 def assert_no_emoji(out):
-    allowed = set("✓⚠✗●▸★█░▎▓○⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏─│╭╮╰╯═║╔╗╚╝┌┐└┘├┤┬┴┼━┃")
+    allowed = set("✓⚠✗●▸◂★█░▎▓○⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏─│╭╮╰╯═║╔╗╚╝┌┐└┘├┤┬┴┼━┃")
     for ch in out:
         if unicodedata.category(ch) == "So" and ch not in allowed:
             raise AssertionError(f"símbolo não permitido: {ch!r}")
