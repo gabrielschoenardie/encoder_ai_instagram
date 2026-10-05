@@ -393,6 +393,113 @@ def test_enters_queued_after_arm_do_not_start_encode(tmp_path):
     assert ran == [] and first_pause == [S.READY]
 
 
+class StillClock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def preview_app(tmp_path, script, ran):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    clock = StillClock()
+    seen = {"ready": None, "loops": 0}
+
+    def sleep(_):
+        seen["loops"] += 1
+        if seen["loops"] > 2000:
+            raise KeyboardInterrupt
+        if app.state.screen in S.FINAL_SCREENS:
+            app._queue.put(S.Key("ENTER"))
+        elif app.state.screen == S.READY:
+            if seen["ready"] is None:
+                seen["ready"] = clock.t
+            script(app, clock, clock.t - seen["ready"])
+
+    app = A.App(run_single=lambda *a: ran.append(clock.t) or 0, reader_factory=CharReader(["ENTER"]),
+                live_factory=lambda c: FakeLive(), clock=clock, sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+    return app, seen
+
+
+@pytest.mark.timeout(30)
+def test_held_enter_after_arm_never_starts_encode(tmp_path):
+    ran = []
+
+    def script(app, clock, elapsed):
+        if elapsed > 6.0:
+            raise KeyboardInterrupt
+        clock.t += 0.03
+        app._queue.put(S.Key("ENTER"))
+
+    app, _ = preview_app(tmp_path, script, ran)
+    assert app.run() == 130
+    assert ran == [] and app.state.screen == S.READY
+
+
+@pytest.mark.timeout(30)
+def test_enter_before_ready_hold_is_ignored_then_isolated_enter_starts(tmp_path):
+    ran = []
+    pressed = []
+
+    def script(app, clock, elapsed):
+        for at in (0.5, 1.3):
+            if at not in pressed and elapsed >= at - 1e-9:
+                pressed.append(at)
+                app._queue.put(S.Key("ENTER"))
+                return
+        clock.t += 0.1
+
+    app, seen = preview_app(tmp_path, script, ran)
+    assert app.run() == 0
+    assert pressed == [0.5, 1.3] and len(ran) == 1
+    assert abs(ran[0] - seen["ready"] - 1.3) < 1e-6
+
+
+@pytest.mark.timeout(30)
+def test_released_enter_after_burst_starts_encode(tmp_path):
+    ran = []
+    pressed = []
+
+    def script(app, clock, elapsed):
+        if elapsed < 2.0:
+            clock.t += 0.03
+            app._queue.put(S.Key("ENTER"))
+        elif not pressed:
+            clock.t += 0.5
+            pressed.append(1)
+            app._queue.put(S.Key("ENTER"))
+
+    app, seen = preview_app(tmp_path, script, ran)
+    assert app.run() == 0
+    assert len(ran) == 1 and ran[0] - seen["ready"] >= 2.5 - 1e-6
+
+
+def test_esc_in_ready_works_right_after_arm(tmp_path):
+    app, _ = preview_app(tmp_path, lambda *a: None, [])
+    app._arm()
+    assert app.state.screen == S.READY
+    app._queue.put(S.Key("ENTER"))
+    app._queue.put(S.Key("ESC"))
+    app._drain()
+    assert app.state.screen == S.PREVIEW and app.state.action is None
+
+
+def test_p3b_ready_enter_starts_without_hold(tmp_path):
+    ran = []
+    clock = StillClock()
+    app = A.App(ns(tmp_path), run_single=lambda *a: ran.append(clock.t) or 0, reader_factory=FakeReader(["ENTER"]),
+                live_factory=lambda c: FakeLive(), clock=clock,
+                sleep=lambda _: app._queue.put(S.Key("ENTER")), perf=lambda: (None, None, None),
+                size=lambda: (120, 40), output_path=str(tmp_path / "out.mp4"))
+    assert app.run() == 0
+    assert ran == [100.0]
+
+
 def test_arm_drops_only_key_events(tmp_path):
     src = tmp_path / "clip.mov"
     src.write_bytes(b"x")
@@ -482,6 +589,7 @@ def test_ready_revalidates_missing_input(tmp_path, monkeypatch):
     app, _, _ = make_home(tmp_path, ["ENTER", "ESC", "ESC", "ESC", "ESC", "ESC"],
                           run_single=lambda *a: ran.append(1) or 0)
     app.state = S.UIState(config={"input": str(tmp_path / "missing.mov")}, screen=S.READY, preset=1)
+    app._ready_at = 0.0
     orig_apply = S.apply
 
     def spy(s, ev):

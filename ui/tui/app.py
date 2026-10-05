@@ -26,6 +26,8 @@ from ui.tui.screens import error_message, partial_wording, render
 from ui.tui_capture import ConsoleCapture, _Sink
 
 TICK_S = 0.1
+READY_HOLD_S = 1.2
+KEY_GAP_S = 0.3
 
 
 def _default_perf():
@@ -68,6 +70,8 @@ class App:
         self._tools = tools or _default_tools
         self._probe = probe or _default_probe
         self._probed: tuple | None = None
+        self._ready_at: float | None = None
+        self._last_key_at: float | None = None
         if ns is None:
             self.state = S.UIState(config={}, screen=S.HOME,
                                     system=system if system is not None else self._system_rows())
@@ -185,6 +189,8 @@ class App:
         if not armed.error:
             self._drop_queued_keys()
         self.state = S.apply(self.state, armed)
+        if self.state.screen == S.READY:
+            self._ready_at = self._clock()
 
     def _drop_queued_keys(self) -> None:
         kept = []
@@ -235,12 +241,23 @@ class App:
         except Exception:
             pass
 
+    def _key_accepted(self, ev: S.Key) -> bool:
+        now = self._clock()
+        last, self._last_key_at = self._last_key_at, now
+        if ev.name != "ENTER" or self.state.screen != S.READY or not self.state.preset:
+            return True
+        if self._ready_at is None or now - self._ready_at < READY_HOLD_S:
+            return False
+        return last is None or now - last >= KEY_GAP_S
+
     def _drain(self) -> None:
         while True:
             try:
                 ev = self._queue.get_nowait()
             except queue.Empty:
                 break
+            if isinstance(ev, S.Key) and not self._key_accepted(ev):
+                continue
             self.state = S.apply(self.state, ev)
             if self.state.action == "cancel":
                 self.state = replace(self.state, action=None)
