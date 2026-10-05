@@ -6,7 +6,7 @@ import queue
 import shutil
 import sys
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Callable
 
 from pydantic import ValidationError
@@ -28,6 +28,12 @@ from ui.tui_capture import ConsoleCapture, _Sink
 TICK_S = 0.1
 READY_HOLD_S = 1.2
 KEY_GAP_S = 0.3
+
+
+@dataclass(frozen=True)
+class _Arrived:
+    key: S.Key
+    ts: float
 
 
 def _default_perf():
@@ -97,7 +103,7 @@ class App:
         )
 
     def run(self) -> int:
-        self._reader = self._reader_factory(self._queue.put)
+        self._reader = self._reader_factory(self._emit)
         self._orig_stderr = sys.stderr
         self._capture = ConsoleCapture(RE.console, self._queue.put)
         code = 1
@@ -199,7 +205,7 @@ class App:
                 ev = self._queue.get_nowait()
             except queue.Empty:
                 break
-            if not isinstance(ev, S.Key):
+            if not isinstance(ev, (S.Key, _Arrived)):
                 kept.append(ev)
         for ev in kept:
             self._queue.put(ev)
@@ -216,7 +222,7 @@ class App:
             self._live.start()
             self._capture.__enter__()
             sys.stderr = _Sink(self._queue.put)
-            self._reader = self._reader_factory(self._queue.put)
+            self._reader = self._reader_factory(self._emit)
             self._reader.start()
 
     def _until(self, done: Callable[[S.UIState], bool]) -> None:
@@ -241,8 +247,10 @@ class App:
         except Exception:
             pass
 
-    def _key_accepted(self, ev: S.Key) -> bool:
-        now = self._clock()
+    def _emit(self, ev) -> None:
+        self._queue.put(_Arrived(ev, self._clock()) if isinstance(ev, S.Key) else ev)
+
+    def _key_accepted(self, ev: S.Key, now: float) -> bool:
         last, self._last_key_at = self._last_key_at, now
         if ev.name != "ENTER" or self.state.screen != S.READY or not self.state.preset:
             return True
@@ -256,7 +264,11 @@ class App:
                 ev = self._queue.get_nowait()
             except queue.Empty:
                 break
-            if isinstance(ev, S.Key) and not self._key_accepted(ev):
+            if isinstance(ev, _Arrived):
+                ev, ts = ev.key, ev.ts
+            elif isinstance(ev, S.Key):
+                ts = self._clock()
+            if isinstance(ev, S.Key) and not self._key_accepted(ev, ts):
                 continue
             self.state = S.apply(self.state, ev)
             if self.state.action == "cancel":

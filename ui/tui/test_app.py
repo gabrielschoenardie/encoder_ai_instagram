@@ -489,6 +489,22 @@ def test_esc_in_ready_works_right_after_arm(tmp_path):
     assert app.state.screen == S.PREVIEW and app.state.action is None
 
 
+def test_held_enter_dequeued_after_stall_is_still_rejected(tmp_path):
+    app, _ = preview_app(tmp_path, lambda *a: None, [])
+    app._arm()
+    clock = app._clock
+    for i in range(50):
+        clock.t += 0.03
+        app._emit(S.Key("ENTER"))
+        if i % 3 == 2:
+            app._drain()
+    for _ in range(17):
+        clock.t += 0.03
+        app._emit(S.Key("ENTER"))
+    app._drain()
+    assert app.state.screen == S.READY and app.state.action is None
+
+
 def test_p3b_ready_enter_starts_without_hold(tmp_path):
     ran = []
     clock = StillClock()
