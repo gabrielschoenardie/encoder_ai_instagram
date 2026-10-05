@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, replace
 
 import reporter as R
+from ui.tui import forms as F
+from ui.tui import widgets as W
 
 READY = "READY"
 ENCODING = "ENCODING"
@@ -13,6 +15,13 @@ QC = "QC"
 COMPLETED = "COMPLETED"
 ERROR = "ERROR"
 CANCELLED = "CANCELLED"
+HOME = "HOME"
+SOURCE = "SOURCE"
+CONFIGURATION = "CONFIGURATION"
+ADVANCED = "ADVANCED"
+PREVIEW = "PREVIEW"
+CONFIG_SCREENS = frozenset({HOME, SOURCE, CONFIGURATION, ADVANCED, PREVIEW})
+ACTIONS = ("start", "exit", "tools", "arm", "check_source")
 FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED})
 OVERLAYS = frozenset({DETAILS, LOG})
 SEAL_REVEAL_S = 1.2
@@ -40,6 +49,26 @@ class Tick:
 @dataclass(frozen=True)
 class Finished:
     exit_code: int
+
+
+@dataclass(frozen=True)
+class SourceChecked:
+    path: str
+    status: str
+    dims: tuple | None = None
+
+
+@dataclass(frozen=True)
+class Armed:
+    config: dict
+    output_path: str
+    output_preexisted: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ReadyBlocked:
+    message: str
 
 
 @dataclass(frozen=True)
@@ -97,6 +126,21 @@ class UIState:
     exit_code: int | None = None
     seal_reveal_start: float | None = None
     action: str | None = None
+    preset: int = 0
+    drafts: tuple = ()
+    focus: tuple = ()
+    home_focus: int = 0
+    tab: int = 0
+    tab_focus: bool = False
+    edit: W.TextBuf | None = None
+    field_error: str | None = None
+    source: W.TextBuf = W.TextBuf()
+    source_status: str = "INVALID"
+    source_dims: tuple | None = None
+    came_from: str = CONFIGURATION
+    adv_back: str = SOURCE
+    ready_error: str | None = None
+    system: tuple = ()
 
 
 def cancel_blocked(s: UIState) -> bool:
@@ -127,13 +171,63 @@ def filtered_log(s: UIState) -> tuple:
     return tuple(r for r in s.log if r.kind == kind)
 
 
+def draft(s: UIState) -> dict:
+    found = dict(s.drafts).get(s.preset)
+    return dict(found) if found is not None else F.new_draft(s.preset)
+
+
+def _with_draft(s: UIState, d: dict) -> UIState:
+    others = tuple((p, x) for p, x in s.drafts if p != s.preset)
+    return replace(s, drafts=others + ((s.preset, d),))
+
+
+def focus_key(s: UIState) -> str:
+    return f"{ADVANCED}:{s.tab}" if s.screen == ADVANCED else s.screen
+
+
+def focus_of(s: UIState, key: str) -> int:
+    return dict(s.focus).get(key, 0)
+
+
+def _set_focus(s: UIState, key: str, index: int) -> UIState:
+    others = tuple((k, v) for k, v in s.focus if k != key)
+    return replace(s, focus=others + ((key, index),))
+
+
+def form_items(s: UIState) -> tuple:
+    d = draft(s)
+    if s.screen == ADVANCED:
+        return F.visible(F.ADVANCED[F.TABS[s.tab]], d) + (F.CONTINUE,)
+    if s.screen == CONFIGURATION:
+        return F.visible(F.form_for(s.preset), d) + (F.CONTINUE,)
+    return ()
+
+
 def apply(s: UIState, ev) -> UIState:
     if isinstance(ev, Tick):
         return _tick(s, ev)
     if isinstance(ev, Key):
-        return _key(s, ev.name)
+        return _key(s, ev.name, ev.char)
     if isinstance(ev, Finished):
         return _finished(s, ev.exit_code)
+    if isinstance(ev, SourceChecked):
+        if ev.path != W.clean_path(s.source.text):
+            return s
+        return replace(s, source_status=ev.status, source_dims=ev.dims)
+    if isinstance(ev, Armed):
+        if ev.error:
+            return replace(s, field_error=ev.error)
+        return replace(
+            s,
+            screen=READY,
+            config=dict(ev.config),
+            output_path=ev.output_path,
+            output_preexisted=ev.output_preexisted,
+            ready_error=None,
+            field_error=None,
+        )
+    if isinstance(ev, ReadyBlocked):
+        return replace(s, screen=READY, ready_error=ev.message, action=None)
     return _engine(s, ev)
 
 
@@ -222,11 +316,71 @@ def _finished(s: UIState, code: int) -> UIState:
     return replace(s, screen=CANCELLED if code == 130 else ERROR)
 
 
-def _key(s: UIState, k: str) -> UIState:
+def _config_key(s: UIState, k: str, ch: str | None) -> UIState:
+    if s.screen == HOME:
+        return _home_key(s, k, ch)
+    if s.screen == SOURCE:
+        return _source_key(s, k, ch)
+    return s
+
+
+def _home_key(s: UIState, k: str, ch: str | None) -> UIState:
+    if k in ("UP", "DOWN"):
+        i = s.home_focus
+        step = 1 if k == "DOWN" else -1
+        while True:
+            i = (i + step) % len(F.PRESET_LABELS)
+            if i + 1 in F.ENABLED_PRESETS:
+                return replace(s, home_focus=i)
+    if k == "ESC":
+        return replace(s, action="exit", exit_code=0)
+    if k == "ENTER":
+        choice = s.home_focus + 1
+    elif ch and ch in "12345":
+        choice = int(ch)
+    else:
+        return s
+    if choice not in F.ENABLED_PRESETS:
+        return s
+    s = replace(s, home_focus=choice - 1)
+    if choice == 4:
+        return replace(s, action="tools")
+    s = replace(s, preset=choice, field_error=None, edit=None)
+    d = draft(s)
+    s = _with_draft(s, d)
+    text = d.get("input") or ""
+    s = replace(s, screen=SOURCE, source=W.TextBuf(text, len(text)), source_status="INVALID", source_dims=None)
+    return replace(s, source_status="CHECKING", action="check_source") if text else s
+
+
+def _source_key(s: UIState, k: str, ch: str | None) -> UIState:
+    if k == "ESC":
+        s = _with_draft(s, {**draft(s), "input": W.clean_path(s.source.text) or None})
+        return replace(s, screen=HOME)
+    if k == "ENTER":
+        if s.source_status != "VALID":
+            return s
+        s = _with_draft(s, {**draft(s), "input": W.clean_path(s.source.text)})
+        if s.preset == 5:
+            return replace(s, screen=ADVANCED, adv_back=SOURCE, tab_focus=False, edit=None, field_error=None)
+        return replace(s, screen=CONFIGURATION, edit=None, field_error=None)
+    buf = W.edit_text(s.source, k, ch)
+    if buf == s.source:
+        return s
+    if buf.text == s.source.text:
+        return replace(s, source=buf)
+    return replace(s, source=buf, source_status="CHECKING", source_dims=None, action="check_source")
+
+
+def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
+    if s.screen in CONFIG_SCREENS:
+        return _config_key(s, k, ch)
     if s.screen == READY:
         if k == "ENTER":
-            return replace(s, screen=ENCODING, action="start")
+            return replace(s, screen=ENCODING, action="start", ready_error=None)
         if k == "ESC":
+            if s.preset:
+                return replace(s, screen=PREVIEW, ready_error=None)
             return replace(s, action="exit", exit_code=0)
         return s
     if s.modal == "CANCEL":
