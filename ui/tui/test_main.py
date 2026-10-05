@@ -1,4 +1,3 @@
-import argparse
 import types
 
 import Reels_Encoder_v2_FINAL as RE
@@ -46,26 +45,9 @@ def test_fallback_propagates_classic_exit_code(monkeypatch):
     assert M.main() == 2
 
 
-def test_launcher_cancel_returns_zero(monkeypatch):
-    monkeypatch.setattr(M, "get_console", lambda: console())
-    monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: True)
-    monkeypatch.setattr(M, "run_launcher", lambda c: None)
-    assert M.main() == 0
-
-
-def test_validation_error_returns_2(monkeypatch):
-    monkeypatch.setattr(M, "get_console", lambda: console())
-    monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: True)
-    monkeypatch.setattr(M, "run_launcher", lambda c: argparse.Namespace(input="x"))
-    monkeypatch.setattr(M, "_missing_binaries", lambda: [])
-    monkeypatch.setattr(RE, "_validate_args_consistency", lambda ns: "inválido")
-    assert M.main() == 2
-
-
 def test_missing_binaries_returns_1(monkeypatch):
     monkeypatch.setattr(M, "get_console", lambda: console())
     monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: True)
-    monkeypatch.setattr(M, "run_launcher", lambda c: argparse.Namespace(input="x"))
     monkeypatch.setattr(M, "_missing_binaries", lambda: ["ffmpeg"])
     assert M.main() == 1
 
@@ -73,8 +55,15 @@ def test_missing_binaries_returns_1(monkeypatch):
 def test_runs_app_and_returns_its_code(monkeypatch):
     monkeypatch.setattr(M, "get_console", lambda: console())
     monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: True)
-    monkeypatch.setattr(M, "run_launcher", lambda c: argparse.Namespace(input="x"))
     monkeypatch.setattr(M, "_missing_binaries", lambda: [])
-    monkeypatch.setattr(RE, "_validate_args_consistency", lambda ns: None)
-    monkeypatch.setattr(M, "App", lambda ns, console=None: types.SimpleNamespace(run=lambda: 130))
+    monkeypatch.setattr(M, "App", lambda console=None: types.SimpleNamespace(run=lambda: 130))
     assert M.main() == 130
+
+
+def test_main_does_not_use_line_wizard(monkeypatch):
+    monkeypatch.setattr(M, "get_console", lambda: console())
+    monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: True)
+    monkeypatch.setattr(M, "_missing_binaries", lambda: [])
+    monkeypatch.setattr(M, "App", lambda console=None: types.SimpleNamespace(run=lambda: 0))
+    assert not hasattr(M, "run_launcher")
+    assert M.main() == 0
