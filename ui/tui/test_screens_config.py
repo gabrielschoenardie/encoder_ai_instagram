@@ -135,6 +135,47 @@ def test_preview_screen_and_error():
     assert_no_emoji(out)
 
 
+def _program_rows(out):
+    lines = out.splitlines()
+    top = next(i for i, ln in enumerate(lines) if "┌─ PROGRAM" in ln)
+    c0 = lines[top].index("┌─ PROGRAM")
+    width = lines[top].index("┐", c0) - c0 + 1
+    rows = []
+    for ln in lines[top + 1:]:
+        cell = ln[c0:c0 + width]
+        if not cell.startswith("│"):
+            break
+        if cell[1:-1].strip():
+            rows.append(cell)
+    return width, rows
+
+
+def test_program_frame_cover_portrait_keeps_bars_aligned():
+    from dataclasses import replace
+
+    from ui.tui.test_screens import CFG, encoding_state
+    d = {**F.new_draft(1), "input": "C:/v/clip.mov", "fit": "cover"}
+    states = {
+        "PREVIEW": cfg_state(1, screen=S.PREVIEW, source_dims=(1080, 1920)),
+        "SOURCE": cfg_state(1, screen=S.SOURCE, source=W.TextBuf("C:/v/clip.mov", 13), source_status="VALID",
+                            source_dims=(1080, 1920)),
+        "ENCODING": replace(encoding_state(), config={**CFG, "mode": "2pass", "fit": "cover"}),
+    }
+    states["PREVIEW"] = S.UIState(**{**states["PREVIEW"].__dict__, "drafts": ((1, d),)})
+    states["SOURCE"] = S.UIState(**{**states["SOURCE"].__dict__, "drafts": ((1, d),)})
+    for name, s in states.items():
+        out = text_of(s)
+        for ln in out.splitlines():
+            assert "preenche" not in ln or "crop" in ln, (name, ln)
+        width, rows = _program_rows(out)
+        assert len(rows) >= 9, (name, rows)
+        for cell in rows:
+            assert len(cell) == width and cell.endswith("│"), (name, cell)
+            assert cell[2] == "█" and cell[-3] == "█", (name, cell)
+        assert any("crop" in cell for cell in rows), name
+        assert_fits(out)
+
+
 def test_ready_shows_ready_error():
     s = S.UIState(config={"input": "C:/v/clip.mov", "mode": "crf", "cineon_pipeline": "off"}, screen=S.READY,
                   preset=1, output_path="C:/v/o.mp4", ready_error="arquivo de entrada não encontrado: C:/v/clip.mov")
