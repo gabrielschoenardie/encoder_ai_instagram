@@ -246,3 +246,19 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 | T5 | Ctrl+C ×2 | b4_011033 | requested; Info "Loudnorm Pass 1 falhou" (sinal no ffmpeg de análise); abortou no Stage PASS 1 | 130 | não | ok |
 
 **Veredito:** PASSA. Ctrl+C e `C` preservam o comportamento (exit 130, sem órfão, sem traceback, terminal utilizável); `C` recusado na máscara MCTF; caminho feliz completo (exit 0) pelo condutor. **Não cobertos manualmente:** Ctrl+C durante PASS 1 em andamento e durante QC — cobertos por `ui/test_tui_driver.py` (`test_ctrl_c_during_qc_*`, `test_ctrl_c_wait_keeps_ticking_*`). Observação: no Windows o Ctrl+C também chega aos processos de análise do mesmo console (ffprobe/loudnorm/MCTF); o encoder registra como aviso e o resultado continua 130.
+
+---
+
+# Validação manual — Ciclo P3B (casca da TUI, Task 8)
+
+**Data:** 2026-10-05 | **Executor do teste:** usuário | **Terminal:** Windows Terminal portátil (`bin/WindowsTerminal/wt.exe`), `vt=True truecolor=True`, 120×40 | **Entrada:** `python -m ui.tui` | **Fonte:** cópia isolada em `C:\Users\Usuario\p3b_teste`
+
+| T | cenário | resultado |
+|---|---------|-----------|
+| T1 | native 2-pass até o fim; VER QC / VER LOG / SAIR | exit 0; Pass 1 ✓ visível no Pass 2; selo; COMPLETED; linha "✓ entregue: …"; sem ffmpeg órfão |
+| T2 | Cineon CRF até o fim | exit 0 |
+| T3–T9 | D/L/ESC/filtros; `C`→ESC e `C`→CANCELAR; `░[C]` no mctf_mask; Ctrl+C no PASS 1; resize < 40 linhas; janela de 30 linhas → modo clássico; `quebrado.mov` → ERROR | "tudo funciona como deveria" (relato do usuário) |
+
+**Achado de ambiente:** a janela avulsa do `powershell.exe` (conhost, `vt=False`, `legacy_windows=True`, largura reportada 119) é recusada pela guarda — comportamento correto; a mensagem deveria orientar a abrir no Windows Terminal (pendência P3BF2).
+
+**Veredito:** PASSA.
