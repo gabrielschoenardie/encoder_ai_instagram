@@ -14,6 +14,13 @@ from ui.tui import state as S
 class FakeLive:
     def __init__(self):
         self.frames = []
+        self.starts = self.stops = 0
+
+    def start(self):
+        self.starts += 1
+
+    def stop(self):
+        self.stops += 1
 
     def __enter__(self):
         return self
@@ -299,3 +306,122 @@ def test_summary_line_absent_on_ready_esc(tmp_path):
     app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0, console=con)
     assert app.run() == 0
     assert con.export_text().strip() == ""
+
+
+def make_home(tmp_path, keys, run_single=None, **kw):
+    live = FakeLive()
+    reader = CharReader(keys)
+    holder = []
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS:
+            holder[0]._queue.put(S.Key("ENTER"))
+
+    app = A.App(run_single=run_single or (lambda *a: 0), reader_factory=reader, live_factory=lambda c: live,
+                clock=Clock(), sleep=sleep, perf=lambda: (10.0, 20.0, 1.0), size=lambda: (120, 40),
+                system=(("FFmpeg", "x"),), probe=lambda p: (1080, 1920), **kw)
+    holder.append(app)
+    return app, live, reader
+
+
+def keys_for(text):
+    return [("SPACE" if ch == " " else (ch.upper() if ch.lower() in "dlc" else "CHAR"), ch) for ch in text]
+
+
+class CharReader(FakeReader):
+    def start(self):
+        for k in self.keys:
+            name, ch = k if isinstance(k, tuple) else (k, None)
+            self.emit(S.Key(name, ch))
+
+
+def test_home_esc_exits_zero_and_prints_cancel(tmp_path):
+    import io
+
+    from rich.console import Console
+    buf = io.StringIO()
+    app, _, _ = make_home(tmp_path, ["ESC"], console=Console(file=buf, width=120))
+    assert app.run() == 0
+    assert "Cancelado pelo usuário." in buf.getvalue()
+
+
+@pytest.mark.timeout(30)
+def test_full_flow_home_to_completed(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    seen = []
+    holder = []
+
+    def run(ns_, q, control, on_tick):
+        seen.append(ns_)
+        return 0
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS:
+            holder[0]._queue.put(S.Key("ENTER"))
+
+    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 6
+    live = FakeLive()
+    app = A.App(run_single=run, reader_factory=CharReader(keys), live_factory=lambda c: live, clock=Clock(),
+                sleep=sleep, perf=lambda: (None, None, None), size=lambda: (120, 40),
+                system=(), probe=lambda p: None)
+    holder.append(app)
+    assert app.run() == 0
+    assert seen and seen[0].input == str(src) and seen[0].cineon_pipeline == "off"
+
+
+def test_check_source_quoted_path_with_spaces_is_valid(tmp_path):
+    d = tmp_path / "Meus Vídeos"
+    d.mkdir()
+    f = d / "x.mov"
+    f.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.apply(app.state, S.Key("CHAR", "1"))
+    for name, ch in keys_for(f'"{f}"'):
+        app.state = S.apply(app.state, S.Key(name, ch))
+    app._check_source()
+    assert app.state.source_status == "VALID" and app.state.source_dims == (1080, 1920)
+
+
+def test_ready_revalidates_missing_input(tmp_path, monkeypatch):
+    ran = []
+    seen_errors = []
+    app, _, _ = make_home(tmp_path, ["ENTER", "ESC", "ESC", "ESC", "ESC", "ESC"],
+                          run_single=lambda *a: ran.append(1) or 0)
+    app.state = S.UIState(config={"input": str(tmp_path / "missing.mov")}, screen=S.READY, preset=1)
+    orig_apply = S.apply
+
+    def spy(s, ev):
+        out = orig_apply(s, ev)
+        if out.ready_error:
+            seen_errors.append(out.ready_error)
+        return out
+
+    monkeypatch.setattr(S, "apply", spy)
+    assert app.run() == 0
+    assert ran == [] and seen_errors and "missing.mov" in seen_errors[0]
+
+
+def test_tools_suspends_and_resumes(tmp_path):
+    calls = []
+    readers = iter([CharReader([("CHAR", "4")]), CharReader(["ESC"])])
+    live = FakeLive()
+    app = A.App(reader_factory=lambda emit: next(readers)(emit), live_factory=lambda c: live, clock=Clock(),
+                sleep=lambda _: None, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
+                probe=lambda p: None, tools=lambda con: calls.append("tools"))
+    assert app.run() == 0
+    assert calls == ["tools"] and live.stops == 1 and live.starts == 1
+
+
+@pytest.mark.timeout(30)
+def test_ctrl_c_in_configuration_returns_130(tmp_path):
+    app, _, reader = make_home(tmp_path, [("CHAR", "1")])
+    orig = app._tick
+
+    def tick():
+        orig()
+        if app.state.screen == S.SOURCE:
+            raise KeyboardInterrupt
+
+    app._tick = tick
+    assert app.run() == 130 and reader.restored
