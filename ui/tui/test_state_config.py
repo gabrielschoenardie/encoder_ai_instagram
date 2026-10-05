@@ -237,3 +237,22 @@ def test_esc_from_preview_after_revisar_escapes_to_origin():
     assert s.screen == S.SOURCE
     s = S.apply(s, key("ESC"))
     assert s.screen == S.HOME
+
+
+def test_esc_preset5_after_revisar_escapes_to_source_and_home():
+    s = at_config(5)
+    assert s.screen == S.ADVANCED
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW and s.came_from == S.ADVANCED
+    s = S.apply(S.apply(s, key("RIGHT")), key("ENTER"))
+    assert s.screen == S.ADVANCED and s.adv_back == S.PREVIEW
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.PREVIEW
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.ADVANCED
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.SOURCE
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.HOME

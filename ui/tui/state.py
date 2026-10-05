@@ -412,7 +412,8 @@ def _preview_key(s: UIState, k: str) -> UIState:
     if k in ("LEFT", "RIGHT"):
         return replace(s, action_focus=1 - s.action_focus)
     if k == "ESC":
-        return replace(s, screen=s.came_from, field_error=None)
+        back = SOURCE if s.came_from == ADVANCED else s.adv_back
+        return replace(s, screen=s.came_from, adv_back=back, field_error=None)
     if k == "ENTER":
         if s.action_focus == 0:
             return replace(s, action="arm")
