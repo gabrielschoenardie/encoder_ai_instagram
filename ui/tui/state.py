@@ -25,6 +25,7 @@ _WARNING_RE = re.compile(r"^aviso\b|\bfalhou\b|n[ãa]o foi poss[ií]vel", re.IGN
 @dataclass(frozen=True)
 class Key:
     name: str
+    char: str | None = None
 
 
 @dataclass(frozen=True)
