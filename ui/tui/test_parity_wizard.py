@@ -109,3 +109,78 @@ def test_tui_form_matches_line_wizard(monkeypatch, tmp_path, preset, answers, va
     for k, v in values.items():
         assert getattr(got, k) == v, k
     assert vars(got) == vars(want)
+
+
+BATCH_SCENARIOS = [
+    pytest.param(3, False, {}, {}, id="preset3-so-pasta"),
+    pytest.param(3, True, {"Usar film look": "on"}, {"cineon_pipeline": "on"}, id="preset3-saida-cineon"),
+    pytest.param(5, True, {"É um batch": "on"}, {}, id="preset5-pasta-saida"),
+]
+
+
+def wizard_batch_ns(monkeypatch, preset, folder, out_dir, answers, used):
+    folders = {"Pasta com os vídeos": folder, "Pasta de saída": out_dir}
+
+    def pick(message, default):
+        for k, v in answers.items():
+            if k in message:
+                used.add(k)
+                return v
+        return default
+
+    def confirm(message, *a, **k):
+        if "Iniciar" in message:
+            return True
+        if "saída separada" in message:
+            return out_dir is not None
+        return k.get("default", False)
+
+    def no_path(con, message, must_exist=True):
+        raise AssertionError(f"ask_path em batch: {message}")
+
+    monkeypatch.setattr(L, "ask_choice", lambda con, title, options, default=1: preset)
+    monkeypatch.setattr(L, "ask_folder",
+                        lambda con, message, must_exist=True: next(v for k, v in folders.items() if k in message))
+    monkeypatch.setattr(L, "ask_path", no_path)
+    monkeypatch.setattr(L, "ask_select", lambda con, message, options, default: pick(message, default))
+    monkeypatch.setattr(L, "ask_toggle", lambda con, message, default_on=True: pick(message, "on" if default_on else "off"))
+    monkeypatch.setattr(L, "ask_number",
+                        lambda con, message, default, lo=None, hi=None, integer=False: pick(message, default))
+    monkeypatch.setattr(L, "probe_source_dims", lambda p: None, raising=False)
+    monkeypatch.setattr(L.Confirm, "ask", confirm)
+    return L.run_launcher(Console(file=io.StringIO(), width=120, theme=THEME))
+
+
+def tui_batch_ns(preset, folder, out_dir, values):
+    s = S.UIState(config={}, screen=S.HOME)
+    s = press(s, "CHAR", str(preset))
+    if preset == 5:
+        s = press(press(press(s, "UP"), "RIGHT"), "DOWN")
+    assert F.is_folder(S.draft(s))
+    s = type_text(s, folder)
+    s = S.apply(s, S.SourceChecked(folder, "VALID", None, 1))
+    s = press(s, "ENTER")
+    if out_dir is not None:
+        s = set_field(s, F.OUTDIR_ON, "on")
+        s, _ = goto_field(s, "output_dir")
+        s = press(type_text(s, out_dir), "ENTER")
+        assert s.field_error is None
+    for name, value in values.items():
+        s = set_field(s, name, value)
+    return EncodeConfig.model_validate(F.to_config(S.draft(s))).to_namespace()
+
+
+@pytest.mark.parametrize("preset,with_out,answers,values", BATCH_SCENARIOS)
+def test_tui_batch_matches_line_wizard(monkeypatch, tmp_path, preset, with_out, answers, values):
+    folder = tmp_path / "lote"
+    folder.mkdir()
+    (folder / "a.mov").write_bytes(b"x")
+    out_dir = str(tmp_path / "saida") if with_out else None
+    used = set()
+    want = wizard_batch_ns(monkeypatch, preset, str(folder), out_dir, answers, used)
+    assert set(answers) == used
+    got = tui_batch_ns(preset, str(folder), out_dir, values)
+    for k, v in values.items():
+        assert getattr(got, k) == v, k
+    assert got.batch == str(folder) and got.input is None and got.output_dir == out_dir
+    assert vars(got) == vars(want)
