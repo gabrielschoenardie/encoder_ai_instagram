@@ -31,6 +31,7 @@ MIN_SIZE = (120, 40)
 LOG_CAP = 500
 REPORT_ROWS = 21
 LOG_FILTERS = ("TUDO", "SYSTEM", "INFO", "WARNING", "FFMPEG")
+CANCEL_UNAVAILABLE = "cancelamento indisponível neste estágio — tente de novo em instantes"
 _WARNING_RE = re.compile(r"^aviso\b|\bfalhou\b|n[ãa]o foi poss[ií]vel", re.IGNORECASE)
 
 
@@ -308,11 +309,24 @@ def _with_job(s: UIState, index: int, **changes) -> UIState:
     return replace(s, queue=tuple(jobs))
 
 
-def _interrupt_active(s: UIState, at: float) -> UIState:
+def _end_active(s: UIState, at: float, status: str, reason: str) -> UIState:
     i = s.active_job
     if i is None or not 0 <= i < len(s.queue) or s.queue[i].status != "processando":
         return s
-    return _with_job(s, i, status="interrompido", finished=at, reason="interrompido")
+    return _with_job(s, i, status=status, finished=at, reason=reason)
+
+
+def _interrupt_active(s: UIState, at: float) -> UIState:
+    return _end_active(s, at, "interrompido", "interrompido")
+
+
+def _fail_active(s: UIState, at: float) -> UIState:
+    last = next((r.text for r in reversed(s.log) if r.kind == "WARNING"), "")
+    return _end_active(s, at, "falha", _first_line(last) or "erro")
+
+
+def cancel_unavailable(s: UIState) -> UIState:
+    return replace(_log(s, "WARNING", CANCEL_UNAVAILABLE), modal=None, modal_focus=0)
 
 
 def _to_report(s: UIState) -> UIState:
@@ -422,6 +436,8 @@ def _finished(s: UIState, code: int) -> UIState:
             return s
         if code == 130:
             s = _interrupt_active(s, s.now)
+        elif code != 0:
+            s = _fail_active(s, s.now)
         finished = s.queue_finished if s.queue_finished is not None else s.now
         return _to_report(replace(s, queue_finished=finished))
     s = replace(s, exit_code=code, modal=None, action_focus=0)

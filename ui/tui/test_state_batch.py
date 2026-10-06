@@ -153,3 +153,23 @@ def test_queue_eta_mean_times_remaining_plus_in_flight():
     assert S.queue_eta(run(in_queue(), R.JobStart(0, ts=10.0))) is None
     s = run(in_queue(), R.JobStart(0, ts=10.0), R.JobDone(0, "ok", None, ts=70.0), R.JobStart(1, ts=70.0))
     assert S.queue_eta(tick(s, 90.0)) == 100.0
+
+
+def test_finished_error_with_queue_fails_active_job():
+    err = R.Error("OSError", "sem permissão\ndetalhe", None, None, "tb", ts=12.0)
+    s = run(in_queue(), R.JobStart(0, ts=10.0), err, S.Finished(1))
+    assert s.screen == S.REPORT and s.exit_code == 1
+    assert (s.queue[0].status, s.queue[0].reason) == ("falha", "OSError: sem permissão")
+    assert [j.status for j in s.queue[1:]] == ["aguardando", "aguardando"]
+    s = run(in_queue(), R.JobStart(0, ts=10.0), S.Finished(1))
+    assert (s.queue[0].status, s.queue[0].reason) == ("falha", "erro")
+    s = run(in_queue(), R.JobStart(0, ts=10.0), S.Finished(0))
+    assert s.queue[0].status == "processando"
+
+
+def test_cancel_unavailable_logs_warning_and_closes_modal():
+    s = S.apply(run(in_queue(), R.JobStart(0, ts=10.0)), S.Key("C"))
+    assert s.modal == "CANCEL"
+    s = S.cancel_unavailable(s)
+    assert s.modal is None and s.warnings == 1
+    assert s.log[-1] == S.LogRow("WARNING", "cancelamento indisponível neste estágio — tente de novo em instantes")

@@ -118,7 +118,7 @@ class App:
                     self._reader.start()
                     code = self._session()
                 except KeyboardInterrupt:
-                    code = 130
+                    code = self._interrupted_code()
                 finally:
                     self._reader.stop()
                     sys.stderr = self._orig_stderr
@@ -127,6 +127,14 @@ class App:
             self._reader.restore()
         self._summary(code)
         return code
+
+    def _interrupted_code(self) -> int:
+        s = self.state
+        if s.screen == S.REPORT and s.exit_code is not None:
+            return s.exit_code
+        if s.is_batch and s.screen == S.QUEUE:
+            self.state = S.apply(s, S.Finished(130))
+        return 130
 
     def _summary(self, code: int) -> None:
         s = self.state
@@ -182,7 +190,11 @@ class App:
             folder = cfg.get("batch") or ""
             if not os.path.isdir(folder):
                 return f"pasta não encontrada: {folder}"
-            if not RE.find_video_files(folder):
+            try:
+                found = RE.find_video_files(folder)
+            except OSError as exc:
+                return f"não foi possível ler a pasta: {folder} ({exc})"
+            if not found:
                 return f"nenhum vídeo encontrado em: {folder}"
             return None
         inp = cfg.get("input") or ""
@@ -195,7 +207,7 @@ class App:
             return self._run_batch(ns, self._queue, self._control, self._tick)
         except Exception as exc:
             self._queue.put(R.Error(type(exc).__name__, str(exc) or repr(exc), None, None, traceback.format_exc()))
-            return 1
+            return 130 if self._control.cancelled else 1
 
     def _check_source(self) -> None:
         path = W.clean_path(self.state.source.text)
@@ -221,7 +233,10 @@ class App:
             return S.SourceChecked(path, "INVALID")
         if not os.path.isdir(path):
             return S.SourceChecked(path, "NOT_FOUND")
-        count = len(RE.find_video_files(path))
+        try:
+            count = len(RE.find_video_files(path))
+        except OSError:
+            return S.SourceChecked(path, "NOT_FOUND")
         return S.SourceChecked(path, "VALID" if count else "EMPTY", None, count)
 
     def _arm(self) -> None:
@@ -319,5 +334,7 @@ class App:
                 self.state = replace(self.state, action=None)
                 if self._control.request_cancel():
                     self._queue.put(R.Cancel("requested"))
+                elif self.state.is_batch:
+                    self.state = S.cancel_unavailable(self.state)
             elif self.state.action in S.ACTIONS:
                 break

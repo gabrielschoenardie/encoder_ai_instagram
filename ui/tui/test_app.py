@@ -890,3 +890,138 @@ def test_batch_runner_exception_before_queue_goes_to_error_screen(tmp_path):
     assert app.run() == 1
     assert app.state.screen == S.ERROR and "sem permissão" in screen_text(app.state)
     assert summary_lines(con) == ["✗ erro (código 1): OSError: sem permissão"]
+
+
+def _jobs(folder):
+    return tuple((p, os.path.splitext(p)[0] + "_o.mp4") for p in RE.find_video_files(str(folder)))
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("code, last, line", [
+    (0, R.JobDone(1, "ok", None), "✓ fila: 2 ok · 0 pulados · 0 falhas (código 0)"),
+    (1, R.JobDone(1, "falha", "boom"), "✗ fila: 1 ok · 0 pulados · 1 falha (código 1)"),
+])
+def test_batch_ctrl_c_on_report_keeps_queue_exit_code(tmp_path, code, last, line):
+    folder = batch_folder(tmp_path)
+    con = recording()
+    evs = [R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1), last]
+    app = batch_app(folder, fake_batch(evs, code, []), console=con)
+
+    def sleep(_):
+        if app.state.screen == S.REPORT:
+            raise KeyboardInterrupt
+        if app.state.screen == S.READY:
+            app._queue.put(S.Key("ENTER"))
+
+    app._sleep = sleep
+    assert app.run() == code
+    assert app.state.screen == S.REPORT and summary_lines(con) == [line]
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("started, line", [
+    (True, "⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"),
+    (False, "⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 0 interrompidos (código 130)"),
+])
+def test_batch_ctrl_c_outside_job_prints_interrupted_summary(tmp_path, started, line):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        if started:
+            q.put(R.QueueInit(_jobs(folder)))
+            q.put(R.JobStart(0))
+            on_tick()
+        raise KeyboardInterrupt
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 130
+    assert app.state.screen == S.REPORT and app.state.exit_code == 130
+    assert [j.status for j in app.state.queue] == (["interrompido", "aguardando"] if started else [])
+    assert summary_lines(con) == [line]
+
+
+@pytest.mark.timeout(30)
+def test_batch_runner_exception_after_queue_init_fails_active_job(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.QueueInit(_jobs(folder)))
+        q.put(R.JobStart(0))
+        on_tick()
+        raise OSError("sem permissão")
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 1
+    assert app.state.screen == S.REPORT
+    assert [(j.status, j.reason) for j in app.state.queue] == [("falha", "OSError: sem permissão"),
+                                                               ("aguardando", None)]
+    assert summary_lines(con) == ["✗ fila: 0 ok · 0 pulados · 1 falha (código 1)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_runner_exception_after_cancel_returns_130(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.QueueInit(_jobs(folder)))
+        q.put(R.JobStart(0))
+        on_tick()
+        assert control.request_cancel()
+        raise RuntimeError("ffmpeg morto")
+
+    app = batch_app(folder, run, console=con, terminate=lambda: True)
+    assert app.run() == 130
+    assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
+    assert summary_lines(con) == ["⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_cancel_in_blocked_stage_warns_in_log(tmp_path):
+    folder = batch_folder(tmp_path)
+    seen = []
+
+    def run(ns_, q, control, on_tick):
+        for ev in (R.QueueInit(_jobs(folder)), R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1)):
+            q.put(ev)
+        on_tick()
+        control.stage = (R.QC, None)
+        for k in ("C", "RIGHT", "ENTER"):
+            q.put(S.Key(k))
+        on_tick()
+        seen.append((control.cancelled, app.state.modal, app.state.log[-1]))
+        for ev in (R.JobDone(1, "ok", None), R.QueueDone(0)):
+            q.put(ev)
+        on_tick()
+        return 0
+
+    app = batch_app(folder, run, terminate=lambda: True)
+    assert app.run() == 0
+    assert seen == [(False, None, S.LogRow("WARNING", S.CANCEL_UNAVAILABLE))]
+    assert S.CANCEL_UNAVAILABLE == "cancelamento indisponível neste estágio — tente de novo em instantes"
+
+
+def _scandir_down(path):
+    raise OSError(59, "erro de rede inesperado")
+
+
+def test_check_folder_oserror_is_not_found(tmp_path, monkeypatch):
+    folder = batch_folder(tmp_path)
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.apply(app.state, S.Key("CHAR", "3"))
+    app.state = replace(app.state, source=W.TextBuf(str(folder), len(str(folder))))
+    monkeypatch.setattr(RE, "find_video_files", _scandir_down)
+    app._check_source()
+    assert (app.state.source_status, app.state.source_count) == ("NOT_FOUND", None)
+
+
+@pytest.mark.timeout(30)
+def test_ready_blocks_unreadable_folder(tmp_path, monkeypatch):
+    folder = batch_folder(tmp_path)
+    ran, errors = [], []
+    app = ready_batch_app(tmp_path, folder, ran, monkeypatch, errors)
+    monkeypatch.setattr(RE, "find_video_files", _scandir_down)
+    assert app.run() == 0
+    assert ran == [] and errors and str(folder) in errors[0] and "erro de rede inesperado" in errors[0]
