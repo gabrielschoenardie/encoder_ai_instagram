@@ -262,3 +262,26 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 **Achado de ambiente:** a janela avulsa do `powershell.exe` (conhost, `vt=False`, `legacy_windows=True`, largura reportada 119) é recusada pela guarda — comportamento correto; a mensagem deveria orientar a abrir no Windows Terminal (pendência P3BF2).
 
 **Veredito:** PASSA.
+
+# Validação manual — Ciclo P3C (telas de configuração, Task 11)
+
+**Data:** 2026-10-05 | **Executor do teste:** usuário | **Terminal:** Windows Terminal portátil | **Entrada:** `python -m ui.tui` | **Fonte:** `C:\Users\Usuario\p3c_teste` | **Roteiro:** `C:\Users\Usuario\p3c_teste\ROTEIRO_P3C.md`
+
+| T | cenário | resultado |
+|---|---------|-----------|
+| T1 | preset 1 cover/24/2pass até COMPLETED | exit 0 — **falha visual**: no PREVIEW o texto "preenche · crop" do PROGRAM quebra a moldura 9:16 (print `Desktop\T1.png`) |
+| T2 | preset 2, exposição/saturação, erro "Máximo é 2.", ESC até sair | exit 0 |
+| T3–T9 | abas do ADVANCED, condicionais, REVISAR, arrastar, NOT FOUND, Tools, preset 3 | OK (relato do usuário) |
+| T10 | Ctrl+C na CONFIGURATION | exit 130 |
+| T11 | ENTER segurado ~2 s no PREVIEW | **falha**: a repetição do ENTER passou pelo READY e iniciou o encode; `C` cancelou corretamente |
+
+**Veredito:** REPROVA (2 itens) — correção em andamento no P3C.
+
+**Reteste (2026-10-05, após `5e9c14a`, `b834ef3`, `8b343eb`):**
+
+| T | resultado |
+|---|-----------|
+| T1 | moldura 9:16 com `cover` íntegra ("crop"); "funcionando perfeitamente" (usuário) |
+| T11 | ENTER segurado ~3 s no PREVIEW: para no READY, nenhum encode. Medido com `C:\Users\Usuario\p3c_teste\diag_enter.py` (TUI real, encode falso): 1ª rodada ~50 ENTERs rejeitados, 2ª rodada 39 rejeitados, nenhum aceito no READY. Repetições chegam a cada 50–115 ms (`KeyboardDelay=1`, `KeyboardSpeed=31`). A 1ª falha relatada no reteste não se reproduziu. |
+
+**Veredito final:** PASSA.

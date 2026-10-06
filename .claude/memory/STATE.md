@@ -3809,3 +3809,22 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 | P3B-1 | done | ui/tui/__init__.py, ui/tui/state.py, ui/tui/test_state.py | reducer puro; 21 passed após fix do teste de fronteira de float (tick 2.2+SEAL_REVEAL_S), commits 3aa2d4b + 35a761e |
 | Baseline P3B | done | test_render_queue.py, enhance/, ui/, tools/ | 643 passed, 1 failed (intermitente: test_red_bt709_full_range — passou ao rodar de novo), 4 skipped |
 | P3B-8 | done | (manual) | usuário rodou T1–T9 no Windows Terminal portátil: tudo conforme; VALIDATION.md |
+
+## Ciclo P3C
+
+| ID | done ou blocked | arquivo | resultado em 1 linha |
+|----|-----------------|---------|----------------------|
+| P3C-1 | done | ui/tui/widgets.py, ui/tui/test_widgets.py | TextBuf, edit_text, clean_path, parse_number, change; 11 tests passed, ui/tui 113 passed, ruff clean, commit 5f66d02 |
+| P3C-2 | done | ui/tui/forms.py, ui/tui/test_forms.py | Field/QUICK/CINEON/ADVANCED/derive/apply_change/output_name; 9 tests passed, ui/tui 122 passed, ruff clean |
+| P3C-3 | done | ui/tui/state.py, ui/tui/keys.py, ui/tui/test_keys.py | Key.char added, decode_windows/decode_posix support CHAR/SPACE/BACKSPACE/DELETE, _put passes raw char; 137 tests passed, ruff clean, commit 6d09853 |
+| P3C-4 | done | ui/tui/state.py, ui/tui/test_state_config.py | HOME/SOURCE no reducer, eventos SourceChecked/Armed/ReadyBlocked; ui/tui 145 passed, ruff clean, commit 1d71d61 |
+| P3C-5 | done | ui/tui/state.py, ui/tui/test_state_config.py | CONFIGURATION/ADVANCED/PREVIEW no reducer, form_back; ui/tui 154 passed, ruff clean |
+| P3C-6 | done | ui/tui/screens.py | telas HOME e SOURCE, path_field, trilho/STATUS/FOOTER_KEYS; ui/tui 161 passed, ruff check clean |
+| P3C-7 | done | ui/tui/screens.py | telas CONFIGURATION/ADVANCED/PREVIEW, field_rows/preview_rows/preview_chips, ready_error no READY; ui/tui 168 passed, ruff check clean |
+| P3C-8 | done | ui/tui/app.py, ui/tui/test_app.py | App sem ns começa na HOME, executa start/exit/tools/arm/check_source, Tools suspende/retoma Live+captura+stderr+teclado, READY revalida input (C-5), HOME ESC → 'Cancelado pelo usuário.'; 2 testes do brief corrigidos por ruling (6 ENTER + sleep FINAL_SCREENS; make_home com CharReader); ui/tui 174 passed 3x, suíte 818 passed/4 skipped, ruff clean, commit ca5e861 |
+| P3C-9 | done | ui/tui/__main__.py, ui/tui/test_main.py | removed run_launcher import, guard+preflight+App(console=console).run(); tests: 173 passed, ruff clean, commit 6ad13b0 |
+| P3C-10 | done | ui/tui/test_parity_wizard.py | 5 cenarios de paridade TUI x wizard verdes; ordem do cenario 5 ajustada (performance antes de enhance/threads) |
+| P3C-FIX F1-F13 | done | ui/tui/{screens,state,forms,app}.py + testes ui/tui | F1..F13 aplicados com TDD; ui/tui 195 passed, suíte 839 passed/4 skipped, ruff clean; commits de9b706 9143fa9 3687482; relatório final-fix-report.md |
+| P3C-MANUAL M1-M2 | done | ui/components.py, ui/tui/app.py + testes | moldura 9:16 com cover (rótulo curto "crop") e START só com ENTER isolado no READY; commits 5e9c14a b834ef3 8b343eb |
+| P3C-11 | done | VALIDATION.md | manual no Windows Terminal: T1–T11 PASSA (reteste T1/T11 após correções) |
+| P3C-12 | done | suíte + ruff | 846 passed, 4 skipped (16:54); ruff check limpo; branch claude/ciclo-p3c-tui-config sem push |
