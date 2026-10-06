@@ -3828,3 +3828,29 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 | P3C-MANUAL M1-M2 | done | ui/components.py, ui/tui/app.py + testes | moldura 9:16 com cover (rótulo curto "crop") e START só com ENTER isolado no READY; commits 5e9c14a b834ef3 8b343eb |
 | P3C-11 | done | VALIDATION.md | manual no Windows Terminal: T1–T11 PASSA (reteste T1/T11 após correções) |
 | P3C-12 | done | suíte + ruff | 846 passed, 4 skipped (16:54); ruff check limpo; branch claude/ciclo-p3c-tui-config sem push |
+
+## Ciclo P3D
+
+| ID | done ou blocked | arquivo tocado | resultado em 1 linha |
+|----|-----------------|----------------|----------------------|
+| P3D-1 | done | ui/probe.py, ui/test_probe.py | PROBE_TIMEOUT_S=10 adicionado; timeout param em subprocess.check_output; 26 tests passed (2 novos timeout testes), ruff clean, commit 4d133c3 |
+| P3D-2 | done | ui/tui/forms.py | preset 3 BATCH, campos de pasta de saída e to_config; 208 passed em ui/tui, ruff clean, commit 7a44260 |
+| P3D-3 | done | ui/tui/state.py | SOURCE de pasta/TIPO/EMPTY e campo path; 222 passed em ui/tui, ruff clean |
+| P3D-4 | done | ui/tui/state.py | fila Job, QUEUE/REPORT, eventos de fila e Finished em batch; 236 passed em ui/tui, ruff clean, commit 883cfee |
+| P3D-5 | done | ui/tui/screens.py | renderers SOURCE pasta/TIPO, CONFIG BATCH, PREVIEW/READY de pasta; banner READY elidido; 244 passed em ui/tui, ruff clean |
+| P3D-6 | done | ui/tui/screens.py | QUEUE/REPORT, trilho batch, queue_summary, modal FILA; 256 passed em ui/tui, ruff clean, commit 75db57c |
+| P3D-7 | done | ui/tui/app.py, ui/tui/test_app.py | _check_source de pasta, _arm batch, START revalida pasta e chama run_batch (exceção antes da fila → ERROR código 1), resumo queue_summary no REPORT; ui/tui 267 passed 3x, suíte 913 passed/4 skipped, ruff clean, commit 9663d5d |
+| P3D-8 | done | ui/tui/test_parity_wizard.py | 3 cenários batch de paridade TUI x wizard (consumo das respostas + valores escolhidos + tui==wizard); 270 passed em ui/tui, ruff clean |
+| P3D-G1 | done | ui/tui/app.py, ui/tui/test_app.py | Ctrl+C no REPORT devolve state.exit_code e o resumo correspondente; test_batch_ctrl_c_on_report_keeps_queue_exit_code |
+| P3D-G2 | done | ui/tui/app.py, ui/tui/test_app.py | Ctrl+C em QUEUE fora de _run_one aplica Finished(130) antes do resumo; test_batch_ctrl_c_outside_job_prints_interrupted_summary |
+| P3D-G3 | done | ui/tui/state.py, ui/tui/app.py, testes | Finished(≠0,≠130) com job processando → falha (último WARNING ou "erro"); exceção após cancelar → 130; 3 testes |
+| P3D-G4 | done | ui/tui/state.py, ui/tui/app.py, testes | request_cancel False em batch → WARNING CANCEL_UNAVAILABLE no log e modal fechado; 2 testes |
+| P3D-G5 | done | ui/tui/screens.py, test_screens_batch.py | READY KEY SETTINGS (pasta 24/saída 30) e RESUMO CONFIG (30/30) elididos, rótulos inteiros |
+| P3D-G6 | done | ui/tui/screens.py, test_screens_batch.py | chip EBU Meter desligado no PREVIEW de pasta |
+| P3D-G7 | done | ui/tui/app.py, test_app.py | OSError de find_video_files → SOURCE NOT_FOUND / ReadyBlocked com mensagem |
+| P3D-G8 | done | ui/tui/screens.py, test_screens_batch.py | rodapés batch "[ENTER] Start queue" e "[ESC] Keep queue" |
+| P3D-G9 | done | ui/tui/screens.py, test_screens_batch.py | caminho sem cursor reverso com foco no TIPO (preset 5) |
+| P3D-G10 | done | ui/tui/screens.py, test_screens_batch.py | REPORT com 0 jobs e código 0 mostra "nenhum vídeo encontrado na pasta" |
+| P3D-FIX G1-G10 | done | ui/tui/{app,state,screens}.py + testes | onda final: Ctrl+C no REPORT mantém 0/1, Ctrl+C fora do job → 130 com resumo, job ativo falha/interrompido, aviso de cancelamento bloqueado, OSError na pasta, rótulos longos, textos de batch; commits cbf1071 87fbb26 |
+| P3D-9 | done | VALIDATION.md | manual no Windows Terminal D1–D7 PASSA |
+| P3D-10 | done | suíte + ruff | canônica 932 passed, 4 skipped (onda final, HEAD 87fbb26); ruff limpo; branch claude/ciclo-p3d-tui-batch sem push |
