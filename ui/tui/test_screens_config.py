@@ -1,3 +1,4 @@
+from ui.config import EncodeConfig
 from ui.tui import forms as F
 from ui.tui import state as S
 from ui.tui import widgets as W
@@ -39,12 +40,6 @@ def test_source_screen_states():
         assert_no_emoji(out)
     out = text_of(S.UIState(**{**base.__dict__, "source_status": "VALID", "source_dims": (1080, 1920)}))
     assert "1080 × 1920" in out and "clip_Hollywood" in out
-
-
-def test_source_preset5_shows_disabled_batch():
-    s = S.UIState(config={}, screen=S.SOURCE, preset=5)
-    out = text_of(s)
-    assert "É um batch de pasta?" in out and "chega no P3D" in out and "ENTER → ADVANCED" in out
 
 
 def test_path_field_long_path_keeps_cursor_visible():
@@ -188,3 +183,122 @@ def test_ready_shows_ready_error():
     s = S.UIState(config={"input": "C:/v/clip.mov", "mode": "crf", "cineon_pipeline": "off"}, screen=S.READY,
                   preset=1, output_path="C:/v/o.mp4", ready_error="arquivo de entrada não encontrado: C:/v/clip.mov")
     assert "arquivo de entrada não encontrado" in text_of(s)
+
+
+def folder_state(status="VALID", count=3, preset=3, path="C:/v/lote", **kw):
+    d = {**F.new_draft(preset), F.SOURCE_KIND: F.FOLDER}
+    return S.UIState(config={}, screen=S.SOURCE, preset=preset, drafts=((preset, d),),
+                     source=W.TextBuf(path, len(path)), source_status=status,
+                     source_count=count if status in ("VALID", "EMPTY") else None, **kw)
+
+
+def test_source_folder_states():
+    cases = (("VALID", 3, "✓ pasta encontrada · 3 vídeos"), ("VALID", 1, "✓ pasta encontrada · 1 vídeo"),
+             ("EMPTY", 0, "⚠ nenhum vídeo encontrado"), ("NOT_FOUND", None, "✗ pasta não encontrada"),
+             ("INVALID", None, "informe uma pasta"), ("CHECKING", None, "verificando"))
+    for status, count, txt in cases:
+        out = text_of(folder_state(status, count))
+        assert txt in out, status
+        assert "PASTA" in out and "PROGRAM" in out and "ENTER → CONFIGURATION" in out
+        assert "DIMENSÕES" not in out and "ARQUIVO" not in out
+        assert_fits(out)
+        assert_no_emoji(out)
+    out = text_of(folder_state())
+    assert "pasta · 3 vídeos" in out and "mesma pasta" in out
+    assert "1 vídeos" not in text_of(folder_state("VALID", 1))
+
+
+def test_source_preset5_tipo_row_and_footer():
+    from dataclasses import replace
+    s = S.UIState(config={}, screen=S.SOURCE, preset=5, drafts=((5, F.new_draft(5)),))
+    out = text_of(s)
+    assert "● Arquivo único" in out and "○ Pasta (batch)" in out and "ENTER → ADVANCED" in out
+    assert "chega no P3D" not in out and "▎▸ ●" not in out
+    assert "[↑] Tipo" in "\n".join(out.splitlines()[-2:])
+    out = text_of(replace(s, tab_focus=True))
+    assert "▎▸ ● Arquivo único" in out
+    foot = "\n".join(out.splitlines()[-2:])
+    assert "[←→] Tipo" in foot and "[↓] Caminho" in foot
+    out = text_of(folder_state(preset=5))
+    assert "○ Arquivo único" in out and "● Pasta (batch)" in out and "PASTA" in out
+    assert_fits(out)
+    assert_no_emoji(out)
+
+
+def batch_cfg_state(**kw):
+    d = {**F.new_draft(3), "batch": "C:/v/lote", **kw.pop("draft", {})}
+    return S.UIState(config={}, screen=kw.pop("screen", S.CONFIGURATION), preset=3, drafts=((3, d),),
+                     source_count=3, **kw)
+
+
+def test_configuration_batch_form():
+    out = text_of(batch_cfg_state())
+    for txt in ("Definir pasta de saída separada", "Usar film look (Cineon)", "CONTINUAR", "PADRÕES",
+                "C:/v/lote", "3 vídeos", "mesma pasta"):
+        assert txt in out, txt
+    assert "Pasta de saída" not in out
+    foot = "\n".join(out.splitlines()[-2:])
+    assert "[digite] Pasta" in foot and "[0-9]" not in foot
+    assert_fits(out)
+    assert_no_emoji(out)
+    on = batch_cfg_state(draft={F.OUTDIR_ON: "on", "output_dir": "D:/saida"})
+    out = text_of(on)
+    assert "Pasta de saída" in out and "D:/saida" in out
+    editing = batch_cfg_state(draft={F.OUTDIR_ON: "on"}, focus=((S.CONFIGURATION, 1),), edit=W.TextBuf("D:/sa", 5))
+    assert "D:/sa" in text_of(editing)
+    err = batch_cfg_state(draft={F.OUTDIR_ON: "on"}, focus=((S.CONFIGURATION, 1),), field_error=F.OUTDIR_EMPTY)
+    assert "Informe a pasta de saída." in text_of(err)
+
+
+def test_preview_folder_text():
+    out = text_of(batch_cfg_state(screen=S.PREVIEW))
+    for txt in ("PREVIEW", "pasta lote · 3 vídeos", "saída: mesma pasta", "PROGRAM", "EXPORT SETTINGS"):
+        assert txt in out, txt
+    assert_fits(out)
+    assert_no_emoji(out)
+
+
+def test_preview_folder_with_brackets():
+    s = batch_cfg_state(screen=S.PREVIEW, draft={"batch": "C:/v/[lote] final"})
+    out = text_of(s)
+    assert "[lote] final" in out and "erro ao desenhar" not in out
+    assert_fits(out)
+
+
+def test_preview_file_with_brackets():
+    s = cfg_state(1, screen=S.PREVIEW)
+    s = S.UIState(**{**s.__dict__, "drafts": ((1, {**S.draft(s), "input": "C:/v/clip [b].mov"}),)})
+    out = text_of(s)
+    assert "clip [b].mov" in out and "erro ao desenhar" not in out
+    assert_fits(out)
+
+
+def test_ready_folder_text():
+    cfg = {**vars(EncodeConfig.preset_batch("C:/v/lote").to_namespace()), "output_dir": "D:/saida"}
+    out = text_of(S.UIState(config=cfg, screen=S.READY, preset=3, is_batch=True, source_count=12))
+    for txt in ("READY TO ENCODE", "pasta lote · 12 vídeos", "saída: D:/saida", "START QUEUE", "por vídeo",
+                "suprimido em batch"):
+        assert txt in out, txt
+    assert "START ENCODE" not in out
+    assert_fits(out)
+    assert_no_emoji(out)
+
+
+def test_ready_folder_long_names_keep_pipeline_label():
+    from ui.tui.screens import pipeline_label
+    cfg = {**vars(EncodeConfig.preset_batch("C:/v/" + "x" * 90 + " [lote] final").to_namespace()),
+           "output_dir": "D:/" + "y" * 120}
+    out = text_of(S.UIState(config=cfg, screen=S.READY, preset=3, is_batch=True, source_count=12))
+    assert out.count(pipeline_label(cfg)) >= 2
+    assert "KEY SETTINGS" in out and "START QUEUE" in out and "erro ao desenhar" not in out
+    assert_fits(out)
+
+
+def test_helpers():
+    from ui.tui.screens import elide, folder_name, output_dir_text, source_text, videos
+    assert elide(None, 5) == "—" and elide("abcdefgh", 5) == "…efgh" and elide("abc", 5) == "abc"
+    assert folder_name("C:/v/lote/") == "lote" and folder_name(None) == "—"
+    assert videos(1) == "1 vídeo" and videos(3) == "3 vídeos" and videos(None) == "— vídeos"
+    assert output_dir_text({}) == "mesma pasta" and output_dir_text({"output_dir": "D:/s"}) == "D:/s"
+    assert source_text({"batch": "C:/v/lote"}, 2) == "pasta lote · 2 vídeos"
+    assert source_text({"input": "C:/v/a.mov"}, None) == "a.mov"

@@ -6,6 +6,7 @@ from typing import Callable
 from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.layout import Layout
+from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -47,6 +48,8 @@ FOOTER_KEYS = {
     S.CANCELLED: "[←→] Choose   [ENTER] Confirmar   [ESC] Sair",
 }
 MODAL_KEYS = "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt"
+SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair"
+CONFIG_BATCH_KEYS = "[↑↓] Campo   [←→] On/Off   [digite] Pasta   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair"
 SCREEN_RENDERERS: dict[str, Callable[[S.UIState], RenderableType]] = {}
 
 
@@ -59,6 +62,33 @@ def fmt_secs(seconds: float | None) -> str:
         return "—"
     seconds = max(0, int(seconds))
     return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def elide(text, width: int) -> str:
+    text = str(text) if text else "—"
+    return text if len(text) <= width else "…" + text[-(width - 1):]
+
+
+def folder_name(path) -> str:
+    raw = str(path or "")
+    return os.path.basename(raw.rstrip("/\\")) or raw or "—"
+
+
+def videos(n: int | None) -> str:
+    if n is None:
+        return "— vídeos"
+    return f"{n} vídeo{'' if n == 1 else 's'}"
+
+
+def output_dir_text(cfg: dict) -> str:
+    out = cfg.get("output_dir")
+    return elide(out, 50) if out else "mesma pasta"
+
+
+def source_text(cfg: dict, count: int | None) -> str:
+    if cfg.get("batch"):
+        return f"pasta {elide(folder_name(cfg['batch']), 40)} · {videos(count)}"
+    return basename(cfg.get("input"))
 
 
 def cineon_crf(cfg: dict) -> bool:
@@ -158,6 +188,10 @@ def footer(s: S.UIState) -> RenderableType:
         keys = "[←→] Filtro   [ESC] Voltar"
     elif s.screen == S.ENCODING and (S.cancel_blocked(s) or s.cancel_phase is not None):
         keys = keys.replace("[C] Cancel", "░[C] Cancel")
+    elif s.screen == S.SOURCE and s.preset == 5:
+        keys = SOURCE_TIPO_KEYS if s.tab_focus else "[↑] Tipo   " + keys
+    elif s.screen == S.CONFIGURATION and s.preset == 3:
+        keys = CONFIG_BATCH_KEYS
     elif s.screen == S.READY and s.preset:
         keys = keys.replace("[ESC] Sair", "[ESC] Voltar")
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
@@ -166,18 +200,26 @@ def footer(s: S.UIState) -> RenderableType:
 def _ready(s: S.UIState) -> RenderableType:
     cfg = s.config
     g = glyphs()
+    batch = bool(cfg.get("batch"))
+    src = source_text(cfg, s.source_count)
+    out = f"saída: {output_dir_text(cfg)}" if batch else basename(s.output_path)
+    if batch:
+        banner_src = f"pasta {elide(folder_name(cfg['batch']), 30)} · {videos(s.source_count)}"
+        banner_out = "saída: " + (elide(cfg["output_dir"], 45) if cfg.get("output_dir") else "mesma pasta")
+    else:
+        banner_src, banner_out = src, out
     top = hero([
         Text(""),
         Text("   READY TO ENCODE", style="title"),
         Text(""),
-        Text(f"   {basename(cfg.get('input'))}   {g['arrow']}   {basename(s.output_path)}"),
+        Text(f"   {banner_src}   {g['arrow']}   {banner_out}"),
         Text(f"   {pipeline_label(cfg)}", style="muted"),
     ], height=7)
     two = cfg.get("mode") == "2pass"
     cineon = cfg.get("cineon_pipeline") == "on"
     key = panel(kv_table([
-        ("SOURCE", basename(cfg.get("input"))),
-        ("OUTPUT", basename(s.output_path)),
+        ("SOURCE", src),
+        ("OUTPUT", out),
         ("PIPELINE", pipeline_label(cfg)),
         ("", ""),
         ("MODO", f"{cfg.get('mode')} · {'2 passes' if two else '1 passe'}"),
@@ -207,9 +249,13 @@ def _ready(s: S.UIState) -> RenderableType:
     mid.add_column(ratio=1)
     mid.add_column(ratio=1)
     mid.add_row(key, plan)
-    base = os.path.splitext(basename(s.output_path))[0]
-    cert = f"{base}.qc.html · .qc.json" if report_on else "certificado desativado (--report off)"
-    meter = "FFplay ANTES / DEPOIS" if cfg.get("ebu_meter", "on") == "on" else "desligado"
+    if batch:
+        cert = "<vídeo>.qc.html · .qc.json por vídeo" if report_on else "certificado desativado (--report off)"
+        meter = "suprimido em batch (motor)"
+    else:
+        base = os.path.splitext(basename(s.output_path))[0]
+        cert = f"{base}.qc.html · .qc.json" if report_on else "certificado desativado (--report off)"
+        meter = "FFplay ANTES / DEPOIS" if cfg.get("ebu_meter", "on") == "on" else "desligado"
     qc = panel(kv_table([
         ("10 checks no master", "Container · Video · Resolution · Bit Depth · Color · FPS"),
         ("", "Loudness · True Peak · Codec · Sample Rate"),
@@ -220,7 +266,9 @@ def _ready(s: S.UIState) -> RenderableType:
     actions.add_column(justify="left")
     actions.add_column(justify="right")
     esc = "Voltar" if s.preset else "Sair"
-    actions.add_row(Text(f"   [ ESC  {esc} ]", style="muted"),Text(f"{g['tab_l']}{g['arrow']}   START ENCODE   ", style="tab.active"))
+    start = "START QUEUE" if batch else "START ENCODE"
+    actions.add_row(Text(f"   [ ESC  {esc} ]", style="muted"),
+                    Text(f"{g['tab_l']}{g['arrow']}   {start}   ", style="tab.active"))
     parts = [top, mid, qc]
     if s.ready_error:
         parts.append(Text(f"   {s.ready_error}", style="err"))
@@ -688,21 +736,57 @@ _SOURCE_STATUS = {
 }
 
 
+_FOLDER_STATUS = {
+    "VALID": ("✓ pasta encontrada · {videos}", "ok"),
+    "EMPTY": ("⚠ nenhum vídeo encontrado", "warn"),
+    "NOT_FOUND": ("✗ pasta não encontrada", "err"),
+    "INVALID": ("⚠ informe uma pasta de vídeos", "warn"),
+    "CHECKING": ("verificando…", "muted"),
+}
+
+
+def _program(s: S.UIState, d: dict, folder: bool) -> RenderableType:
+    fit = d.get("fit", "contain")
+    if folder:
+        return Group(Text(f" pasta · {videos(s.source_count)}", style="muted"),
+                     C.viewer_frame(fit=fit, src_dims=None, title="PROGRAM"))
+    return C.viewer_frame(fit=fit, src_dims=s.source_dims, title="PROGRAM")
+
+
+def _tipo_row(s: S.UIState, folder: bool) -> Text:
+    g = glyphs()
+    style = "tab.active" if s.tab_focus else "value"
+    out = Text(f"{g['tab_l']}{g['arrow']} " if s.tab_focus else "", style=style)
+    out.append(f"{'○' if folder else '●'} Arquivo único   {'●' if folder else '○'} Pasta (batch)", style=style)
+    return out
+
+
 def _source(s: S.UIState) -> RenderableType:
-    d = {**S.draft(s), "input": W.clean_path(s.source.text) or None}
-    msg, style = _SOURCE_STATUS.get(s.source_status, ("—", "muted"))
+    dd = S.draft(s)
+    folder = F.is_folder(dd)
+    path = W.clean_path(s.source.text) or None
+    d = {**dd, ("batch" if folder else "input"): path}
     rows = []
     if s.preset == 5:
-        rows.append(("BATCH", Text("É um batch de pasta?  off  — chega no P3D", style="muted")))
-    rows += [
-        ("ARQUIVO", path_field(s.source, 60)),
-        ("STATUS", Text(msg, style=style)),
-        ("DIMENSÕES", f"{s.source_dims[0]} × {s.source_dims[1]}" if s.source_dims else "—"),
-        ("SAÍDA", F.output_name(d)),
-    ]
+        rows.append(("TIPO", _tipo_row(s, folder)))
+    if folder:
+        msg, style = _FOLDER_STATUS.get(s.source_status, ("—", "muted"))
+        rows += [
+            ("PASTA", path_field(s.source, 60)),
+            ("STATUS", Text(msg.format(videos=videos(s.source_count)), style=style)),
+            ("VÍDEOS", videos(s.source_count) if s.source_count is not None else "—"),
+            ("SAÍDA", output_dir_text(F.to_config(d))),
+        ]
+    else:
+        msg, style = _SOURCE_STATUS.get(s.source_status, ("—", "muted"))
+        rows += [
+            ("ARQUIVO", path_field(s.source, 60)),
+            ("STATUS", Text(msg, style=style)),
+            ("DIMENSÕES", f"{s.source_dims[0]} × {s.source_dims[1]}" if s.source_dims else "—"),
+            ("SAÍDA", F.output_name(d)),
+        ]
     left = panel(kv_table(rows), "SOURCE", height=26)
-    right = Panel(C.viewer_frame(fit=d.get("fit", "contain"), src_dims=s.source_dims, title="PROGRAM"),
-                  height=26, box=PANEL_BOX, border_style="panel.border")
+    right = Panel(_program(s, d, folder), height=26, box=PANEL_BOX, border_style="panel.border")
     mid = Table.grid(expand=True)
     mid.add_column(ratio=76)
     mid.add_column(ratio=40)
@@ -718,7 +802,7 @@ SCREEN_RENDERERS[S.SOURCE] = _source
 def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
     if field is F.CONTINUE:
         return Text("[ CONTINUAR ▸ ]", style="tab.active" if focused else "accent")
-    if focused and s.edit is not None and field.kind == "number":
+    if focused and s.edit is not None and field.kind in ("number", "path"):
         return path_field(s.edit, 20)
     v = d.get(field.name)
     if field.kind == "choice":
@@ -727,6 +811,8 @@ def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
         return Text(f"[{v}]", style="ok" if v == "on" else "muted")
     if field.kind == "number":
         return Text(W._fmt(v))
+    if field.kind == "path":
+        return Text(elide(v, 20) if v else "—", style="value" if v else "muted")
     return Text(str(v))
 
 
@@ -796,8 +882,12 @@ _DEFAULTS_SHOWN = ("lut", "hdr", "tonemap", "loudnorm", "ebu_meter", "enhance", 
 
 def _configuration(s: S.UIState) -> RenderableType:
     d = S.draft(s)
-    strip = panel(kv_table([("PIPELINE", pipeline_label(d)), ("ENTRADA", basename(d.get("input")))]),
-                  "RESUMO", height=4)
+    if F.is_folder(d):
+        cfg = F.to_config(d)
+        where = ("PASTA", f"{elide(cfg.get('batch'), 50)} · {videos(s.source_count)} · saída: {output_dir_text(cfg)}")
+    else:
+        where = ("ENTRADA", basename(d.get("input")))
+    strip = panel(kv_table([("PIPELINE", pipeline_label(d)), where]), "RESUMO", height=4)
     asked = {f.name for f in F.form_for(s.preset)}
     defaults = kv_table([(n, str(d.get(n))) for n in _DEFAULTS_SHOWN if n not in asked])
     row = Table.grid(expand=True)
@@ -832,14 +922,18 @@ def _advanced(s: S.UIState) -> RenderableType:
 def _preview(s: S.UIState) -> RenderableType:
     g = glyphs()
     d = S.draft(s)
-    title = f"PREVIEW · {basename(d.get('input'))} {g['arrow']} {F.output_name(d)}"
+    folder = F.is_folder(d)
+    if folder:
+        cfg = F.to_config(d)
+        title = f"PREVIEW · {source_text(cfg, s.source_count)} {g['arrow']} saída: {output_dir_text(cfg)}"
+    else:
+        title = f"PREVIEW · {basename(d.get('input'))} {g['arrow']} {F.output_name(d)}"
     inner = Table.grid(expand=True)
     inner.add_column(ratio=34)
     inner.add_column(ratio=78)
-    inner.add_row(Panel(C.viewer_frame(fit=d.get("fit", "contain"), src_dims=s.source_dims, title="PROGRAM"),
-                        height=20, box=PANEL_BOX, border_style="panel.border"),
+    inner.add_row(Panel(_program(s, d, folder), height=20, box=PANEL_BOX, border_style="panel.border"),
                   panel(kv_table(preview_rows(d)), "EXPORT SETTINGS", height=20))
-    card = Panel(Group(inner, _chips_line(d)), title=f"[panel.title]{title}[/]", title_align="left",
+    card = Panel(Group(inner, _chips_line(d)), title=f"[panel.title]{escape(title)}[/]", title_align="left",
                  box=PANEL_BOX, border_style="accent", height=28)
     actions = Text("   ")
     for i, label in enumerate(("CONTINUAR ▸ READY", "REVISAR")):
