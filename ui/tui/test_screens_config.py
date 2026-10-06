@@ -137,9 +137,17 @@ def test_preview_screen_and_error():
 
 def _program_rows(out):
     lines = out.splitlines()
-    top = next(i for i, ln in enumerate(lines) if "┌─ PROGRAM" in ln)
-    c0 = lines[top].index("┌─ PROGRAM")
-    width = lines[top].index("┐", c0) - c0 + 1
+    # Find top line containing either "┌─ PROGRAM" (Windows) or "╭─ PROGRAM" (Linux)
+    top = next(i for i, ln in enumerate(lines) if "┌─ PROGRAM" in ln or "╭─ PROGRAM" in ln)
+    line_top = lines[top]
+    # Find the opening corner position
+    if "┌─ PROGRAM" in line_top:
+        c0 = line_top.index("┌─ PROGRAM")
+    else:
+        c0 = line_top.index("╭─ PROGRAM")
+    # Find the closing corner as first of "┐" (Windows) or "╮" (Linux) after c0
+    closing_idx = next(idx for idx in range(c0 + 1, len(line_top)) if line_top[idx] in ("┐", "╮"))
+    width = closing_idx - c0 + 1
     rows = []
     for ln in lines[top + 1:]:
         cell = ln[c0:c0 + width]
