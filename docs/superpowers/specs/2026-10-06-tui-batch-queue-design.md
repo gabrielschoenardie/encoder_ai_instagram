@@ -80,7 +80,7 @@ Regras:
   - Painel inferior: corpo da tela ENCODING do P3B para o job ativo (estágio, passes, progresso, log), zerado a cada `JobStart`. Medidor EBU suprimido (motor).
   - Teclas: `C` cancelar fila (modal P3B), `Ctrl+C`, mais as que a tela ENCODING já oferece para o job ativo e que não exigem seleção de job.
 - **REPORT (nova; §V reduzida)**: contadores — Sucesso N/T · Pulados · Falhas · Interrompidos · Tempo total · Código de saída — e a tabela final da fila. ENTER sai.
-- Mapa de status (Phase 2 §D.3): aguardando `· QUEUED` · processando `ENCODING` (spinner) · ok `✓ COMPLETED` · pulado `○ SKIPPED` · falha `✗ FAILED` · interrompido `⚡ CANCELLED`.
+- Mapa de status (Phase 2 §D.3): aguardando `· QUEUED` · processando `ENCODING` (spinner) · ok `✓ COMPLETED` · pulado `○ SKIPPED` · falha `✗ FAILED` · interrompido `⚠ CANCELLED` (`⚡` da Phase 2 tem apresentação emoji e viola D-20).
 - Regras do P3B/P3C valem: 120×40, nenhuma linha > 120 colunas, sem emoji nas regiões fixas (D-20), rodapé só com teclas válidas.
 
 ## 7. Estado, eventos, App
@@ -99,12 +99,12 @@ Regras:
    - `arm`: com Pasta monta `batch` + `output_dir`; sem saída de arquivo único.
    - `start`: com Pasta revalida (existe e tem vídeos; senão `ReadyBlocked`), depois `run_batch(ns, queue, control, tick)` (injetável como `run_single`).
    - Proteção do ENTER isolado no READY (P3C) vale igual.
-   - Resumo impresso ao sair: `✓ fila: 9 ok · 2 pulados · 1 falha (código 1)`; interrompida: `⚠ fila interrompida: …`.
+   - Resumo impresso ao sair: `✓ fila: …` (código 0), `✗ fila: 9 ok · 2 pulados · 1 falha (código 1)` (código 1), `⚠ fila interrompida: …` (130).
 4. **P3CF1**: `subprocess.check_output(..., timeout=10)`; `TimeoutExpired` → `None` (o `check_output` encerra o processo filho).
 
 ## 8. Testes
 
-1. Reducer: cada evento da fila e o mapa de status; job ativo zerado a cada `JobStart`; erro de job não vai para ERROR; erro antes da fila vai; cancelamento → REPORT com ⚡; navegação presets 3 e 5-Pasta (TIPO, bloqueio `EMPTY`, toggle de pasta de saída e erro de caminho vazio).
+1. Reducer: cada evento da fila e o mapa de status; job ativo zerado a cada `JobStart`; erro de job não vai para ERROR; erro antes da fila vai; cancelamento → REPORT com ⚠ CANCELLED; navegação presets 3 e 5-Pasta (TIPO, bloqueio `EMPTY`, toggle de pasta de saída e erro de caminho vazio).
 2. Telas 120×40: SOURCE pasta (VALID/EMPTY/NOT_FOUND), CONFIGURATION BATCH (pasta de saída visível/oculta), QUEUE com 3 e 20 jobs (rolagem), REPORT com falha e com interrompidos; ≤ 120 colunas; sem emoji.
 3. App: ponta a ponta com `run_batch` falso (HOME → preset 3 → REPORT) com códigos 0, 1 e 130; READY bloqueia pasta esvaziada; resumo impresso.
 4. **Paridade com o wizard** (`ui/tui/test_parity_wizard.py`): preset 3 só pasta; preset 3 com pasta de saída e Cineon; preset 5-Pasta com pasta de saída.
@@ -114,3 +114,13 @@ Regras:
 ## 9. Fora de escopo
 
 ↑↓/D/L por job e log de falha no REPORT (B-2, B-4); veredito de QC na coluna RESULTADO e barra de progresso por linha (exigem seam do motor); subpastas; pular job individual; demais achados P3E; qualquer mudança no motor, `run_batch`, `reporter.py`, `ui/launcher.py`, `ui/config.py`.
+
+## 10. Decisões do plano (rulings do Orquestrador, 2026-10-06)
+
+- Fila cancelada: só o job ativo vira `⚠ CANCELLED`; os que aguardavam ficam `· QUEUED` com resultado "—" (igual a `render_queue.render_final_report`).
+- Pasta esvaziada entre o READY e o `run_batch` (`QueueDone(0)` sem `QueueInit`) → REPORT com 0 jobs, código 0.
+- Estado de formulário no rascunho: `source_kind` e `output_dir_on`, removidos por `F.to_config` antes de validar o `EncodeConfig`.
+- Painel inferior da QUEUE: cabeçalho de progresso (trilho de estágios e passes) + log do job ativo; sem TIMELINE/PERFORMANCE/PROGRAM, para caber em 120×40. A tabela mostra 9 linhas e rola acompanhando o job ativo.
+- ETA da fila segue `render_queue.estimate_eta` (média × aguardando + restante do job em andamento). Eventos de fila chegam com `ts=0.0`: durações usam o relógio do tick.
+- Textos: modal "CANCELAR FILA?" / "CONTINUAR FILA"; botão do READY "START QUEUE"; REPORT avisa quando um output parcial não pôde ser removido (senão seria pulado como "saída já existe" na próxima rodada).
+- Seletor TIPO usa o nível `tab_focus` existente (↑ a partir do caminho); o foco inicial fica no caminho.
