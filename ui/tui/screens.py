@@ -32,7 +32,7 @@ STATUS = {
     S.COMPLETED: "✓ COMPLETED", S.ERROR: "✗ ERROR", S.CANCELLED: "⚠ CANCELLED",
 }
 FOOTER_KEYS = {
-    S.HOME: "[↑↓] Navegar   [1 2 4 5] Abrir   [ENTER] Abrir   [ESC] Sair",
+    S.HOME: "[↑↓] Navegar   [1-5] Abrir   [ENTER] Abrir   [ESC] Sair",
     S.SOURCE: "[digite] Caminho   [←→] Cursor   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair",
     S.CONFIGURATION: "[↑↓] Campo   [←→] Valor   [0-9] Digitar   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
     S.ADVANCED: "[↑↓] Campo   [←→] Valor/Aba   [SPACE] On/Off   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",

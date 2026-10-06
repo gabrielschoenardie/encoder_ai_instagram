@@ -18,21 +18,19 @@ def type_text(s, text):
     return s
 
 
-def test_home_navigation_skips_batch_and_wraps():
+def test_home_navigation_visits_all_presets_and_wraps():
     s = home()
     assert s.home_focus == 0
-    s = S.apply(s, key("DOWN"))
-    assert s.home_focus == 1
-    s = S.apply(s, key("DOWN"))
-    assert s.home_focus == 3
-    s = S.apply(s, key("UP"))
-    assert s.home_focus == 1
+    for want in (1, 2, 3, 4, 0):
+        s = S.apply(s, key("DOWN"))
+        assert s.home_focus == want
     s = S.apply(home(), key("UP"))
     assert s.home_focus == 4
 
 
-def test_home_digits_and_disabled_batch():
-    assert S.apply(home(), key("CHAR", "3")) == home()
+def test_home_digits_open_presets():
+    s = S.apply(home(), key("CHAR", "3"))
+    assert s.screen == S.SOURCE and s.preset == 3 and S.draft(s) == F.new_draft(3)
     s = S.apply(home(), key("CHAR", "4"))
     assert s.action == "tools" and s.screen == S.HOME
     s = S.apply(home(), key("CHAR", "2"))

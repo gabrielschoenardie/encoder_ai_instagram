@@ -13,10 +13,10 @@ def home(**kw):
 def test_home_screen():
     out = text_of(home())
     for txt in ("REELS ENCODER", "Encode rápido (FFmpeg)", "Film look (Cineon)", "Batch de pasta",
-                "chega no P3D", "Tools", "Configurar avançado", "O QUE FAZ", "SYSTEM", "ffprobe.exe",
-                "detectado no início do encode", "[1 2 4 5] Abrir"):
+                "Tools", "Configurar avançado", "O QUE FAZ", "SYSTEM", "ffprobe.exe",
+                "detectado no início do encode", "[1-5] Abrir"):
         assert txt in out, txt
-    assert "[1-5]" not in out
+    assert "chega no P3D" not in out and "[1 2 4 5]" not in out
     assert "▸" in out
     assert_fits(out)
     assert_no_emoji(out)

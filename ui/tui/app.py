@@ -19,6 +19,7 @@ import reporter as R
 from ui import tui_driver as D
 from ui.config import EncodeConfig
 from ui.theme import get_console
+from ui.tui import forms as F
 from ui.tui import state as S
 from ui.tui import widgets as W
 from ui.tui.keys import KeyReader
@@ -185,7 +186,7 @@ class App:
 
     def _arm(self) -> None:
         try:
-            cfg = EncodeConfig.model_validate(S.draft(self.state))
+            cfg = EncodeConfig.model_validate(F.to_config(S.draft(self.state)))
             ns = cfg.to_namespace()
             err = RE._validate_args_consistency(ns)
             out = D._single_output_path(ns)

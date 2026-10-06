@@ -7,6 +7,7 @@ import Reels_Encoder_v2_FINAL as RE
 import reporter as R
 from ui.theme import get_console
 from ui.tui import app as A
+from ui.tui import forms as F
 from ui.tui import screens as V
 from ui.tui import state as S
 
@@ -642,3 +643,14 @@ def test_ctrl_c_in_configuration_returns_130(tmp_path):
 
     app._tick = tick
     assert app.run() == 130 and reader.restored
+
+
+def test_arm_strips_form_state_keys(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=5,
+                          drafts=((5, {**F.new_draft(5), "input": str(src)}),))
+    app._arm()
+    assert app.state.screen == S.READY and app.state.field_error is None
+    assert F.OUTDIR_ON not in app.state.config and F.SOURCE_KIND not in app.state.config

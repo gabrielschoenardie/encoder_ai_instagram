@@ -95,7 +95,7 @@ def tui_ns(preset, path, values):
     s = press(s, "ENTER")
     for name, value in values.items():
         s = set_field(s, name, value)
-    return EncodeConfig.model_validate(S.draft(s)).to_namespace()
+    return EncodeConfig.model_validate(F.to_config(S.draft(s))).to_namespace()
 
 
 @pytest.mark.parametrize("preset,answers,values", SCENARIOS)

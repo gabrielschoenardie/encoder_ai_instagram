@@ -12,6 +12,12 @@ from ui.launcher import PRESETS
 FIT = ("contain", "cover")
 FPS = ("auto", "24", "25", "30", "60")
 MODE = ("crf", "2pass")
+SOURCE_KIND = "source_kind"
+FILE = "file"
+FOLDER = "folder"
+OUTDIR_ON = "output_dir_on"
+FORM_ONLY = frozenset({SOURCE_KIND, OUTDIR_ON})
+OUTDIR_EMPTY = "Informe a pasta de saída."
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,14 @@ def _ai_on(d: dict) -> bool:
     return d.get("enhance") == "on" and d.get("enhance_ai") == "on"
 
 
+def is_folder(d: dict) -> bool:
+    return d.get(SOURCE_KIND) == FOLDER
+
+
+def _outdir_on(d: dict) -> bool:
+    return is_folder(d) and d.get(OUTDIR_ON) == "on"
+
+
 QUICK = (
     Field("fit", "choice", "Enquadramento", FIT),
     Field("fps", "choice", "FPS", FPS),
@@ -57,9 +71,16 @@ CINEON = (
     Field("saturation", "number", "Saturação (0..2)", lo=0.0, hi=2.0, step=0.05, visible_if=_cineon_on),
     Field("fit", "choice", "Enquadramento", FIT),
 )
+BATCH = (
+    Field(OUTDIR_ON, "toggle", "Definir pasta de saída separada"),
+    Field("output_dir", "path", "Pasta de saída", visible_if=_outdir_on),
+    Field("cineon_pipeline", "toggle", "Usar film look (Cineon)"),
+)
 TABS = ("Source", "Color/LUT", "Audio", "Enhance", "Export")
 ADVANCED = {
     "Source": (
+        Field(OUTDIR_ON, "toggle", "Pasta de saída separada", visible_if=is_folder),
+        Field("output_dir", "path", "Pasta de saída", visible_if=_outdir_on),
         Field("cineon_pipeline", "toggle", "Pipeline Cineon (film look)"),
         Field("fit", "choice", "Enquadramento", FIT),
         Field("fps", "choice", "FPS", FPS),
@@ -90,11 +111,11 @@ ADVANCED = {
     ),
 }
 PRESET_LABELS = tuple(PRESETS)
-ENABLED_PRESETS = (1, 2, 4, 5)
+ENABLED_PRESETS = (1, 2, 3, 4, 5)
 PRESET_HELP = {
     1: "FFmpeg nativo com LUT Hollywood. Você escolhe enquadramento, FPS e modo (CRF ou 2-pass).",
     2: "Pipeline Cineon (film look). Você ajusta exposição, saturação e enquadramento.",
-    3: "Batch de pasta — chega no P3D.",
+    3: "Todos os vídeos de uma pasta (sem subpastas), um por vez. Pasta de saída e film look opcionais.",
     4: "Ferramentas utilitárias: sai da tela cheia, roda a ferramenta e volta à HOME.",
     5: "Todas as opções em 5 abas: Source · Color/LUT · Audio · Enhance · Export.",
 }
@@ -105,11 +126,26 @@ def new_draft(preset: int) -> dict:
         return EncodeConfig.preset_quick_ffmpeg().model_dump()
     if preset == 2:
         return EncodeConfig.preset_film_cineon().model_dump()
+    if preset == 3:
+        return {**EncodeConfig.preset_batch().model_dump(), SOURCE_KIND: FOLDER, OUTDIR_ON: "off"}
+    if preset == 5:
+        return {**EncodeConfig().model_dump(), SOURCE_KIND: FILE, OUTDIR_ON: "off"}
     return EncodeConfig().model_dump()
 
 
 def form_for(preset: int) -> tuple:
-    return QUICK if preset == 1 else CINEON
+    return {1: QUICK, 3: BATCH}.get(preset, CINEON)
+
+
+def to_config(draft: dict) -> dict:
+    out = {k: v for k, v in draft.items() if k not in FORM_ONLY}
+    if not draft.get("batch") or draft.get(OUTDIR_ON) != "on":
+        out["output_dir"] = None
+    return out
+
+
+def outdir_missing(draft: dict) -> bool:
+    return _outdir_on(draft) and not str(draft.get("output_dir") or "").strip()
 
 
 def visible(fields, draft: dict) -> tuple:
@@ -125,7 +161,7 @@ def derive(draft: dict) -> dict:
 def apply_change(draft: dict, name: str, value) -> tuple:
     new = derive({**draft, name: value})
     try:
-        EncodeConfig.model_validate(new)
+        EncodeConfig.model_validate(to_config(new))
     except ValidationError as exc:
         return draft, exc.errors()[0]["msg"]
     return new, None
@@ -134,5 +170,5 @@ def apply_change(draft: dict, name: str, value) -> tuple:
 def output_name(draft: dict) -> str:
     if not draft.get("input"):
         return "—"
-    out = EncodeConfig.model_validate(draft).output_path()
+    out = EncodeConfig.model_validate(to_config(draft)).output_path()
     return os.path.basename(out) if out else "—"
