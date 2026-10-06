@@ -20,13 +20,16 @@ SOURCE = "SOURCE"
 CONFIGURATION = "CONFIGURATION"
 ADVANCED = "ADVANCED"
 PREVIEW = "PREVIEW"
+QUEUE = "QUEUE"
+REPORT = "REPORT"
 CONFIG_SCREENS = frozenset({HOME, SOURCE, CONFIGURATION, ADVANCED, PREVIEW})
 ACTIONS = ("start", "exit", "tools", "arm", "check_source")
-FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED})
+FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED, REPORT})
 OVERLAYS = frozenset({DETAILS, LOG})
 SEAL_REVEAL_S = 1.2
 MIN_SIZE = (120, 40)
 LOG_CAP = 500
+REPORT_ROWS = 21
 LOG_FILTERS = ("TUDO", "SYSTEM", "INFO", "WARNING", "FFMPEG")
 _WARNING_RE = re.compile(r"^aviso\b|\bfalhou\b|n[ãa]o foi poss[ií]vel", re.IGNORECASE)
 
@@ -91,6 +94,16 @@ class LogRow:
 
 
 @dataclass(frozen=True)
+class Job:
+    input: str
+    output: str
+    status: str = "aguardando"
+    started: float | None = None
+    finished: float | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class UIState:
     config: dict
     output_path: str = ""
@@ -143,6 +156,12 @@ class UIState:
     ready_error: str | None = None
     system: tuple = ()
     source_count: int | None = None
+    queue: tuple = ()
+    active_job: int | None = None
+    queue_started: float | None = None
+    queue_finished: float | None = None
+    is_batch: bool = False
+    queue_scroll: int = 0
 
 
 def cancel_blocked(s: UIState) -> bool:
@@ -171,6 +190,27 @@ def filtered_log(s: UIState) -> tuple:
     if kind == "TUDO":
         return s.log
     return tuple(r for r in s.log if r.kind == kind)
+
+
+def queue_counts(queue: tuple) -> dict:
+    out = dict.fromkeys(("aguardando", "processando", "ok", "pulado", "falha", "interrompido"), 0)
+    for job in queue:
+        out[job.status] = out.get(job.status, 0) + 1
+    out["total"] = len(queue)
+    return out
+
+
+def queue_eta(s: UIState) -> float | None:
+    durations = [j.finished - j.started for j in s.queue
+                 if j.status in ("ok", "falha") and j.started is not None and j.finished is not None]
+    if not durations:
+        return None
+    mean = sum(durations) / len(durations)
+    eta = mean * sum(1 for j in s.queue if j.status == "aguardando")
+    active = s.queue[s.active_job] if s.active_job is not None and s.active_job < len(s.queue) else None
+    if active is not None and active.status == "processando" and active.started is not None:
+        eta += max(0.0, mean - (s.now - active.started))
+    return eta
 
 
 def draft(s: UIState) -> dict:
@@ -227,6 +267,7 @@ def apply(s: UIState, ev) -> UIState:
             output_preexisted=ev.output_preexisted,
             ready_error=None,
             field_error=None,
+            is_batch=bool(ev.config.get("batch")),
         )
     if isinstance(ev, ReadyBlocked):
         return replace(s, screen=READY, ready_error=ev.message, action=None)
@@ -243,7 +284,70 @@ def _with_track(s: UIState, track: PassTrack) -> UIState:
     return replace(s, passes=tuple(sorted(others + (track,), key=lambda t: t.index)))
 
 
+_QUEUE_EVENTS = (R.QueueInit, R.JobStart, R.JobSkip, R.JobDone, R.QueueDone)
+_JOB_RESET = {
+    "stage": None, "substep": None, "stages_done": (), "passes": (), "progress": None, "job_started": None,
+    "probe": None, "encode_params": None, "log": (), "warnings": 0, "qc": None, "done": None, "error": None,
+    "seal_reveal_start": None,
+}
+
+
+def _at(s: UIState, ev) -> float:
+    return ev.ts if ev.ts else s.now
+
+
+def _first_line(text) -> str:
+    return next((ln.strip() for ln in str(text or "").splitlines() if ln.strip()), "")
+
+
+def _with_job(s: UIState, index: int, **changes) -> UIState:
+    if not 0 <= index < len(s.queue):
+        return s
+    jobs = list(s.queue)
+    jobs[index] = replace(jobs[index], **changes)
+    return replace(s, queue=tuple(jobs))
+
+
+def _interrupt_active(s: UIState, at: float) -> UIState:
+    i = s.active_job
+    if i is None or not 0 <= i < len(s.queue) or s.queue[i].status != "processando":
+        return s
+    return _with_job(s, i, status="interrompido", finished=at, reason="interrompido")
+
+
+def _to_report(s: UIState) -> UIState:
+    return replace(s, screen=REPORT, modal=None, modal_focus=0, action_focus=0, queue_scroll=0)
+
+
+def _queue_event(s: UIState, ev) -> UIState:
+    at = _at(s, ev)
+    if isinstance(ev, R.QueueInit):
+        jobs = tuple(Job(str(i), str(o)) for i, o in ev.jobs)
+        screen = QUEUE if s.screen in (READY, ENCODING) else s.screen
+        return replace(s, queue=jobs, is_batch=True, active_job=None, queue_started=at, screen=screen)
+    if isinstance(ev, R.JobStart):
+        if not 0 <= ev.index < len(s.queue):
+            return s
+        s = replace(s, active_job=ev.index, output_path=s.queue[ev.index].output, **_JOB_RESET)
+        return _with_job(s, ev.index, status="processando", started=at, finished=None, reason=None)
+    if isinstance(ev, R.JobSkip):
+        return _with_job(s, ev.index, status="pulado", reason="saída já existe")
+    if isinstance(ev, R.JobDone):
+        status = "interrompido" if s.cancel_phase is not None and ev.status != "ok" else ev.status
+        if status in ("ok", "interrompido"):
+            reason = status
+        else:
+            reason = _first_line(ev.error) or status
+        return _with_job(s, ev.index, status=status, finished=at, reason=reason)
+    s = replace(s, exit_code=ev.exit_code, queue_finished=at)
+    if ev.exit_code == 130:
+        s = _interrupt_active(s, at)
+    return _to_report(s)
+
+
 def _engine(s: UIState, ev) -> UIState:
+    if isinstance(ev, _QUEUE_EVENTS):
+        return _queue_event(s, ev)
     if s.cancel_phase is not None and isinstance(ev, (R.Stage, R.Pass, R.Progress)):
         return s
     if isinstance(ev, R.Stage):
@@ -253,7 +357,7 @@ def _engine(s: UIState, ev) -> UIState:
         started = s.job_started if s.job_started is not None else ev.ts
         s = replace(s, stage=ev.name, substep=ev.substep, stages_done=done, job_started=started)
         s = _log(s, "SYSTEM", ev.name + (f" · {ev.substep}" if ev.substep else ""))
-        if ev.name == R.QC:
+        if ev.name == R.QC and not s.is_batch:
             if s.screen == ENCODING:
                 s = replace(s, screen=QC, modal=None)
             elif s.screen in OVERLAYS:
@@ -290,6 +394,8 @@ def _engine(s: UIState, ev) -> UIState:
     if isinstance(ev, R.Done):
         return replace(s, done=ev)
     if isinstance(ev, R.Error):
+        if s.is_batch and s.queue:
+            return _log(s, "WARNING", f"{ev.kind}: {ev.message}")
         return _log(replace(s, error=ev), "WARNING", f"{ev.kind}: {ev.message}")
     if isinstance(ev, R.Cancel):
         s = replace(s, cancel_phase=ev.phase, modal=None)
@@ -310,6 +416,14 @@ def _tick(s: UIState, ev: Tick) -> UIState:
 
 
 def _finished(s: UIState, code: int) -> UIState:
+    if s.is_batch and (s.queue or code in (0, 130)):
+        s = replace(s, exit_code=code)
+        if s.screen == REPORT:
+            return s
+        if code == 130:
+            s = _interrupt_active(s, s.now)
+        finished = s.queue_finished if s.queue_finished is not None else s.now
+        return _to_report(replace(s, queue_finished=finished))
     s = replace(s, exit_code=code, modal=None, action_focus=0)
     if s.screen in OVERLAYS:
         s = replace(s, screen=s.back)
@@ -521,7 +635,7 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         return _config_key(s, k, ch)
     if s.screen == READY:
         if k == "ENTER":
-            return replace(s, screen=ENCODING, action="start", ready_error=None)
+            return replace(s, screen=QUEUE if s.is_batch else ENCODING, action="start", ready_error=None)
         if k == "ESC":
             if s.preset:
                 return replace(s, screen=PREVIEW, ready_error=None)
@@ -534,6 +648,13 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
             return replace(s, modal=None, modal_focus=0)
         if k == "ENTER":
             return replace(s, modal=None, modal_focus=0, action="cancel" if s.modal_focus == 1 else s.action)
+        return s
+    if s.screen == REPORT:
+        if k in ("UP", "DOWN"):
+            top = max(0, len(s.queue) - REPORT_ROWS)
+            return replace(s, queue_scroll=max(0, min(top, s.queue_scroll + (1 if k == "DOWN" else -1))))
+        if k in ("ENTER", "ESC"):
+            return replace(s, action="exit")
         return s
     if s.screen in FINAL_SCREENS:
         actions = final_actions(s)
@@ -564,11 +685,11 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         return s
     if s.screen == QC and s.back in FINAL_SCREENS:
         return replace(s, screen=s.back) if k == "ESC" else s
-    if s.screen in (ENCODING, QC):
+    if s.screen in (ENCODING, QC, QUEUE):
         if k == "D":
             return replace(s, screen=DETAILS, back=s.screen)
         if k == "L":
             return replace(s, screen=LOG, back=s.screen)
-        if k == "C" and s.screen == ENCODING and s.cancel_phase is None and not cancel_blocked(s):
+        if k == "C" and s.screen in (ENCODING, QUEUE) and s.cancel_phase is None and not cancel_blocked(s):
             return replace(s, modal="CANCEL", modal_focus=0)
     return s
