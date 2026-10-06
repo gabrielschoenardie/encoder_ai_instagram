@@ -15,6 +15,8 @@ try:
 except Exception:
     FFPROBE = "ffprobe"
 
+PROBE_TIMEOUT_S = 10
+
 
 def probe_source_dims(path: str) -> Optional[Tuple[int, int]]:
     """Effective (rotation-corrected) (width, height) of a video, or None.
@@ -38,6 +40,7 @@ def probe_source_dims(path: str) -> Optional[Tuple[int, int]]:
                 path,
             ],
             stderr=subprocess.PIPE,
+            timeout=PROBE_TIMEOUT_S,
         )
 
         data = json.loads(out.decode())
