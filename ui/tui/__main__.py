@@ -5,7 +5,6 @@ import sys
 
 import Reels_Encoder_v2_FINAL as RE
 from ui import components as C
-from ui.launcher import run_launcher
 from ui.theme import get_console
 from ui.tui.app import App
 from ui.tui.state import MIN_SIZE
@@ -43,18 +42,11 @@ def main() -> int:
         except SystemExit as exc:
             return _exit_code(exc)
         return 0
-    ns = run_launcher(console)
-    if ns is None:
-        return 0
     missing = _missing_binaries()
     if missing:
         console.print(C.dependency_error_card(missing))
         return 1
-    err = RE._validate_args_consistency(ns)
-    if err:
-        console.print(f"[red]Erro:[/red] {err}")
-        return 2
-    return App(ns, console=console).run()
+    return App(console=console).run()
 
 
 if __name__ == "__main__":

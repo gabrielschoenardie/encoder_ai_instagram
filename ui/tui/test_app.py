@@ -14,6 +14,13 @@ from ui.tui import state as S
 class FakeLive:
     def __init__(self):
         self.frames = []
+        self.starts = self.stops = 0
+
+    def start(self):
+        self.starts += 1
+
+    def stop(self):
+        self.stops += 1
 
     def __enter__(self):
         return self
@@ -299,3 +306,339 @@ def test_summary_line_absent_on_ready_esc(tmp_path):
     app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0, console=con)
     assert app.run() == 0
     assert con.export_text().strip() == ""
+
+
+def make_home(tmp_path, keys, run_single=None, **kw):
+    live = FakeLive()
+    reader = CharReader(keys)
+    holder = []
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS:
+            holder[0]._queue.put(S.Key("ENTER"))
+
+    app = A.App(run_single=run_single or (lambda *a: 0), reader_factory=reader, live_factory=lambda c: live,
+                clock=Clock(), sleep=sleep, perf=lambda: (10.0, 20.0, 1.0), size=lambda: (120, 40),
+                system=(("FFmpeg", "x"),), probe=lambda p: (1080, 1920), **kw)
+    holder.append(app)
+    return app, live, reader
+
+
+def keys_for(text):
+    return [("SPACE" if ch == " " else (ch.upper() if ch.lower() in "dlc" else "CHAR"), ch) for ch in text]
+
+
+class CharReader(FakeReader):
+    def start(self):
+        for k in self.keys:
+            name, ch = k if isinstance(k, tuple) else (k, None)
+            self.emit(S.Key(name, ch))
+
+
+def test_home_esc_exits_zero_and_prints_cancel(tmp_path):
+    import io
+
+    from rich.console import Console
+    buf = io.StringIO()
+    app, _, _ = make_home(tmp_path, ["ESC"], console=Console(file=buf, width=120))
+    assert app.run() == 0
+    assert "Cancelado pelo usuário." in buf.getvalue()
+
+
+@pytest.mark.timeout(30)
+def test_full_flow_home_to_completed(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    seen = []
+    holder = []
+
+    def run(ns_, q, control, on_tick):
+        seen.append(ns_)
+        return 0
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS | {S.READY}:
+            holder[0]._queue.put(S.Key("ENTER"))
+
+    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 6
+    live = FakeLive()
+    app = A.App(run_single=run, reader_factory=CharReader(keys), live_factory=lambda c: live, clock=Clock(),
+                sleep=sleep, perf=lambda: (None, None, None), size=lambda: (120, 40),
+                system=(), probe=lambda p: None)
+    holder.append(app)
+    assert app.run() == 0
+    assert seen and seen[0].input == str(src) and seen[0].cineon_pipeline == "off"
+
+
+@pytest.mark.timeout(30)
+def test_enters_queued_after_arm_do_not_start_encode(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    ran = []
+    first_pause = []
+    holder = []
+
+    def sleep(_):
+        app = holder[0]
+        if not first_pause:
+            first_pause.append(app.state.screen)
+        app._queue.put(S.Key("ESC"))
+
+    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 5 + ["ENTER", "ENTER", ("CHAR", "x")]
+    app = A.App(run_single=lambda *a: ran.append(1) or 0, reader_factory=CharReader(keys),
+                live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    holder.append(app)
+    assert app.run() == 0
+    assert ran == [] and first_pause == [S.READY]
+
+
+class StillClock:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def preview_app(tmp_path, script, ran):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    clock = StillClock()
+    seen = {"ready": None, "loops": 0}
+
+    def sleep(_):
+        seen["loops"] += 1
+        if seen["loops"] > 2000:
+            raise KeyboardInterrupt
+        if app.state.screen in S.FINAL_SCREENS:
+            app._queue.put(S.Key("ENTER"))
+        elif app.state.screen == S.READY:
+            if seen["ready"] is None:
+                seen["ready"] = clock.t
+            script(app, clock, clock.t - seen["ready"])
+
+    app = A.App(run_single=lambda *a: ran.append(clock.t) or 0, reader_factory=CharReader(["ENTER"]),
+                live_factory=lambda c: FakeLive(), clock=clock, sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+    return app, seen
+
+
+@pytest.mark.timeout(30)
+def test_held_enter_after_arm_never_starts_encode(tmp_path):
+    ran = []
+
+    def script(app, clock, elapsed):
+        if elapsed > 6.0:
+            raise KeyboardInterrupt
+        clock.t += 0.03
+        app._queue.put(S.Key("ENTER"))
+
+    app, _ = preview_app(tmp_path, script, ran)
+    assert app.run() == 130
+    assert ran == [] and app.state.screen == S.READY
+
+
+@pytest.mark.timeout(30)
+def test_enter_before_ready_hold_is_ignored_then_isolated_enter_starts(tmp_path):
+    ran = []
+    pressed = []
+
+    def script(app, clock, elapsed):
+        for at in (0.5, 1.3):
+            if at not in pressed and elapsed >= at - 1e-9:
+                pressed.append(at)
+                app._queue.put(S.Key("ENTER"))
+                return
+        clock.t += 0.1
+
+    app, seen = preview_app(tmp_path, script, ran)
+    assert app.run() == 0
+    assert pressed == [0.5, 1.3] and len(ran) == 1
+    assert abs(ran[0] - seen["ready"] - 1.3) < 1e-6
+
+
+@pytest.mark.timeout(30)
+def test_released_enter_after_burst_starts_encode(tmp_path):
+    ran = []
+    pressed = []
+
+    def script(app, clock, elapsed):
+        if elapsed < 2.0:
+            clock.t += 0.03
+            app._queue.put(S.Key("ENTER"))
+        elif not pressed:
+            clock.t += 0.5
+            pressed.append(1)
+            app._queue.put(S.Key("ENTER"))
+
+    app, seen = preview_app(tmp_path, script, ran)
+    assert app.run() == 0
+    assert len(ran) == 1 and ran[0] - seen["ready"] >= 2.5 - 1e-6
+
+
+def test_esc_in_ready_works_right_after_arm(tmp_path):
+    app, _ = preview_app(tmp_path, lambda *a: None, [])
+    app._arm()
+    assert app.state.screen == S.READY
+    app._queue.put(S.Key("ENTER"))
+    app._queue.put(S.Key("ESC"))
+    app._drain()
+    assert app.state.screen == S.PREVIEW and app.state.action is None
+
+
+def test_held_enter_dequeued_after_stall_is_still_rejected(tmp_path):
+    app, _ = preview_app(tmp_path, lambda *a: None, [])
+    app._arm()
+    clock = app._clock
+    for i in range(50):
+        clock.t += 0.03
+        app._emit(S.Key("ENTER"))
+        if i % 3 == 2:
+            app._drain()
+    for _ in range(17):
+        clock.t += 0.03
+        app._emit(S.Key("ENTER"))
+    app._drain()
+    assert app.state.screen == S.READY and app.state.action is None
+
+
+def test_p3b_ready_enter_starts_without_hold(tmp_path):
+    ran = []
+    clock = StillClock()
+    app = A.App(ns(tmp_path), run_single=lambda *a: ran.append(clock.t) or 0, reader_factory=FakeReader(["ENTER"]),
+                live_factory=lambda c: FakeLive(), clock=clock,
+                sleep=lambda _: app._queue.put(S.Key("ENTER")), perf=lambda: (None, None, None),
+                size=lambda: (120, 40), output_path=str(tmp_path / "out.mp4"))
+    assert app.run() == 0
+    assert ran == [100.0]
+
+
+def test_arm_drops_only_key_events(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+    tick = S.Tick(1.0, (120, 40))
+    for ev in (S.Key("ENTER"), tick, S.Key("ESC")):
+        app._queue.put(ev)
+    app._arm()
+    assert app.state.screen == S.READY
+    left = []
+    while not app._queue.empty():
+        left.append(app._queue.get_nowait())
+    assert left == [tick]
+
+
+def test_arm_error_keeps_preview_and_queued_keys(tmp_path):
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "threads": "muitas"}),))
+    app._queue.put(S.Key("ESC"))
+    app._arm()
+    assert app.state.screen == S.PREVIEW and app.state.field_error
+    assert app._queue.qsize() == 1
+
+
+@pytest.mark.parametrize("exc", [ValueError("ruim"), TypeError("tipo")])
+def test_arm_exceptions_become_field_error(tmp_path, monkeypatch, exc):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=1,
+                          drafts=((1, {**S.draft(S.UIState(config={}, preset=1)), "input": str(src)}),))
+
+    def boom(ns_):
+        raise exc
+
+    monkeypatch.setattr(A.RE, "_validate_args_consistency", boom)
+    app._arm()
+    assert app.state.screen == S.PREVIEW and app.state.field_error == str(exc)
+
+
+def test_empty_system_rows_are_kept(tmp_path):
+    app = A.App(reader_factory=CharReader([]), live_factory=lambda c: FakeLive(), system=())
+    assert app.state.system == ()
+
+
+def test_tools_exception_restores_terminal_and_propagates(tmp_path):
+    class ExitLive(FakeLive):
+        exited = False
+
+        def __exit__(self, *exc):
+            self.exited = True
+            return False
+
+    orig_err, orig_file = sys.stderr, RE.console.file
+    first, second = CharReader([("CHAR", "4")]), CharReader([])
+    readers = iter([first, second])
+    live = ExitLive()
+    app = A.App(reader_factory=lambda emit: next(readers)(emit), live_factory=lambda c: live, clock=Clock(),
+                sleep=lambda _: None, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
+                probe=lambda p: None, tools=lambda c: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        app.run()
+    assert first.restored and second.restored and second.stopped
+    assert live.exited and live.stops == 1
+    assert sys.stderr is orig_err and RE.console.file is orig_file
+
+
+def test_check_source_quoted_path_with_spaces_is_valid(tmp_path):
+    d = tmp_path / "Meus Vídeos"
+    d.mkdir()
+    f = d / "x.mov"
+    f.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.apply(app.state, S.Key("CHAR", "1"))
+    for name, ch in keys_for(f'"{f}"'):
+        app.state = S.apply(app.state, S.Key(name, ch))
+    app._check_source()
+    assert app.state.source_status == "VALID" and app.state.source_dims == (1080, 1920)
+
+
+def test_ready_revalidates_missing_input(tmp_path, monkeypatch):
+    ran = []
+    seen_errors = []
+    app, _, _ = make_home(tmp_path, ["ENTER", "ESC", "ESC", "ESC", "ESC", "ESC"],
+                          run_single=lambda *a: ran.append(1) or 0)
+    app.state = S.UIState(config={"input": str(tmp_path / "missing.mov")}, screen=S.READY, preset=1)
+    app._ready_at = 0.0
+    orig_apply = S.apply
+
+    def spy(s, ev):
+        out = orig_apply(s, ev)
+        if out.ready_error:
+            seen_errors.append(out.ready_error)
+        return out
+
+    monkeypatch.setattr(S, "apply", spy)
+    assert app.run() == 0
+    assert ran == [] and seen_errors and "missing.mov" in seen_errors[0]
+
+
+def test_tools_suspends_and_resumes(tmp_path):
+    calls = []
+    readers = iter([CharReader([("CHAR", "4")]), CharReader(["ESC"])])
+    live = FakeLive()
+    app = A.App(reader_factory=lambda emit: next(readers)(emit), live_factory=lambda c: live, clock=Clock(),
+                sleep=lambda _: None, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
+                probe=lambda p: None, tools=lambda con: calls.append("tools"))
+    assert app.run() == 0
+    assert calls == ["tools"] and live.stops == 1 and live.starts == 1
+
+
+@pytest.mark.timeout(30)
+def test_ctrl_c_in_configuration_returns_130(tmp_path):
+    app, _, reader = make_home(tmp_path, [("CHAR", "1")])
+    orig = app._tick
+
+    def tick():
+        orig()
+        if app.state.screen == S.SOURCE:
+            raise KeyboardInterrupt
+
+    app._tick = tick
+    assert app.run() == 130 and reader.restored

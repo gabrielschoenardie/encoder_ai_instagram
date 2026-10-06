@@ -16,6 +16,7 @@ import os
 from typing import Iterable, Optional, Sequence
 
 from rich.align import Align
+from rich.cells import cell_len
 from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.panel import Panel
@@ -141,18 +142,29 @@ def _aspect_frame(fit: str = "contain", aspect: str = "9:16",
     else:  # portrait (default)
         w, bars = 16, 2
 
+    inner = w - 2 if fit == "cover" else w
+
+    def clip(text: str) -> str:
+        t = Text(text, no_wrap=True)
+        t.truncate(inner, overflow="ellipsis")
+        return t.plain
+
     def line(text: str = "", style: str = "value") -> Text:
         return Text(text.center(w), style=style)
 
+    hint = "preenche · crop" if fit == "cover" else "ajusta"
+    if cell_len(hint) > inner:
+        hint = "crop" if fit == "cover" else "ajusta"
     labels = [
         ("", "value"),
         (aspect, "value"),
         (dims, "info"),
         ("", "value"),
         (fit, "accent"),
-        ("preenche · crop" if fit == "cover" else "ajusta", "muted"),
+        (hint, "muted"),
         ("", "value"),
     ]
+    labels = [(clip(t), s) for (t, s) in labels]
 
     if fit == "cover":
         edge = g["block_full"]

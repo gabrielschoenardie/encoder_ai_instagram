@@ -8,21 +8,35 @@ from typing import Callable
 
 from ui.tui.state import Key
 
-_CHARS = {"\r": "ENTER", "\n": "ENTER", "\x1b": "ESC", "d": "D", "l": "L", "c": "C"}
-_WIN_EXT = {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT"}
+_CHARS = {"\r": "ENTER", "\n": "ENTER", "\x1b": "ESC", " ": "SPACE", "\x08": "BACKSPACE", "\x7f": "BACKSPACE"}
+_HOTKEYS = {"d": "D", "l": "L", "c": "C"}
+_WIN_EXT = {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT", "S": "DELETE"}
 _ANSI = {"[A": "UP", "[B": "DOWN", "[C": "RIGHT", "[D": "LEFT"}
+_WITH_CHAR = frozenset({"CHAR", "SPACE", "D", "L", "C"})
+
+
+def _plain(ch: str) -> str | None:
+    if not ch:
+        return None
+    if ch in _CHARS:
+        return _CHARS[ch]
+    if ch.lower() in _HOTKEYS:
+        return _HOTKEYS[ch.lower()]
+    if len(ch) == 1 and ch.isprintable():
+        return "CHAR"
+    return None
 
 
 def decode_windows(ch: str, nxt: str | None = None) -> str | None:
     if ch in ("\x00", "\xe0"):
         return _WIN_EXT.get(nxt or "")
-    return _CHARS.get(ch.lower())
+    return _plain(ch)
 
 
 def decode_posix(seq: str) -> str | None:
     if seq.startswith("\x1b") and len(seq) > 1:
         return _ANSI.get(seq[1:3])
-    return _CHARS.get(seq.lower())
+    return _plain(seq)
 
 
 class KeyReader:
@@ -61,9 +75,9 @@ class KeyReader:
             self._restore()
             self._restore = None
 
-    def _put(self, name: str | None) -> None:
+    def _put(self, name: str | None, raw: str | None = None) -> None:
         if name is not None:
-            self._emit(Key(name))
+            self._emit(Key(name, raw if name in _WITH_CHAR else None))
 
 
 def _reader_loop(reader: KeyReader) -> None:
@@ -83,7 +97,7 @@ def _windows_loop(reader: KeyReader) -> None:
         if msvcrt.kbhit():
             ch = msvcrt.getwch()
             nxt = msvcrt.getwch() if ch in ("\x00", "\xe0") else None
-            reader._put(decode_windows(ch, nxt))
+            reader._put(decode_windows(ch, nxt), ch)
         else:
             time.sleep(0.05)
 
@@ -101,4 +115,4 @@ def _posix_loop(reader: KeyReader) -> None:
             more, _, _ = select.select([fd], [], [], 0.03)
             if more:
                 seq += os.read(fd, 2).decode("utf-8", "ignore")
-        reader._put(decode_posix(seq))
+        reader._put(decode_posix(seq), seq if len(seq) == 1 else None)

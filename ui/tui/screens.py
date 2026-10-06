@@ -14,7 +14,9 @@ from rich.text import Text
 import reporter as R
 from ui import components as C
 from ui.theme import HEAVY_BOX, PANEL_BOX, glyphs
+from ui.tui import forms as F
 from ui.tui import state as S
+from ui.tui import widgets as W
 
 try:
     from version import __version__
@@ -24,10 +26,17 @@ except Exception:
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 RAIL = ("HOME", "SOURCE", "CONFIG", "PREVIEW", "READY", "ENCODE", "QC", "DELIVERY")
 STATUS = {
+    S.HOME: "● HOME", S.SOURCE: "● SOURCE", S.CONFIGURATION: "● CONFIG", S.ADVANCED: "● ADVANCED",
+    S.PREVIEW: "● PREVIEW",
     S.READY: "● READY", S.ENCODING: "ENCODING", S.DETAILS: "DETAILS", S.LOG: "LOG", S.QC: "QC",
     S.COMPLETED: "✓ COMPLETED", S.ERROR: "✗ ERROR", S.CANCELLED: "⚠ CANCELLED",
 }
 FOOTER_KEYS = {
+    S.HOME: "[↑↓] Navegar   [1 2 4 5] Abrir   [ENTER] Abrir   [ESC] Sair",
+    S.SOURCE: "[digite] Caminho   [←→] Cursor   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair",
+    S.CONFIGURATION: "[↑↓] Campo   [←→] Valor   [0-9] Digitar   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
+    S.ADVANCED: "[↑↓] Campo   [←→] Valor/Aba   [SPACE] On/Off   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
+    S.PREVIEW: "[←→] Escolher   [ENTER] Confirmar   [ESC] Voltar   [Ctrl+C] Sair",
     S.READY: "[←→] Choose   [ENTER] Start encode   [ESC] Sair",
     S.ENCODING: "[D] Details   [L] Log   [C] Cancel   [Ctrl+C] Interrupt",
     S.DETAILS: "[D] Voltar   [L] Log   [ESC] Voltar   [Ctrl+C] Interrupt",
@@ -103,6 +112,14 @@ def _status(s: S.UIState) -> str:
 
 
 def _rail_active(s: S.UIState) -> str:
+    if s.screen == S.HOME:
+        return "HOME"
+    if s.screen == S.SOURCE:
+        return "SOURCE"
+    if s.screen in (S.CONFIGURATION, S.ADVANCED):
+        return "CONFIG"
+    if s.screen == S.PREVIEW:
+        return "PREVIEW"
     if s.screen == S.READY:
         return "READY"
     if s.screen in (S.COMPLETED,):
@@ -122,7 +139,7 @@ def header(s: S.UIState) -> RenderableType:
     idx = RAIL.index(active)
     rail = Text(" ")
     for i, name in enumerate(RAIL):
-        if i < 4 or i < idx or (s.screen == S.COMPLETED and name != "DELIVERY"):
+        if i < idx or (s.screen == S.COMPLETED and name != "DELIVERY"):
             rail.append(f"{g['ok']} {name}   ", style="ok")
         elif name == active:
             rail.append(f"{g['tab_l']}{name}   ", style="tab.active")
@@ -141,6 +158,8 @@ def footer(s: S.UIState) -> RenderableType:
         keys = "[←→] Filtro   [ESC] Voltar"
     elif s.screen == S.ENCODING and (S.cancel_blocked(s) or s.cancel_phase is not None):
         keys = keys.replace("[C] Cancel", "░[C] Cancel")
+    elif s.screen == S.READY and s.preset:
+        keys = keys.replace("[ESC] Sair", "[ESC] Voltar")
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
 
 
@@ -200,8 +219,13 @@ def _ready(s: S.UIState) -> RenderableType:
     actions = Table.grid(expand=True)
     actions.add_column(justify="left")
     actions.add_column(justify="right")
-    actions.add_row(Text("   [ ESC  Sair ]", style="muted"), Text(f"{g['tab_l']}{g['arrow']}   START ENCODE   ", style="tab.active"))
-    return Group(top, mid, qc, actions)
+    esc = "Voltar" if s.preset else "Sair"
+    actions.add_row(Text(f"   [ ESC  {esc} ]", style="muted"),Text(f"{g['tab_l']}{g['arrow']}   START ENCODE   ", style="tab.active"))
+    parts = [top, mid, qc]
+    if s.ready_error:
+        parts.append(Text(f"   {s.ready_error}", style="err"))
+    parts.append(actions)
+    return Group(*parts)
 
 
 SCREEN_RENDERERS[S.READY] = _ready
@@ -617,3 +641,217 @@ SCREEN_RENDERERS[S.QC] = _qc
 SCREEN_RENDERERS[S.COMPLETED] = _completed
 SCREEN_RENDERERS[S.ERROR] = _error
 SCREEN_RENDERERS[S.CANCELLED] = _cancelled
+
+
+def path_field(buf: W.TextBuf, width: int) -> Text:
+    text, cur = buf.text, buf.cursor
+    start = max(0, min(cur - width // 2, len(text) + 1 - width))
+    view = text[start:start + width]
+    pos = cur - start
+    out = Text()
+    out.append(view[:pos], style="value")
+    out.append(view[pos:pos + 1] or " ", style="reverse")
+    out.append(view[pos + 1:], style="value")
+    return out
+
+
+def _home(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    top = hero([Text(""), Text("   REELS ENCODER", style="title"),
+                Text("   Premiere Workspace · escolha um fluxo", style="muted")], height=7)
+    menu = Text()
+    for i, label in enumerate(F.PRESET_LABELS):
+        n = i + 1
+        enabled = n in F.ENABLED_PRESETS
+        focused = i == s.home_focus
+        prefix = f"{g['tab_l']}{g['arrow']} " if focused else "   "
+        line = f"{prefix}{n}  {label}" + ("" if enabled else "   — chega no P3D")
+        menu.append(line + "\n\n", style="tab.active" if focused else ("value" if enabled else "muted"))
+    help_txt = Text(F.PRESET_HELP[s.home_focus + 1], style="value")
+    mid = Table.grid(expand=True)
+    mid.add_column(ratio=1)
+    mid.add_column(ratio=1)
+    mid.add_row(panel(menu, "FLUXOS", height=17), panel(help_txt, "O QUE FAZ", height=17))
+    half = (len(s.system) + 1) // 2
+    sysrow = Table.grid(expand=True)
+    sysrow.add_column(ratio=1)
+    sysrow.add_column(ratio=1)
+    sysrow.add_row(kv_table(s.system[:half]), kv_table(s.system[half:]))
+    return Group(top, mid, panel(sysrow, "SYSTEM", height=5))
+
+
+_SOURCE_STATUS = {
+    "VALID": ("✓ arquivo encontrado", "ok"),
+    "NOT_FOUND": ("✗ arquivo não encontrado", "err"),
+    "INVALID": ("⚠ informe um arquivo de vídeo", "warn"),
+    "CHECKING": ("verificando…", "muted"),
+}
+
+
+def _source(s: S.UIState) -> RenderableType:
+    d = {**S.draft(s), "input": W.clean_path(s.source.text) or None}
+    msg, style = _SOURCE_STATUS.get(s.source_status, ("—", "muted"))
+    rows = []
+    if s.preset == 5:
+        rows.append(("BATCH", Text("É um batch de pasta?  off  — chega no P3D", style="muted")))
+    rows += [
+        ("ARQUIVO", path_field(s.source, 60)),
+        ("STATUS", Text(msg, style=style)),
+        ("DIMENSÕES", f"{s.source_dims[0]} × {s.source_dims[1]}" if s.source_dims else "—"),
+        ("SAÍDA", F.output_name(d)),
+    ]
+    left = panel(kv_table(rows), "SOURCE", height=26)
+    right = Panel(C.viewer_frame(fit=d.get("fit", "contain"), src_dims=s.source_dims, title="PROGRAM"),
+                  height=26, box=PANEL_BOX, border_style="panel.border")
+    mid = Table.grid(expand=True)
+    mid.add_column(ratio=76)
+    mid.add_column(ratio=40)
+    mid.add_row(left, right)
+    nxt = "ENTER → ADVANCED" if s.preset == 5 else "ENTER → CONFIGURATION"
+    return Group(mid, panel(Text(f" {nxt}", style="accent"), "PRÓXIMO", height=4))
+
+
+SCREEN_RENDERERS[S.HOME] = _home
+SCREEN_RENDERERS[S.SOURCE] = _source
+
+
+def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
+    if field is F.CONTINUE:
+        return Text("[ CONTINUAR ▸ ]", style="tab.active" if focused else "accent")
+    if focused and s.edit is not None and field.kind == "number":
+        return path_field(s.edit, 20)
+    v = d.get(field.name)
+    if field.kind == "choice":
+        return Text(f"◂ {v} ▸")
+    if field.kind == "toggle":
+        return Text(f"[{v}]", style="ok" if v == "on" else "muted")
+    if field.kind == "number":
+        return Text(W._fmt(v))
+    return Text(str(v))
+
+
+def field_rows(s: S.UIState) -> Table:
+    g = glyphs()
+    d = S.draft(s)
+    items = S.form_items(s)
+    cur = min(S.focus_of(s, S.focus_key(s)), len(items) - 1)
+    in_fields = not (s.screen == S.ADVANCED and s.tab_focus)
+    t = Table.grid(padding=(0, 1))
+    t.add_column(width=3, no_wrap=True)
+    t.add_column(width=44, no_wrap=True, overflow="ellipsis")
+    t.add_column(no_wrap=True, overflow="ellipsis")
+    for i, field in enumerate(items):
+        focused = in_fields and i == cur
+        style = "tab.active" if focused else "value"
+        mark = f"{g['tab_l']}{g['arrow']}" if focused else ""
+        label = "" if field is F.CONTINUE else field.label
+        t.add_row(Text(mark, style=style), Text(label, style=style), _value_text(s, field, d, focused))
+        if focused and s.field_error:
+            t.add_row(Text(""), Text(s.field_error, style="err"), Text(""))
+    return t
+
+
+def preview_rows(cfg: dict) -> list:
+    rows = [
+        ("Pipeline", "Cineon Film" if cfg.get("cineon_pipeline") == "on" else "FFmpeg Native"),
+        ("Mode", str(cfg.get("mode", "")).upper()),
+        ("FPS", str(cfg.get("fps"))),
+        ("Scale / Fit", f"{cfg.get('scale')} · {cfg.get('fit')}"),
+        ("LUT", "Hollywood" if cfg.get("lut") == "on" else "off"),
+        ("HDR", str(cfg.get("hdr"))),
+        ("Tonemap", str(cfg.get("tonemap"))),
+        ("Audio", f"loudnorm {cfg.get('loudnorm')} · −14 LUFS"),
+        ("Performance", str(cfg.get("performance"))),
+    ]
+    if cfg.get("cineon_pipeline") == "on":
+        exposure, sat = float(cfg.get("exposure_offset", 0)), float(cfg.get("saturation", 1))
+        rows.append(("Exposure / Sat", f"{exposure:+.1f} EV · {sat:.2f}"))
+    return rows
+
+
+def preview_chips(cfg: dict) -> list:
+    enh = cfg.get("enhance") == "on"
+    ai = enh and cfg.get("enhance_ai") == "on"
+    return [
+        ("LUT", cfg.get("lut") == "on"),
+        ("Loudnorm", cfg.get("loudnorm") == "on"),
+        ("Enhance", enh),
+        ("AI", ai),
+        ("MCTF", ai and cfg.get("mctf") == "on"),
+        ("Dither", cfg.get("dither") != "off"),
+        ("EBU Meter", cfg.get("ebu_meter") == "on"),
+    ]
+
+
+def _chips_line(cfg: dict) -> Text:
+    out = Text(" ")
+    for label, ok in preview_chips(cfg):
+        out.append_text(C.quality_chip(label, ok))
+        out.append("   ")
+    return out
+
+
+_DEFAULTS_SHOWN = ("lut", "hdr", "tonemap", "loudnorm", "ebu_meter", "enhance", "dither", "performance", "scale")
+
+
+def _configuration(s: S.UIState) -> RenderableType:
+    d = S.draft(s)
+    strip = panel(kv_table([("PIPELINE", pipeline_label(d)), ("ENTRADA", basename(d.get("input")))]),
+                  "RESUMO", height=4)
+    asked = {f.name for f in F.form_for(s.preset)}
+    defaults = kv_table([(n, str(d.get(n))) for n in _DEFAULTS_SHOWN if n not in asked])
+    row = Table.grid(expand=True)
+    row.add_column(ratio=72)
+    row.add_column(ratio=44)
+    row.add_row(panel(field_rows(s), "CONFIGURATION", height=29), panel(defaults, "PADRÕES", height=29))
+    return Group(strip, row)
+
+
+def _tab_bar(s: S.UIState) -> Text:
+    g = glyphs()
+    out = Text(" ")
+    for i, name in enumerate(F.TABS):
+        if i == s.tab:
+            mark = f"{g['tab_l']}{g['arrow']}" if s.tab_focus else g["tab_l"]
+            out.append(f"{mark}{name}   ", style="tab.active")
+        else:
+            out.append(f" {name}   ", style="tab.inactive")
+    return out
+
+
+def _advanced(s: S.UIState) -> RenderableType:
+    d = S.draft(s)
+    row = Table.grid(expand=True)
+    row.add_column(ratio=74)
+    row.add_column(ratio=42)
+    row.add_row(panel(field_rows(s), F.TABS[s.tab].upper(), height=29),
+                panel(kv_table(preview_rows(d)), "SETTINGS", height=29))
+    return Group(_tab_bar(s), Rule(characters="─", style="muted"), row)
+
+
+def _preview(s: S.UIState) -> RenderableType:
+    g = glyphs()
+    d = S.draft(s)
+    title = f"PREVIEW · {basename(d.get('input'))} {g['arrow']} {F.output_name(d)}"
+    inner = Table.grid(expand=True)
+    inner.add_column(ratio=34)
+    inner.add_column(ratio=78)
+    inner.add_row(Panel(C.viewer_frame(fit=d.get("fit", "contain"), src_dims=s.source_dims, title="PROGRAM"),
+                        height=20, box=PANEL_BOX, border_style="panel.border"),
+                  panel(kv_table(preview_rows(d)), "EXPORT SETTINGS", height=20))
+    card = Panel(Group(inner, _chips_line(d)), title=f"[panel.title]{title}[/]", title_align="left",
+                 box=PANEL_BOX, border_style="accent", height=28)
+    actions = Text("   ")
+    for i, label in enumerate(("CONTINUAR ▸ READY", "REVISAR")):
+        focused = s.action_focus == i
+        actions.append(f"{g['arrow'] if focused else ' '}[ {label} ]   ", style="tab.active" if focused else "muted")
+    parts = [card]
+    if s.field_error:
+        parts.append(Text(f"   {s.field_error}", style="err"))
+    parts.append(actions)
+    return Group(*parts)
+
+
+SCREEN_RENDERERS[S.CONFIGURATION] = _configuration
+SCREEN_RENDERERS[S.ADVANCED] = _advanced
+SCREEN_RENDERERS[S.PREVIEW] = _preview

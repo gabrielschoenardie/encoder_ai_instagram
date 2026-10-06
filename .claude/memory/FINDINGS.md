@@ -1498,3 +1498,18 @@ Origem: revisões por tarefa e revisão final da branch `claude/ciclo-p3b-tui-sh
 | P3BF4 | S4 | `render_queue.run_job` | tick de 4 Hz durante o encode (spec §7 pede 10 Hz) — exige mudança no código do P3A | aberto |
 
 Dívida visual para o P3E (sem impacto funcional): READY com ~5 linhas vazias; DETAILS com rótulos espremidos e proveniência não alinhada à direita; mini-linha "PASS · 2"; LOG sem margem; `error_scroll` sem limite superior; linha "CANCEL · requested" duplicada no LOG; leitura POSIX de setas partidas (SSH); preflight do FFmpeg roda depois do wizard; argv ignorado no caminho TUI.
+
+## Ciclo P3C — telas de configuração da TUI (2026-10-05)
+
+Origem: revisões por tarefa, revisão final da branch `claude/ciclo-p3c-tui-config` e re-revisão da onda de correção. Ledger: `.superpowers/sdd/2026-10-05-tui-config-screens/progress.md` (git-ignorado). Nota: a dívida P3B "preflight do FFmpeg roda depois do wizard" foi resolvida no P3C (C-3).
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| P3CF1 | S3 | `ui/probe.py:27` | `probe_source_dims` chama ffprobe sem timeout; ffprobe travado congela o SOURCE | aberto (fora do escopo P3C: arquivo protegido) |
+| P3CF2 | S4 | `ui/tui/app.py` (`_check_source`) | `isfile`/`isdir` síncronos a cada tecla; caminho UNC parcial (`\serv…`) pode travar a UI segundos | aberto (P3E) |
+| P3CF3 | S4 | `ui/tui/app.py` (`_drop_queued_keys`) | ENTER segurado: teclas que chegam depois do descarte no armamento ainda podem dar START (cancelável com C) | corrigido no P3C (`b834ef3`, `8b343eb`: START só com ENTER isolado — READY visível ≥ 1,2 s e tecla anterior ≥ 0,3 s, carimbo na chegada); validado no manual T11 |
+| P3CF4 | S4 | `ui/tui/state.py` (foco por aba) | foco lembrado na aba Color/LUT muda de campo quando Cineon liga/desliga (índice, não nome) | aberto (P3E) |
+| P3CF5 | S4 | `ui/tui/keys.py` POSIX | Delete/PgUp/PgDn (`ESC [3~`) deixam `~` no caminho; POSIX descarta não-ASCII | aberto (P3E) |
+| P3CF6 | S4 | `ui/tui/keys.py` Windows | `à` (U+00E0) = prefixo de tecla estendida `\xe0` do `getwch`; digitar `à` engole a próxima tecla | aberto (P3E) |
+
+Dívida visual para o P3E: SOURCE "ENTER → CONFIGURATION" não esmaece quando o status não é VALID; `field_rows` sem renderização de campo desativado com motivo (nenhum campo desativado até o P3D); choice de uma opção mostra `◂ ▸`; painéis SETTINGS/PREVIEW arredondam números (`preview_rows`) enquanto o formulário mostra o valor exato; falta espaço em `Text(...),Text(...)` na linha de ações do READY.
