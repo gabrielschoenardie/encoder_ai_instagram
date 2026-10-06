@@ -56,6 +56,7 @@ class SourceChecked:
     path: str
     status: str
     dims: tuple | None = None
+    count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ class UIState:
     adv_back: str = SOURCE
     ready_error: str | None = None
     system: tuple = ()
+    source_count: int | None = None
 
 
 def cancel_blocked(s: UIState) -> bool:
@@ -213,7 +215,7 @@ def apply(s: UIState, ev) -> UIState:
     if isinstance(ev, SourceChecked):
         if ev.path != W.clean_path(s.source.text):
             return s
-        return replace(s, source_status=ev.status, source_dims=ev.dims)
+        return replace(s, source_status=ev.status, source_dims=ev.dims, source_count=ev.count)
     if isinstance(ev, Armed):
         if ev.error:
             return replace(s, field_error=ev.error)
@@ -344,6 +346,10 @@ def _set_value(s: UIState, name: str, value) -> UIState:
 
 
 def _commit(s: UIState, field) -> UIState:
+    if field.kind == "path":
+        value = W.clean_path(s.edit.text)
+        s = _set_value(s, field.name, value or None)
+        return s if value else replace(s, field_error=F.OUTDIR_EMPTY)
     value, err = W.parse_number(s.edit.text, field.lo, field.hi, field.integer)
     if err:
         return replace(s, field_error=err, edit=None)
@@ -351,6 +357,12 @@ def _commit(s: UIState, field) -> UIState:
 
 
 def _to_preview(s: UIState) -> UIState:
+    if F.outdir_missing(draft(s)):
+        if s.screen == ADVANCED:
+            s = replace(s, tab=0, tab_focus=False)
+        names = [f.name for f in form_items(s)]
+        s = _set_focus(s, focus_key(s), names.index("output_dir"))
+        return replace(s, field_error=F.OUTDIR_EMPTY, edit=None)
     origin = s.came_from if s.screen == ADVANCED and s.adv_back == PREVIEW else s.screen
     return replace(s, screen=PREVIEW, came_from=origin, action_focus=0, field_error=None)
 
@@ -402,6 +414,12 @@ def _form_key(s: UIState, k: str, ch: str | None) -> UIState:
         if k == "ENTER":
             return _to_preview(s)
         return s
+    if item.kind == "path":
+        if k in _EDIT_KEYS:
+            cur = draft(s).get(item.name) or ""
+            return replace(s, edit=W.edit_text(W.TextBuf(cur, len(cur)), k, ch), field_error=None)
+        if k == "ENTER" and not str(draft(s).get(item.name) or "").strip():
+            return replace(s, field_error=F.OUTDIR_EMPTY)
     if k == "ENTER":
         return _enter_next(s, key, items, i)
     if item.kind == "number" and k == "CHAR" and ch and (ch.isdigit() or ch in ".,-"):
@@ -449,19 +467,43 @@ def _home_key(s: UIState, k: str, ch: str | None) -> UIState:
     s = replace(s, preset=choice, field_error=None, edit=None)
     d = draft(s)
     s = _with_draft(s, d)
-    text = d.get("input") or ""
-    s = replace(s, screen=SOURCE, source=W.TextBuf(text, len(text)), source_status="INVALID", source_dims=None)
+    text = d.get("batch" if F.is_folder(d) else "input") or ""
+    s = replace(s, screen=SOURCE, source=W.TextBuf(text, len(text)), source_status="INVALID", source_dims=None,
+                source_count=None, tab_focus=False)
     return replace(s, source_status="CHECKING", action="check_source") if text else s
 
 
+def _toggle_kind(s: UIState) -> UIState:
+    d = draft(s)
+    folder = not F.is_folder(d)
+    path = W.clean_path(s.source.text) or None
+    d = {**d, F.SOURCE_KIND: F.FOLDER if folder else F.FILE,
+         "batch": path if folder else None, "input": None if folder else path}
+    s = replace(_with_draft(s, d), source_dims=None, source_count=None, field_error=None)
+    if path is None:
+        return replace(s, source_status="INVALID")
+    return replace(s, source_status="CHECKING", action="check_source")
+
+
 def _source_key(s: UIState, k: str, ch: str | None) -> UIState:
+    if s.preset == 5:
+        if s.tab_focus:
+            if k in ("LEFT", "RIGHT", "SPACE"):
+                return _toggle_kind(s)
+            if k == "DOWN":
+                return replace(s, tab_focus=False)
+            if k not in ("ENTER", "ESC"):
+                return s
+        elif k == "UP":
+            return replace(s, tab_focus=True)
+    field = "batch" if F.is_folder(draft(s)) else "input"
     if k == "ESC":
-        s = _with_draft(s, {**draft(s), "input": W.clean_path(s.source.text) or None})
-        return replace(s, screen=HOME)
+        s = _with_draft(s, {**draft(s), field: W.clean_path(s.source.text) or None})
+        return replace(s, screen=HOME, tab_focus=False)
     if k == "ENTER":
         if s.source_status != "VALID":
             return s
-        s = _with_draft(s, {**draft(s), "input": W.clean_path(s.source.text)})
+        s = _with_draft(s, {**draft(s), field: W.clean_path(s.source.text)})
         if s.preset == 5:
             return replace(s, screen=ADVANCED, adv_back=SOURCE, tab_focus=False, edit=None, field_error=None)
         return replace(s, screen=CONFIGURATION, edit=None, field_error=None)
@@ -470,7 +512,8 @@ def _source_key(s: UIState, k: str, ch: str | None) -> UIState:
         return s
     if buf.text == s.source.text:
         return replace(s, source=buf)
-    return replace(s, source=buf, source_status="CHECKING", source_dims=None, action="check_source")
+    return replace(s, source=buf, source_status="CHECKING", source_dims=None, source_count=None,
+                   action="check_source")
 
 
 def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
