@@ -1,7 +1,10 @@
+import re
 from dataclasses import replace
 
 import reporter as R
 from ui.config import EncodeConfig
+from ui.theme import get_console
+from ui.tui import forms as F
 from ui.tui import screens as V
 from ui.tui import state as S
 from ui.tui.test_screens import assert_fits, assert_no_emoji, text_of
@@ -162,3 +165,67 @@ def test_queue_one_job_pluralizes():
     done = S.apply(queue_state(n=1, active=0), R.QueueDone(0, ts=130.0))
     out = text_of(done)
     assert "FILA · 1 arquivo" in out and "1 arquivos" not in out
+
+
+def _labels_intact(out, labels):
+    lines = out.splitlines()
+    for lbl in labels:
+        assert any(lbl in ln.split()[:2] for ln in lines), lbl
+    assert not re.search(r"\s[A-ZÁÍ]{1,3}…\s", out)
+
+
+def test_long_names_keep_labels_in_ready_and_configuration():
+    folder = "C:/v/" + "lote_muito_longo_" * 6
+    outdir = "D:/" + "saida_longa_" * 8
+    ready = S.UIState(config=batch_cfg(batch=folder, output_dir=outdir), screen=S.READY, is_batch=True, preset=3,
+                      source_count=12)
+    out = text_of(ready)
+    _labels_intact(out, ("SOURCE", "OUTPUT", "PIPELINE", "MODO", "FPS", "COR", "ÁUDIO", "ENHANCE", "PERF"))
+    assert "12 vídeos" in out and "saída: …" in out
+    assert_fits(out)
+    d = {**F.new_draft(3), "batch": folder, F.OUTDIR_ON: "on", "output_dir": outdir}
+    out = text_of(S.UIState(config={}, screen=S.CONFIGURATION, preset=3, drafts=((3, d),), source_count=12))
+    _labels_intact(out, ("PIPELINE", "PASTA"))
+    assert "12 vídeos" in out and "saída: …" in out
+    assert_fits(out)
+
+
+def test_preview_batch_ebu_meter_chip_off():
+    chips = dict(V.preview_chips({**F.new_draft(3), "ebu_meter": "on"}))
+    assert chips["EBU Meter"] is False
+    assert dict(V.preview_chips({**F.new_draft(1), "ebu_meter": "on"}))["EBU Meter"] is True
+    s = S.UIState(config={}, screen=S.PREVIEW, preset=3, source_count=2,
+                  drafts=((3, {**F.new_draft(3), "batch": "C:/v/lote", "ebu_meter": "on"}),))
+    out = text_of(s)
+    assert "EBU Meter" in out and "✓ EBU Meter" not in out
+
+
+def _footer(out):
+    return "\n".join(out.splitlines()[-2:])
+
+
+def test_batch_footers_say_queue():
+    ready = S.UIState(config=batch_cfg(), screen=S.READY, is_batch=True, preset=3, source_count=3)
+    foot = _footer(text_of(ready))
+    assert "[ENTER] Start queue" in foot and "Start encode" not in foot
+    foot = _footer(text_of(S.apply(queue_state(), S.Key("C"))))
+    assert "[ESC] Keep queue" in foot and "Keep encoding" not in foot
+
+
+def _has_reverse(state):
+    con = get_console(record=True, width=120, height=40, force_terminal=True, color_system="truecolor")
+    return any(seg.style is not None and seg.style.reverse for seg in con.render(V.render(state)))
+
+
+def test_source_path_cursor_hidden_while_tipo_focused():
+    s = folder_state(preset=5)
+    assert _has_reverse(s)
+    assert not _has_reverse(replace(s, tab_focus=True))
+
+
+def test_report_empty_queue_explains():
+    empty = S.apply(S.UIState(config=batch_cfg(), screen=S.QUEUE, is_batch=True, preset=3), R.QueueDone(0))
+    assert empty.screen == S.REPORT and "nenhum vídeo encontrado na pasta" in text_of(empty)
+    assert "nenhum vídeo encontrado na pasta" not in text_of(report_state())
+    stopped = S.apply(S.UIState(config=batch_cfg(), screen=S.QUEUE, is_batch=True, preset=3), S.Finished(130))
+    assert stopped.screen == S.REPORT and "nenhum vídeo encontrado na pasta" not in text_of(stopped)

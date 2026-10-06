@@ -91,14 +91,14 @@ def videos(n: int | None) -> str:
     return f"{n} vídeo{'' if n == 1 else 's'}"
 
 
-def output_dir_text(cfg: dict) -> str:
+def output_dir_text(cfg: dict, width: int = 50) -> str:
     out = cfg.get("output_dir")
-    return elide(out, 50) if out else "mesma pasta"
+    return elide(out, width) if out else "mesma pasta"
 
 
-def source_text(cfg: dict, count: int | None) -> str:
+def source_text(cfg: dict, count: int | None, width: int = 40) -> str:
     if cfg.get("batch"):
-        return f"pasta {elide(folder_name(cfg['batch']), 40)} · {videos(count)}"
+        return f"pasta {elide(folder_name(cfg['batch']), width)} · {videos(count)}"
     return basename(cfg.get("input"))
 
 
@@ -208,7 +208,7 @@ def header(s: S.UIState) -> RenderableType:
 def footer(s: S.UIState) -> RenderableType:
     keys = FOOTER_KEYS.get(s.screen, "")
     if s.modal == "CANCEL":
-        keys = MODAL_KEYS
+        keys = MODAL_KEYS.replace("Keep encoding", "Keep queue") if s.is_batch else MODAL_KEYS
     elif s.screen in (S.QC, S.DETAILS) and s.back in S.FINAL_SCREENS:
         keys = "[ESC] Voltar"
     elif s.screen == S.LOG and s.back in S.FINAL_SCREENS:
@@ -221,6 +221,8 @@ def footer(s: S.UIState) -> RenderableType:
         keys = CONFIG_BATCH_KEYS
     elif s.screen == S.READY and s.preset:
         keys = keys.replace("[ESC] Sair", "[ESC] Voltar")
+    if s.screen == S.READY and s.is_batch:
+        keys = keys.replace("Start encode", "Start queue")
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
 
 
@@ -228,8 +230,8 @@ def _ready(s: S.UIState) -> RenderableType:
     cfg = s.config
     g = glyphs()
     batch = bool(cfg.get("batch"))
-    src = source_text(cfg, s.source_count)
-    out = f"saída: {output_dir_text(cfg)}" if batch else basename(s.output_path)
+    src = source_text(cfg, s.source_count, 24) if batch else source_text(cfg, s.source_count)
+    out = f"saída: {output_dir_text(cfg, 30)}" if batch else basename(s.output_path)
     if batch:
         banner_src = f"pasta {elide(folder_name(cfg['batch']), 30)} · {videos(s.source_count)}"
         banner_out = "saída: " + (elide(cfg["output_dir"], 45) if cfg.get("output_dir") else "mesma pasta")
@@ -647,6 +649,8 @@ def _report(s: S.UIState) -> RenderableType:
     start = queue_start(len(s.queue), None, S.REPORT_ROWS, s.queue_scroll)
     table = panel(queue_table(s, start, S.REPORT_ROWS), f"FILA · {_count(len(s.queue), 'arquivo', 'arquivos')}", height=S.REPORT_ROWS + 3)
     parts = [top, table]
+    if not s.queue and code == 0:
+        parts.append(Text("   nenhum vídeo encontrado na pasta", style="muted"))
     if s.removal_failed:
         parts.append(Text(f"   ⚠ NÃO foi possível remover {basename(s.output_path)} — apague à mão antes de "
                           "rodar a fila de novo", style="warn"))
@@ -830,10 +834,12 @@ SCREEN_RENDERERS[S.ERROR] = _error
 SCREEN_RENDERERS[S.CANCELLED] = _cancelled
 
 
-def path_field(buf: W.TextBuf, width: int) -> Text:
+def path_field(buf: W.TextBuf, width: int, cursor: bool = True) -> Text:
     text, cur = buf.text, buf.cursor
     start = max(0, min(cur - width // 2, len(text) + 1 - width))
     view = text[start:start + width]
+    if not cursor:
+        return Text(view, style="value")
     pos = cur - start
     out = Text()
     out.append(view[:pos], style="value")
@@ -906,12 +912,13 @@ def _source(s: S.UIState) -> RenderableType:
     path = W.clean_path(s.source.text) or None
     d = {**dd, ("batch" if folder else "input"): path}
     rows = []
+    cursor = not (s.preset == 5 and s.tab_focus)
     if s.preset == 5:
         rows.append(("TIPO", _tipo_row(s, folder)))
     if folder:
         msg, style = _FOLDER_STATUS.get(s.source_status, ("—", "muted"))
         rows += [
-            ("PASTA", path_field(s.source, 60)),
+            ("PASTA", path_field(s.source, 60, cursor)),
             ("STATUS", Text(msg.format(videos=videos(s.source_count)), style=style)),
             ("VÍDEOS", videos(s.source_count) if s.source_count is not None else "—"),
             ("SAÍDA", output_dir_text(F.to_config(d))),
@@ -919,7 +926,7 @@ def _source(s: S.UIState) -> RenderableType:
     else:
         msg, style = _SOURCE_STATUS.get(s.source_status, ("—", "muted"))
         rows += [
-            ("ARQUIVO", path_field(s.source, 60)),
+            ("ARQUIVO", path_field(s.source, 60, cursor)),
             ("STATUS", Text(msg, style=style)),
             ("DIMENSÕES", f"{s.source_dims[0]} × {s.source_dims[1]}" if s.source_dims else "—"),
             ("SAÍDA", F.output_name(d)),
@@ -1004,7 +1011,7 @@ def preview_chips(cfg: dict) -> list:
         ("AI", ai),
         ("MCTF", ai and cfg.get("mctf") == "on"),
         ("Dither", cfg.get("dither") != "off"),
-        ("EBU Meter", cfg.get("ebu_meter") == "on"),
+        ("EBU Meter", cfg.get("ebu_meter") == "on" and not F.is_folder(cfg)),
     ]
 
 
@@ -1023,7 +1030,7 @@ def _configuration(s: S.UIState) -> RenderableType:
     d = S.draft(s)
     if F.is_folder(d):
         cfg = F.to_config(d)
-        where = ("PASTA", f"{elide(cfg.get('batch'), 50)} · {videos(s.source_count)} · saída: {output_dir_text(cfg)}")
+        where = ("PASTA", f"{elide(cfg.get('batch'), 30)} · {videos(s.source_count)} · saída: {output_dir_text(cfg, 30)}")
     else:
         where = ("ENTRADA", basename(d.get("input")))
     strip = panel(kv_table([("PIPELINE", pipeline_label(d)), where]), "RESUMO", height=4)
