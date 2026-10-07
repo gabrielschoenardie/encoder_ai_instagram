@@ -941,6 +941,32 @@ def test_batch_ctrl_c_outside_job_prints_interrupted_summary(tmp_path, started, 
     assert summary_lines(con) == [line]
 
 
+@pytest.mark.parametrize("key", ["D", "L"])
+def test_batch_ctrl_c_with_overlay_open_finishes_queue(tmp_path, key):
+    folder = batch_folder(tmp_path)
+    app, _, _ = make_home(tmp_path, [])
+    s = S.UIState(config={}, screen=S.PREVIEW, preset=3)
+    s = S.apply(s, S.Armed({"batch": str(folder), "input": None, "output_dir": None}, "", False))
+    s = S.apply(s, S.Key("ENTER"))
+    s = S.apply(s, R.QueueInit(_jobs(folder)))
+    s = S.apply(S.apply(s, R.JobStart(0, ts=10.0)), S.Key(key))
+    assert s.screen in (S.DETAILS, S.LOG)
+    app.state = s
+    assert app._interrupted_code() == 130
+    assert app.state.screen == S.REPORT and app.state.exit_code == 130 and app.state.modal is None
+    assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
+
+
+def test_batch_ctrl_c_in_ready_does_not_finish_queue(tmp_path):
+    folder = batch_folder(tmp_path)
+    app, _, _ = make_home(tmp_path, [])
+    s = S.UIState(config={}, screen=S.PREVIEW, preset=3)
+    app.state = S.apply(s, S.Armed({"batch": str(folder), "input": None, "output_dir": None}, "", False))
+    assert app.state.screen == S.READY
+    assert app._interrupted_code() == 130
+    assert app.state.screen == S.READY and app.state.exit_code is None
+
+
 @pytest.mark.timeout(30)
 def test_batch_runner_exception_after_queue_init_fails_active_job(tmp_path):
     folder = batch_folder(tmp_path)

@@ -132,7 +132,7 @@ class App:
         s = self.state
         if s.screen == S.REPORT and s.exit_code is not None:
             return s.exit_code
-        if s.is_batch and s.screen == S.QUEUE:
+        if s.is_batch and s.screen in (S.QUEUE, S.DETAILS, S.LOG):
             self.state = S.apply(s, S.Finished(130))
         return 130
 
