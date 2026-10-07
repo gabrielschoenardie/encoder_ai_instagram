@@ -30,6 +30,7 @@ SEAL_REVEAL_S = 1.2
 MIN_SIZE = (120, 40)
 LOG_CAP = 500
 REPORT_ROWS = 21
+ERROR_ROWS = 17
 LOG_FILTERS = ("TUDO", "SYSTEM", "INFO", "WARNING", "FFMPEG")
 CANCEL_UNAVAILABLE = "cancelamento indisponível neste estágio — tente de novo em instantes"
 _WARNING_RE = re.compile(r"^aviso\b|\bfalhou\b|n[ãa]o foi poss[ií]vel", re.IGNORECASE)
@@ -184,6 +185,15 @@ def final_actions(s: UIState) -> tuple:
     if s.screen == COMPLETED or s.back == COMPLETED:
         return ("SAIR", "VER QC", "VER LOG") if s.qc is not None else ("SAIR", "VER LOG")
     return ("SAIR", "VER LOG")
+
+
+def stderr_lines(err, log) -> list:
+    raw = getattr(err, "stderr_tail", None) if err is not None else None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if raw:
+        return [ln for ln in raw.replace("\r", "\n").split("\n") if ln.strip()]
+    return [r.text for r in log if r.kind == "FFMPEG"][-40:]
 
 
 def filtered_log(s: UIState) -> tuple:
@@ -412,10 +422,11 @@ def _engine(s: UIState, ev) -> UIState:
             return _log(s, "WARNING", f"{ev.kind}: {ev.message}")
         return _log(replace(s, error=ev), "WARNING", f"{ev.kind}: {ev.message}")
     if isinstance(ev, R.Cancel):
+        repeated = s.cancel_phase == ev.phase
         s = replace(s, cancel_phase=ev.phase, modal=None)
         if ev.partial_removed is not None:
             s = replace(s, partial_removed=ev.partial_removed)
-        return _log(s, "SYSTEM", f"CANCEL · {ev.phase}")
+        return s if repeated else _log(s, "SYSTEM", f"CANCEL · {ev.phase}")
     return s
 
 
@@ -679,7 +690,8 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         if k == "RIGHT":
             return replace(s, action_focus=min(len(actions) - 1, s.action_focus + 1))
         if s.screen == ERROR and k in ("UP", "DOWN"):
-            return replace(s, error_scroll=max(0, s.error_scroll + (1 if k == "DOWN" else -1)))
+            top = max(0, len(stderr_lines(s.error, s.log)) - ERROR_ROWS)
+            return replace(s, error_scroll=max(0, min(top, s.error_scroll + (1 if k == "DOWN" else -1))))
         if k == "ESC":
             return replace(s, action="exit")
         if k == "ENTER":

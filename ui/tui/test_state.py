@@ -170,12 +170,35 @@ def test_final_actions_and_exit():
     assert S.final_actions(S.apply(_s(screen=S.ENCODING), S.Finished(1))) == ("SAIR", "VER LOG")
 
 
+def _error_state(n_lines):
+    tail = "\n".join(f"linha {i}" for i in range(n_lines))
+    s = _run(_s(screen=S.ENCODING), R.Error("FFmpegError", "boom", tail, 1, None))
+    return S.apply(s, S.Finished(1))
+
+
 def test_error_scroll_bounds():
-    s = S.apply(_s(screen=S.ENCODING), S.Finished(1))
+    s = _error_state(25)
     s = _run(s, S.Key("UP"))
     assert s.error_scroll == 0
     s = _run(s, S.Key("DOWN"), S.Key("DOWN"))
     assert s.error_scroll == 2
+
+
+def test_error_scroll_has_upper_limit():
+    s = _error_state(30)
+    s = _run(s, *[S.Key("DOWN")] * 100)
+    assert s.error_scroll == 30 - S.ERROR_ROWS
+    assert _run(s, S.Key("UP")).error_scroll == 30 - S.ERROR_ROWS - 1
+
+
+def test_error_scroll_stays_zero_when_stderr_fits():
+    s = _run(_error_state(5), S.Key("DOWN"), S.Key("DOWN"))
+    assert s.error_scroll == 0
+
+
+def test_cancel_requested_logged_once():
+    s = _run(_s(screen=S.ENCODING), R.Cancel("requested", ts=1.0), R.Cancel("requested", ts=1.5))
+    assert [r.text for r in s.log].count("CANCEL · requested") == 1
 
 
 def test_tick_records_size_and_perf():
