@@ -1,6 +1,8 @@
 import argparse
 import os
 import sys
+import threading
+import time
 from dataclasses import replace
 
 import pytest
@@ -1041,6 +1043,44 @@ def test_check_folder_oserror_is_not_found(tmp_path, monkeypatch):
     monkeypatch.setattr(RE, "find_video_files", _scandir_down)
     app._check_source()
     assert (app.state.source_status, app.state.source_count) == ("NOT_FOUND", None)
+
+
+def _source_app(tmp_path, preset, text):
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.apply(app.state, S.Key("CHAR", preset))
+    app.state = replace(app.state, source=W.TextBuf(text, len(text)))
+    return app
+
+
+@pytest.mark.parametrize("preset", ["1", "3"])
+@pytest.mark.parametrize("text", ["\\\\serv", "\\\\serv\\share", '"\\\\serv"'])
+def test_check_source_partial_unc_does_not_touch_disk(tmp_path, monkeypatch, preset, text):
+    app = _source_app(tmp_path, preset, text)
+    calls = []
+    for mod, name in ((os.path, "isdir"), (os.path, "isfile"), (os, "listdir"), (os, "scandir")):
+        monkeypatch.setattr(mod, name, lambda *a, _n=name: calls.append(_n))
+    app._check_source()
+    assert calls == [] and app.state.source_status == "NOT_FOUND" and app.state.source_count is None
+
+
+@pytest.mark.parametrize("preset", ["1", "3"])
+def test_check_source_slow_disk_does_not_freeze(tmp_path, monkeypatch, preset):
+    app = _source_app(tmp_path, preset, str(tmp_path / "lento"))
+    monkeypatch.setattr(os.path, "isdir", lambda p: time.sleep(2) or True)
+    t0 = time.monotonic()
+    app._check_source()
+    assert time.monotonic() - t0 < 0.6
+    assert (app.state.source_status, app.state.source_count, app.state.source_dims) == ("NOT_FOUND", None, None)
+
+
+def test_check_source_probe_runs_on_caller_thread(tmp_path):
+    f = tmp_path / "x.mov"
+    f.write_bytes(b"x")
+    app = _source_app(tmp_path, "1", str(f))
+    seen = []
+    app._probe = lambda p: seen.append(threading.current_thread()) or (1080, 1920)
+    app._check_source()
+    assert seen == [threading.current_thread()] and app.state.source_status == "VALID"
 
 
 @pytest.mark.timeout(30)
