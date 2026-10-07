@@ -101,6 +101,8 @@ PowerShell separadas. A aba Setup mostra o diagnóstico de hardware
 python Reels_Encoder_v2_FINAL.py --ui
 ```
 
+`.\launcher.ps1 -Tui` troca o wizard da aba Encode pela TUI (`python -m ui.tui`); a aba Setup não muda.
+
 O launcher não passa nenhum parâmetro de encode. Toda escolha — preset,
 LUT, enhance, CRF — acontece dentro do wizard e da análise adaptativa do
 encoder. Para linha de comando, chame o encoder direto dentro do venv
