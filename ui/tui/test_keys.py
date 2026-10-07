@@ -123,3 +123,49 @@ def test_read_posix_seq_reads_whole_utf8_char():
 def test_read_posix_seq_lone_escape():
     read, ready, buf = _feed(b"")
     assert K._read_posix_seq(read, ready) == ""
+
+
+class StoppingMsvcrt(FakeMsvcrt):
+    def __init__(self, pending, reader):
+        super().__init__(pending)
+        self.reader = reader
+
+    def getwch(self):
+        ch = super().getwch()
+        if not self.pending:
+            self.reader._stop.set()
+        return ch
+
+
+def _run_windows_loop(monkeypatch, pending):
+    got = []
+    r = K.KeyReader(got.append)
+    monkeypatch.setitem(sys.modules, "msvcrt", StoppingMsvcrt(pending, r))
+    K._windows_loop(r)
+    return [(k.name, k.char) for k in got]
+
+
+def test_windows_loop_e0_with_pending_key_is_extended(monkeypatch):
+    assert _run_windows_loop(monkeypatch, ["\xe0", "K"]) == [("LEFT", None)]
+
+
+def test_windows_loop_typed_a_grave_does_not_swallow_next_key(monkeypatch):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt(["à", "a"], r)
+    hits = iter([True, False, True])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [("CHAR", "à"), ("CHAR", "a")]
+
+
+def test_windows_loop_nul_prefix_always_extended(monkeypatch):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt(["\x00", "H"], r)
+    hits = iter([True, False])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [("UP", None)]

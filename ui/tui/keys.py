@@ -96,6 +96,9 @@ def _windows_loop(reader: KeyReader) -> None:
     while not reader._stop.is_set():
         if msvcrt.kbhit():
             ch = msvcrt.getwch()
+            if ch == "\xe0" and not msvcrt.kbhit():
+                reader._put(_plain(ch), ch)
+                continue
             nxt = msvcrt.getwch() if ch in ("\x00", "\xe0") else None
             reader._put(decode_windows(ch, nxt), ch)
         else:
@@ -104,7 +107,7 @@ def _windows_loop(reader: KeyReader) -> None:
 
 def _read_posix_seq(read: Callable[[int], bytes], ready: Callable[[float], bool]) -> str:
     first = read(1)
-    if first == b"":
+    if first == b"\x1b":
         data = first
         if ready(0.03):
             data += read(1)
