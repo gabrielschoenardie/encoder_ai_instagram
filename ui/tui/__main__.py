@@ -35,8 +35,10 @@ def _exit_code(exc: SystemExit) -> int:
 def main() -> int:
     console = get_console()
     if not terminal_ok(console):
+        hint = (" Console legado detectado: abra o launcher no Windows Terminal (wt)."
+                if getattr(console, "legacy_windows", False) else "")
         console.print("[warn]A TUI precisa de um terminal interativo com VT e pelo menos 120×40 — "
-                      "abrindo o modo clássico.[/warn]")
+                      f"abrindo o modo clássico.{hint}[/warn]")
         try:
             RE.main()
         except SystemExit as exc:

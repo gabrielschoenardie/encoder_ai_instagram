@@ -34,6 +34,25 @@ def test_fallback_runs_classic_main(monkeypatch):
     assert M.main() == 0 and called == [1]
 
 
+def _fallback_output(monkeypatch, **console_kwargs):
+    printed = []
+    con = console(**console_kwargs)
+    con.print = lambda *a, **k: printed.append(" ".join(str(x) for x in a))
+    monkeypatch.setattr(M, "get_console", lambda: con)
+    monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: False)
+    monkeypatch.setattr(RE, "main", lambda: None)
+    M.main()
+    return "\n".join(printed)
+
+
+def test_fallback_mentions_windows_terminal_on_legacy_console(monkeypatch):
+    assert "Windows Terminal" in _fallback_output(monkeypatch, legacy=True)
+
+
+def test_fallback_omits_windows_terminal_hint_when_not_legacy(monkeypatch):
+    assert "Windows Terminal" not in _fallback_output(monkeypatch, w=80, h=24, legacy=False)
+
+
 def test_fallback_propagates_classic_exit_code(monkeypatch):
     monkeypatch.setattr(M, "get_console", lambda: console())
     monkeypatch.setattr(M, "terminal_ok", lambda *a, **k: False)
