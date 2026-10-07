@@ -18,21 +18,19 @@ def type_text(s, text):
     return s
 
 
-def test_home_navigation_skips_batch_and_wraps():
+def test_home_navigation_visits_all_presets_and_wraps():
     s = home()
     assert s.home_focus == 0
-    s = S.apply(s, key("DOWN"))
-    assert s.home_focus == 1
-    s = S.apply(s, key("DOWN"))
-    assert s.home_focus == 3
-    s = S.apply(s, key("UP"))
-    assert s.home_focus == 1
+    for want in (1, 2, 3, 4, 0):
+        s = S.apply(s, key("DOWN"))
+        assert s.home_focus == want
     s = S.apply(home(), key("UP"))
     assert s.home_focus == 4
 
 
-def test_home_digits_and_disabled_batch():
-    assert S.apply(home(), key("CHAR", "3")) == home()
+def test_home_digits_open_presets():
+    s = S.apply(home(), key("CHAR", "3"))
+    assert s.screen == S.SOURCE and s.preset == 3 and S.draft(s) == F.new_draft(3)
     s = S.apply(home(), key("CHAR", "4"))
     assert s.action == "tools" and s.screen == S.HOME
     s = S.apply(home(), key("CHAR", "2"))
@@ -314,3 +312,169 @@ def test_esc_preset5_after_revisar_escapes_to_source_and_home():
     assert s.screen == S.SOURCE
     s = S.apply(s, key("ESC"))
     assert s.screen == S.HOME
+
+
+def at_folder(preset=3, path="C:/v/lote", count=3):
+    from dataclasses import replace
+    s = S.apply(home(), key("CHAR", str(preset)))
+    if preset == 5:
+        s = S.apply(S.apply(S.apply(s, key("UP")), key("RIGHT")), key("DOWN"))
+    s = replace(type_text(s, path), action=None)
+    s = S.apply(s, S.SourceChecked(path, "VALID", None, count))
+    return S.apply(s, key("ENTER"))
+
+
+def test_preset3_opens_folder_source_and_routes_to_configuration():
+    s = S.apply(home(), key("CHAR", "3"))
+    assert s.screen == S.SOURCE and F.is_folder(S.draft(s)) and not s.tab_focus
+    s = type_text(s, "C:/v/lote")
+    assert s.action == "check_source" and s.source_status == "CHECKING" and s.source_count is None
+    s = S.apply(s, S.SourceChecked("C:/v/lote", "VALID", None, 3))
+    assert s.source_status == "VALID" and s.source_count == 3
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.CONFIGURATION
+    assert S.draft(s)["batch"] == "C:/v/lote" and S.draft(s)["input"] is None
+
+
+def test_empty_folder_blocks_enter():
+    s = type_text(S.apply(home(), key("CHAR", "3")), "C:/v/vazia")
+    s = S.apply(s, S.SourceChecked("C:/v/vazia", "EMPTY", None, 0))
+    assert s.source_status == "EMPTY" and s.source_count == 0
+    assert S.apply(s, key("ENTER")).screen == S.SOURCE
+
+
+def test_preset5_tipo_switches_kind_and_keeps_other_edits():
+    from dataclasses import replace
+    s = S.apply(home(), key("CHAR", "5"))
+    s = replace(s, drafts=((5, {**S.draft(s), "fps": "60"}),))
+    s = replace(type_text(s, "C:/v/lote"), action=None)
+    s = S.apply(s, key("UP"))
+    assert s.tab_focus and s.screen == S.SOURCE
+    assert S.apply(s, key("CHAR", "x")) == s
+    s = S.apply(s, key("RIGHT"))
+    d = S.draft(s)
+    assert F.is_folder(d) and d["batch"] == "C:/v/lote" and d["input"] is None and d["fps"] == "60"
+    assert s.source_status == "CHECKING" and s.action == "check_source"
+    s = S.apply(replace(s, action=None), key("LEFT"))
+    d = S.draft(s)
+    assert not F.is_folder(d) and d["input"] == "C:/v/lote" and d["batch"] is None and d["fps"] == "60"
+    s = S.apply(s, key("DOWN"))
+    assert not s.tab_focus
+    assert S.apply(s, key("CHAR", "x")).source.text == "C:/v/lotex"
+
+
+def test_preset5_tipo_with_empty_path_is_invalid_without_check():
+    s = S.apply(S.apply(S.apply(home(), key("CHAR", "5")), key("UP")), key("SPACE"))
+    assert F.is_folder(S.draft(s)) and s.source_status == "INVALID" and s.action is None
+
+
+def test_preset5_folder_advanced_source_tab_starts_with_outdir_toggle():
+    s = at_folder(5)
+    assert s.screen == S.ADVANCED and not s.tab_focus and s.adv_back == S.SOURCE
+    assert [f.name for f in S.form_items(s)][:2] == [F.OUTDIR_ON, "cineon_pipeline"]
+    assert S.draft(s)["batch"] == "C:/v/lote" and S.draft(s)["input"] is None
+
+
+def test_source_esc_remembers_folder():
+    s = type_text(S.apply(home(), key("CHAR", "3")), "C:/v/lote")
+    s = S.apply(s, key("ESC"))
+    assert s.screen == S.HOME and S.draft(s)["batch"] == "C:/v/lote"
+    s = S.apply(s, key("CHAR", "3"))
+    assert s.source.text == "C:/v/lote" and s.action == "check_source"
+
+
+def test_batch_form_outdir_toggle_shows_path_field():
+    s = at_folder(3)
+    assert [f.name for f in S.form_items(s)] == [F.OUTDIR_ON, "cineon_pipeline", "__continue__"]
+    s = S.apply(s, key("SPACE"))
+    assert S.draft(s)[F.OUTDIR_ON] == "on"
+    assert [f.name for f in S.form_items(s)] == [F.OUTDIR_ON, "output_dir", "cineon_pipeline", "__continue__"]
+
+
+def test_outdir_empty_blocks_with_inline_error_cleared_on_focus_change():
+    s = S.apply(S.apply(at_folder(3), key("SPACE")), key("DOWN"))
+    assert focused(s).name == "output_dir"
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.CONFIGURATION and s.field_error == F.OUTDIR_EMPTY and focused(s).name == "output_dir"
+    s = S.apply(s, key("DOWN"))
+    assert s.field_error is None and focused(s).name == "cineon_pipeline"
+    s = S.apply(S.apply(s, key("DOWN")), key("ENTER"))
+    assert s.screen == S.CONFIGURATION and s.field_error == F.OUTDIR_EMPTY and focused(s).name == "output_dir"
+    assert S.apply(s, key("UP")).field_error is None
+
+
+def test_outdir_typing_hotkey_letters_and_commit():
+    s = S.apply(S.apply(at_folder(3), key("SPACE")), key("DOWN"))
+    s = type_text(s, "D:/clips/lote")
+    assert s.edit.text == "D:/clips/lote" and s.modal is None and s.screen == S.CONFIGURATION
+    s = S.apply(s, key("ENTER"))
+    assert S.draft(s)["output_dir"] == "D:/clips/lote" and s.edit is None and focused(s).name == "cineon_pipeline"
+    assert F.to_config(S.draft(s))["output_dir"] == "D:/clips/lote"
+    s = S.apply(S.apply(S.apply(s, key("UP")), key("UP")), key("SPACE"))
+    assert S.draft(s)[F.OUTDIR_ON] == "off"
+    assert F.to_config(S.draft(s))["output_dir"] is None and S.draft(s)["output_dir"] == "D:/clips/lote"
+
+
+def test_outdir_edit_esc_cancels_and_quoted_empty_commit_errors():
+    s = S.apply(S.apply(at_folder(3), key("SPACE")), key("DOWN"))
+    s = S.apply(type_text(s, "X:/a"), key("ESC"))
+    assert s.edit is None and S.draft(s)["output_dir"] is None and s.screen == S.CONFIGURATION
+    s = S.apply(type_text(s, '""'), key("ENTER"))
+    assert s.field_error == F.OUTDIR_EMPTY and S.draft(s)["output_dir"] is None and s.edit is None
+
+
+def test_advanced_folder_enter_walks_tabs_with_outdir_then_preview():
+    s = S.apply(at_folder(5), key("SPACE"))
+    s = S.apply(type_text(S.apply(s, key("DOWN")), "D:/saida"), key("ENTER"))
+    assert focused(s).name == "cineon_pipeline" and s.tab == 0
+    tabs = []
+    for _ in range(60):
+        if s.screen != S.ADVANCED:
+            break
+        tabs.append(s.tab)
+        s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW and S.draft(s)["output_dir"] == "D:/saida"
+    assert tabs == sorted(tabs) and set(tabs) == {0, 1, 2, 3, 4}
+
+
+def test_advanced_continue_with_empty_outdir_jumps_back_to_source_tab():
+    from dataclasses import replace
+    s = replace(S.apply(at_folder(5), key("SPACE")), tab=4)
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.ADVANCED and s.tab == 0 and not s.tab_focus
+    assert focused(s).name == "output_dir" and s.field_error == F.OUTDIR_EMPTY
+
+
+def test_esc_chain_preset3_after_revisar_never_loops():
+    s = at_folder(3)
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW and s.came_from == S.CONFIGURATION
+    s = S.apply(S.apply(s, key("RIGHT")), key("ENTER"))
+    assert s.screen == S.ADVANCED and s.adv_back == S.PREVIEW
+    assert S.form_items(s)[0].name == F.OUTDIR_ON
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW
+    for want in (S.CONFIGURATION, S.SOURCE, S.HOME):
+        s = S.apply(s, key("ESC"))
+        assert s.screen == want
+    assert S.draft(s)["batch"] == "C:/v/lote"
+
+
+def test_esc_chain_preset5_folder_after_revisar_never_loops():
+    s = at_folder(5)
+    while focused(s) is not F.CONTINUE:
+        s = S.apply(s, key("DOWN"))
+    s = S.apply(s, key("ENTER"))
+    assert s.screen == S.PREVIEW and s.came_from == S.ADVANCED
+    s = S.apply(S.apply(s, key("RIGHT")), key("ENTER"))
+    assert s.screen == S.ADVANCED and s.adv_back == S.PREVIEW
+    for want in (S.PREVIEW, S.ADVANCED, S.SOURCE, S.HOME):
+        s = S.apply(s, key("ESC"))
+        assert s.screen == want
+    assert F.is_folder(S.draft(s))

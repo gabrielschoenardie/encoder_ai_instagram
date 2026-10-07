@@ -2,6 +2,8 @@
 
 import json
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -45,7 +47,7 @@ def _payload(
 
 
 def _fake_check_output_factory(payload):
-    def _fake_check_output(cmd, stderr=None):
+    def _fake_check_output(cmd, stderr=None, **kwargs):
         return payload
 
     return _fake_check_output
@@ -99,7 +101,7 @@ def test_probe_rotation_matrix(monkeypatch, kwargs, expected):
 def test_probe_argv_contract(monkeypatch):
     captured = {}
 
-    def _fake_check_output(cmd, stderr=None):
+    def _fake_check_output(cmd, stderr=None, **kwargs):
         captured["cmd"] = cmd
         return _payload()
 
@@ -141,7 +143,7 @@ def test_probe_matches_engine_rotation_swap(monkeypatch, kwargs, expected):
 
 
 def test_probe_missing_binary_returns_none(monkeypatch):
-    def _raise(cmd, stderr=None):
+    def _raise(cmd, stderr=None, **kwargs):
         raise FileNotFoundError("ffprobe not found")
 
     monkeypatch.setattr("ui.probe.subprocess.check_output", _raise)
@@ -149,7 +151,7 @@ def test_probe_missing_binary_returns_none(monkeypatch):
 
 
 def test_probe_invalid_path_returns_none(monkeypatch):
-    def _raise(cmd, stderr=None):
+    def _raise(cmd, stderr=None, **kwargs):
         raise subprocess.CalledProcessError(1, cmd)
 
     monkeypatch.setattr("ui.probe.subprocess.check_output", _raise)
@@ -157,8 +159,34 @@ def test_probe_invalid_path_returns_none(monkeypatch):
 
 
 def test_probe_corrupted_output_returns_none(monkeypatch):
-    def _fake_check_output(cmd, stderr=None):
+    def _fake_check_output(cmd, stderr=None, **kwargs):
         return b"not json"
 
     monkeypatch.setattr("ui.probe.subprocess.check_output", _fake_check_output)
     assert probe_source_dims("irrelevant/path.mp4") is None
+
+
+def test_probe_passes_timeout(monkeypatch):
+    seen = {}
+
+    def _fake_check_output(cmd, stderr=None, **kwargs):
+        seen.update(kwargs)
+        return _payload()
+
+    monkeypatch.setattr("ui.probe.subprocess.check_output", _fake_check_output)
+    assert probe_source_dims("x.mp4") == (1920, 1080)
+    assert seen["timeout"] == 10
+
+
+@pytest.mark.timeout(60)
+def test_probe_hung_ffprobe_returns_none_fast(monkeypatch):
+    real = subprocess.check_output
+
+    def _slow(cmd, **kwargs):
+        return real([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
+
+    monkeypatch.setattr("ui.probe.PROBE_TIMEOUT_S", 1)
+    monkeypatch.setattr("ui.probe.subprocess.check_output", _slow)
+    t0 = time.monotonic()
+    assert probe_source_dims("x.mp4") is None
+    assert time.monotonic() - t0 < 8

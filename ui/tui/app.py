@@ -6,6 +6,7 @@ import queue
 import shutil
 import sys
 import time
+import traceback
 from dataclasses import dataclass, replace
 from typing import Callable
 
@@ -19,10 +20,11 @@ import reporter as R
 from ui import tui_driver as D
 from ui.config import EncodeConfig
 from ui.theme import get_console
+from ui.tui import forms as F
 from ui.tui import state as S
 from ui.tui import widgets as W
 from ui.tui.keys import KeyReader
-from ui.tui.screens import error_message, partial_wording, render
+from ui.tui.screens import error_message, partial_wording, queue_summary, render
 from ui.tui_capture import ConsoleCapture, _Sink
 
 TICK_S = 0.1
@@ -59,13 +61,14 @@ def _default_probe(path: str):
 
 
 class App:
-    def __init__(self, ns=None, *, console=None, run_single=None, reader_factory=None, live_factory=None,
+    def __init__(self, ns=None, *, console=None, run_single=None, run_batch=None, reader_factory=None, live_factory=None,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
                  perf=None, size=None, output_path: str | None = None, terminate=None, tools=None, probe=None,
                  system=None):
         self._ns = ns
         self._console = console or get_console()
         self._run_single = run_single or D.run_single
+        self._run_batch = run_batch or D.run_batch
         self._reader_factory = reader_factory or KeyReader
         self._live_factory = live_factory or (lambda c: Live(console=c, screen=True, auto_refresh=False))
         self._clock = clock
@@ -115,7 +118,7 @@ class App:
                     self._reader.start()
                     code = self._session()
                 except KeyboardInterrupt:
-                    code = 130
+                    code = self._interrupted_code()
                 finally:
                     self._reader.stop()
                     sys.stderr = self._orig_stderr
@@ -125,9 +128,19 @@ class App:
         self._summary(code)
         return code
 
+    def _interrupted_code(self) -> int:
+        s = self.state
+        if s.screen == S.REPORT and s.exit_code is not None:
+            return s.exit_code
+        if s.is_batch and s.screen == S.QUEUE:
+            self.state = S.apply(s, S.Finished(130))
+        return 130
+
     def _summary(self, code: int) -> None:
         s = self.state
-        if s.screen == S.COMPLETED:
+        if s.screen == S.REPORT:
+            line = queue_summary(s, code)
+        elif s.screen == S.COMPLETED:
             line = Text(f"✓ entregue: {s.output_path}", style="ok")
         elif s.screen == S.ERROR:
             line = Text(f"✗ erro (código {code}): {error_message(s)}", style="err")
@@ -156,20 +169,51 @@ class App:
             if act == "check_source":
                 self._check_source()
                 continue
-            inp = self.state.config.get("input") or ""
-            if not os.path.isfile(inp):
-                self.state = S.apply(self.state, S.ReadyBlocked(f"arquivo de entrada não encontrado: {inp}"))
+            blocked = self._start_blocked()
+            if blocked:
+                self.state = S.apply(self.state, S.ReadyBlocked(blocked))
                 continue
             break
         ns = self._ns if self._ns is not None else argparse.Namespace(**self.state.config)
-        code = self._run_single(ns, self._queue, self._control, self._tick)
+        if self.state.is_batch:
+            code = self._start_batch(ns)
+        else:
+            code = self._run_single(ns, self._queue, self._control, self._tick)
         self._drain()
         self.state = S.apply(self.state, S.Finished(code))
         self._until(lambda s: s.action == "exit")
         return code
 
+    def _start_blocked(self) -> str | None:
+        cfg = self.state.config
+        if self.state.is_batch:
+            folder = cfg.get("batch") or ""
+            if not os.path.isdir(folder):
+                return f"pasta não encontrada: {folder}"
+            try:
+                found = RE.find_video_files(folder)
+            except OSError as exc:
+                return f"não foi possível ler a pasta: {folder} ({exc})"
+            if not found:
+                return f"nenhum vídeo encontrado em: {folder}"
+            return None
+        inp = cfg.get("input") or ""
+        if not os.path.isfile(inp):
+            return f"arquivo de entrada não encontrado: {inp}"
+        return None
+
+    def _start_batch(self, ns) -> int:
+        try:
+            return self._run_batch(ns, self._queue, self._control, self._tick)
+        except Exception as exc:
+            self._queue.put(R.Error(type(exc).__name__, str(exc) or repr(exc), None, None, traceback.format_exc()))
+            return 130 if self._control.cancelled else 1
+
     def _check_source(self) -> None:
         path = W.clean_path(self.state.source.text)
+        if F.is_folder(S.draft(self.state)):
+            self.state = S.apply(self.state, self._check_folder(path))
+            return
         if not path or os.path.isdir(path):
             status = "INVALID"
         elif os.path.isfile(path):
@@ -183,13 +227,28 @@ class App:
             dims = self._probed[1]
         self.state = S.apply(self.state, S.SourceChecked(path, status, dims))
 
+    @staticmethod
+    def _check_folder(path: str) -> S.SourceChecked:
+        if not path or os.path.isfile(path):
+            return S.SourceChecked(path, "INVALID")
+        if not os.path.isdir(path):
+            return S.SourceChecked(path, "NOT_FOUND")
+        try:
+            count = len(RE.find_video_files(path))
+        except OSError:
+            return S.SourceChecked(path, "NOT_FOUND")
+        return S.SourceChecked(path, "VALID" if count else "EMPTY", None, count)
+
     def _arm(self) -> None:
         try:
-            cfg = EncodeConfig.model_validate(S.draft(self.state))
+            cfg = EncodeConfig.model_validate(F.to_config(S.draft(self.state)))
             ns = cfg.to_namespace()
             err = RE._validate_args_consistency(ns)
-            out = D._single_output_path(ns)
-            armed = S.Armed(vars(ns), out, os.path.exists(out), err)
+            if ns.batch:
+                armed = S.Armed(vars(ns), "", False, err)
+            else:
+                out = D._single_output_path(ns)
+                armed = S.Armed(vars(ns), out, os.path.exists(out), err)
         except (ValidationError, ValueError, TypeError) as e:
             armed = S.Armed({}, "", False, str(e))
         if not armed.error:
@@ -275,5 +334,7 @@ class App:
                 self.state = replace(self.state, action=None)
                 if self._control.request_cancel():
                     self._queue.put(R.Cancel("requested"))
+                elif self.state.is_batch:
+                    self.state = S.cancel_unavailable(self.state)
             elif self.state.action in S.ACTIONS:
                 break

@@ -1,5 +1,7 @@
 import argparse
+import os
 import sys
+from dataclasses import replace
 
 import pytest
 
@@ -7,8 +9,10 @@ import Reels_Encoder_v2_FINAL as RE
 import reporter as R
 from ui.theme import get_console
 from ui.tui import app as A
+from ui.tui import forms as F
 from ui.tui import screens as V
 from ui.tui import state as S
+from ui.tui import widgets as W
 
 
 class FakeLive:
@@ -642,3 +646,382 @@ def test_ctrl_c_in_configuration_returns_130(tmp_path):
 
     app._tick = tick
     assert app.run() == 130 and reader.restored
+
+
+def test_arm_strips_form_state_keys(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=5,
+                          drafts=((5, {**F.new_draft(5), "input": str(src)}),))
+    app._arm()
+    assert app.state.screen == S.READY and app.state.field_error is None
+    assert F.OUTDIR_ON not in app.state.config and F.SOURCE_KIND not in app.state.config
+
+
+def batch_folder(tmp_path, names=("a.mov", "b.mov")):
+    folder = tmp_path / "lote"
+    folder.mkdir()
+    for n in names:
+        (folder / n).write_bytes(b"x")
+    return folder
+
+
+def fake_batch(events, code, record):
+    def run(ns_, q, control, on_tick):
+        record.append(ns_)
+        jobs = tuple((p, os.path.splitext(p)[0] + "_Hollywood_CRF18.mp4") for p in RE.find_video_files(ns_.batch))
+        for ev in (R.QueueInit(jobs), *events, R.QueueDone(code)):
+            q.put(ev)
+            on_tick()
+        record.append(control.cancelled)
+        return code
+    return run
+
+
+def batch_app(folder, run_batch, **kw):
+    holder = []
+
+    def sleep(_):
+        if holder and holder[0].state.screen in S.FINAL_SCREENS | {S.READY}:
+            holder[0]._queue.put(S.Key("ENTER"))
+
+    def no_single(*a):
+        raise AssertionError("run_single chamado em batch")
+
+    def no_probe(p):
+        raise AssertionError("probe chamado para pasta")
+
+    keys = [("CHAR", "3")] + keys_for(str(folder)) + ["ENTER"] * 6
+    app = A.App(run_single=no_single, run_batch=run_batch, reader_factory=CharReader(keys),
+                live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=no_probe, **kw)
+    holder.append(app)
+    return app
+
+
+def summary_lines(con):
+    return [ln for ln in con.export_text().splitlines() if ln.strip()]
+
+
+@pytest.mark.timeout(30)
+def test_batch_flow_home_to_report_code_0(tmp_path):
+    folder = batch_folder(tmp_path)
+    rec = []
+    con = recording()
+    evs = [R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1), R.JobDone(1, "ok", None)]
+    app = batch_app(folder, fake_batch(evs, 0, rec), console=con)
+    assert app.run() == 0
+    ns_ = rec[0]
+    assert ns_.batch == str(folder) and ns_.input is None and ns_.output_dir is None
+    assert ns_.cineon_pipeline == "off" and not hasattr(ns_, F.OUTDIR_ON)
+    assert app.state.screen == S.REPORT and [j.status for j in app.state.queue] == ["ok", "ok"]
+    assert summary_lines(con) == ["✓ fila: 2 ok · 0 pulados · 0 falhas (código 0)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_flow_failure_code_1(tmp_path):
+    folder = batch_folder(tmp_path)
+    rec = []
+    con = recording()
+    evs = [R.JobStart(0), R.Error("CalledProcessError", "ffmpeg falhou", None, 1, "tb", job_id=0),
+           R.JobDone(0, "falha", "ffmpeg falhou\ndetalhe"), R.JobSkip(1, "output existe")]
+    app = batch_app(folder, fake_batch(evs, 1, rec), console=con)
+    assert app.run() == 1
+    assert [(j.status, j.reason) for j in app.state.queue] == [("falha", "ffmpeg falhou"), ("pulado", "saída já existe")]
+    assert app.state.screen == S.REPORT and app.state.error is None
+    assert summary_lines(con) == ["✗ fila: 0 ok · 1 pulado · 1 falha (código 1)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_cancel_from_queue_code_130(tmp_path):
+    folder = batch_folder(tmp_path)
+    rec = []
+    con = recording()
+    evs = [R.JobStart(0), R.Stage(R.PASS, "1", job_id=0), S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"),
+           R.JobDone(0, "falha", "cancelado pelo usuário"), R.Cancel("terminated"), R.Cancel("cleaned", True)]
+    app = batch_app(folder, fake_batch(evs, 130, rec), console=con, terminate=lambda: True)
+    assert app.run() == 130
+    assert rec[-1] is True
+    assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
+    assert summary_lines(con) == ["⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_error_before_queue_goes_to_error_screen(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.Error("batch_folder", f"Pasta não encontrada: {ns_.batch}", None, None, None))
+        on_tick()
+        return 1
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 1 and app.state.screen == S.ERROR
+    assert summary_lines(con) == [f"✗ erro (código 1): batch_folder: Pasta não encontrada: {folder}"]
+
+
+def test_check_source_folder_counts_videos_like_engine(tmp_path):
+    lote = batch_folder(tmp_path, names=("a.mov", "B.MP4", "a_Hollywood_CRF18.mp4", "notas.txt"))
+    (lote / "sub").mkdir()
+    (lote / "sub" / "c.mov").write_bytes(b"x")
+    vazia = tmp_path / "vazia"
+    vazia.mkdir()
+    app, _, _ = make_home(tmp_path, [])
+
+    def no_probe(p):
+        raise AssertionError("probe chamado para pasta")
+
+    app._probe = no_probe
+    app.state = S.apply(app.state, S.Key("CHAR", "3"))
+    cases = ((lote, "VALID", 2), (vazia, "EMPTY", 0), (tmp_path / "nada", "NOT_FOUND", None),
+             (lote / "a.mov", "INVALID", None), ("", "INVALID", None))
+    for path, status, count in cases:
+        text = str(path)
+        app.state = replace(app.state, source=W.TextBuf(text, len(text)))
+        app._check_source()
+        assert (app.state.source_status, app.state.source_count) == (status, count), path
+
+
+def test_arm_batch_has_no_single_output(tmp_path):
+    folder = batch_folder(tmp_path)
+    app, _, _ = make_home(tmp_path, [])
+    d = {**F.new_draft(3), "batch": str(folder), F.OUTDIR_ON: "on", "output_dir": str(tmp_path / "saida")}
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=3, drafts=((3, d),), source_count=2)
+    app._arm()
+    s = app.state
+    assert s.screen == S.READY and s.is_batch and s.output_path == "" and not s.output_preexisted
+    assert s.config["batch"] == str(folder) and s.config["input"] is None
+    assert s.config["output_dir"] == str(tmp_path / "saida")
+
+
+def ready_batch_app(tmp_path, folder, ran, monkeypatch, seen_errors):
+    app, _, _ = make_home(tmp_path, ["ENTER", "ESC", "ESC", "ESC", "ESC", "ESC"],
+                          run_batch=lambda *a: ran.append(1) or 0)
+    app.state = S.UIState(config={"batch": str(folder), "input": None}, screen=S.READY, preset=3, is_batch=True)
+    app._ready_at = 0.0
+    orig_apply = S.apply
+
+    def spy(s, ev):
+        out = orig_apply(s, ev)
+        if out.ready_error:
+            seen_errors.append(out.ready_error)
+        return out
+
+    monkeypatch.setattr(S, "apply", spy)
+    return app
+
+
+def test_ready_blocks_emptied_folder(tmp_path, monkeypatch):
+    folder = batch_folder(tmp_path, names=("a.mov",))
+    (folder / "a.mov").unlink()
+    ran, errors = [], []
+    app = ready_batch_app(tmp_path, folder, ran, monkeypatch, errors)
+    assert app.run() == 0
+    assert ran == [] and errors and errors[0] == f"nenhum vídeo encontrado em: {folder}"
+
+
+def test_ready_blocks_missing_folder(tmp_path, monkeypatch):
+    ran, errors = [], []
+    app = ready_batch_app(tmp_path, tmp_path / "sumiu", ran, monkeypatch, errors)
+    assert app.run() == 0
+    assert ran == [] and errors and errors[0] == f"pasta não encontrada: {tmp_path / 'sumiu'}"
+
+
+@pytest.mark.timeout(30)
+def test_batch_held_enter_after_arm_never_starts_queue(tmp_path):
+    folder = batch_folder(tmp_path)
+    ran = []
+    clock = StillClock()
+    seen = {"ready": None, "loops": 0}
+
+    def sleep(_):
+        seen["loops"] += 1
+        if seen["loops"] > 2000:
+            raise KeyboardInterrupt
+        if app.state.screen in S.FINAL_SCREENS:
+            app._queue.put(S.Key("ENTER"))
+        elif app.state.screen == S.READY:
+            if seen["ready"] is None:
+                seen["ready"] = clock.t
+            if clock.t - seen["ready"] > 6.0:
+                raise KeyboardInterrupt
+            clock.t += 0.03
+            app._queue.put(S.Key("ENTER"))
+
+    app = A.App(run_batch=lambda *a: ran.append(1) or 0, reader_factory=CharReader(["ENTER"]),
+                live_factory=lambda c: FakeLive(), clock=clock, sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    app.state = S.UIState(config={}, screen=S.PREVIEW, preset=3, source_count=2,
+                          drafts=((3, {**F.new_draft(3), "batch": str(folder)}),))
+    assert app.run() == 130
+    assert ran == [] and app.state.screen == S.READY and app.state.is_batch
+
+
+def test_arm_batch_quoted_output_dir_is_cleaned_and_form_keys_stripped(tmp_path):
+    folder = batch_folder(tmp_path)
+    saida = tmp_path / "Saída Final"
+    app, _, _ = make_home(tmp_path, [])
+    s = S.apply(app.state, S.Key("CHAR", "3"))
+    s = replace(s, source=W.TextBuf(str(folder), len(str(folder))))
+    s = S.apply(s, S.SourceChecked(str(folder), "VALID", None, 2))
+    s = S.apply(S.apply(S.apply(s, S.Key("ENTER")), S.Key("SPACE")), S.Key("DOWN"))
+    for name, ch in keys_for(f'"{saida}"'):
+        s = S.apply(s, S.Key(name, ch))
+    app.state = S.apply(s, S.Key("ENTER"))
+    assert S.draft(app.state)[F.OUTDIR_ON] == "on" and S.draft(app.state)["batch"] == str(folder)
+    app._arm()
+    cfg = app.state.config
+    assert app.state.screen == S.READY and app.state.field_error is None
+    assert cfg["output_dir"] == str(saida)
+    assert F.OUTDIR_ON not in cfg and F.SOURCE_KIND not in cfg
+
+
+@pytest.mark.timeout(30)
+def test_batch_runner_exception_before_queue_goes_to_error_screen(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        raise OSError("sem permissão")
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 1
+    assert app.state.screen == S.ERROR and "sem permissão" in screen_text(app.state)
+    assert summary_lines(con) == ["✗ erro (código 1): OSError: sem permissão"]
+
+
+def _jobs(folder):
+    return tuple((p, os.path.splitext(p)[0] + "_o.mp4") for p in RE.find_video_files(str(folder)))
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("code, last, line", [
+    (0, R.JobDone(1, "ok", None), "✓ fila: 2 ok · 0 pulados · 0 falhas (código 0)"),
+    (1, R.JobDone(1, "falha", "boom"), "✗ fila: 1 ok · 0 pulados · 1 falha (código 1)"),
+])
+def test_batch_ctrl_c_on_report_keeps_queue_exit_code(tmp_path, code, last, line):
+    folder = batch_folder(tmp_path)
+    con = recording()
+    evs = [R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1), last]
+    app = batch_app(folder, fake_batch(evs, code, []), console=con)
+
+    def sleep(_):
+        if app.state.screen == S.REPORT:
+            raise KeyboardInterrupt
+        if app.state.screen == S.READY:
+            app._queue.put(S.Key("ENTER"))
+
+    app._sleep = sleep
+    assert app.run() == code
+    assert app.state.screen == S.REPORT and summary_lines(con) == [line]
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("started, line", [
+    (True, "⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"),
+    (False, "⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 0 interrompidos (código 130)"),
+])
+def test_batch_ctrl_c_outside_job_prints_interrupted_summary(tmp_path, started, line):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        if started:
+            q.put(R.QueueInit(_jobs(folder)))
+            q.put(R.JobStart(0))
+            on_tick()
+        raise KeyboardInterrupt
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 130
+    assert app.state.screen == S.REPORT and app.state.exit_code == 130
+    assert [j.status for j in app.state.queue] == (["interrompido", "aguardando"] if started else [])
+    assert summary_lines(con) == [line]
+
+
+@pytest.mark.timeout(30)
+def test_batch_runner_exception_after_queue_init_fails_active_job(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.QueueInit(_jobs(folder)))
+        q.put(R.JobStart(0))
+        on_tick()
+        raise OSError("sem permissão")
+
+    app = batch_app(folder, run, console=con)
+    assert app.run() == 1
+    assert app.state.screen == S.REPORT
+    assert [(j.status, j.reason) for j in app.state.queue] == [("falha", "OSError: sem permissão"),
+                                                               ("aguardando", None)]
+    assert summary_lines(con) == ["✗ fila: 0 ok · 0 pulados · 1 falha (código 1)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_runner_exception_after_cancel_returns_130(tmp_path):
+    folder = batch_folder(tmp_path)
+    con = recording()
+
+    def run(ns_, q, control, on_tick):
+        q.put(R.QueueInit(_jobs(folder)))
+        q.put(R.JobStart(0))
+        on_tick()
+        assert control.request_cancel()
+        raise RuntimeError("ffmpeg morto")
+
+    app = batch_app(folder, run, console=con, terminate=lambda: True)
+    assert app.run() == 130
+    assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
+    assert summary_lines(con) == ["⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"]
+
+
+@pytest.mark.timeout(30)
+def test_batch_cancel_in_blocked_stage_warns_in_log(tmp_path):
+    folder = batch_folder(tmp_path)
+    seen = []
+
+    def run(ns_, q, control, on_tick):
+        for ev in (R.QueueInit(_jobs(folder)), R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1)):
+            q.put(ev)
+        on_tick()
+        control.stage = (R.QC, None)
+        for k in ("C", "RIGHT", "ENTER"):
+            q.put(S.Key(k))
+        on_tick()
+        seen.append((control.cancelled, app.state.modal, app.state.log[-1]))
+        for ev in (R.JobDone(1, "ok", None), R.QueueDone(0)):
+            q.put(ev)
+        on_tick()
+        return 0
+
+    app = batch_app(folder, run, terminate=lambda: True)
+    assert app.run() == 0
+    assert seen == [(False, None, S.LogRow("WARNING", S.CANCEL_UNAVAILABLE))]
+    assert S.CANCEL_UNAVAILABLE == "cancelamento indisponível neste estágio — tente de novo em instantes"
+
+
+def _scandir_down(path):
+    raise OSError(59, "erro de rede inesperado")
+
+
+def test_check_folder_oserror_is_not_found(tmp_path, monkeypatch):
+    folder = batch_folder(tmp_path)
+    app, _, _ = make_home(tmp_path, [])
+    app.state = S.apply(app.state, S.Key("CHAR", "3"))
+    app.state = replace(app.state, source=W.TextBuf(str(folder), len(str(folder))))
+    monkeypatch.setattr(RE, "find_video_files", _scandir_down)
+    app._check_source()
+    assert (app.state.source_status, app.state.source_count) == ("NOT_FOUND", None)
+
+
+@pytest.mark.timeout(30)
+def test_ready_blocks_unreadable_folder(tmp_path, monkeypatch):
+    folder = batch_folder(tmp_path)
+    ran, errors = [], []
+    app = ready_batch_app(tmp_path, folder, ran, monkeypatch, errors)
+    monkeypatch.setattr(RE, "find_video_files", _scandir_down)
+    assert app.run() == 0
+    assert ran == [] and errors and str(folder) in errors[0] and "erro de rede inesperado" in errors[0]

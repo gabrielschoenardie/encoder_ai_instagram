@@ -1513,3 +1513,14 @@ Origem: revisões por tarefa, revisão final da branch `claude/ciclo-p3c-tui-con
 | P3CF6 | S4 | `ui/tui/keys.py` Windows | `à` (U+00E0) = prefixo de tecla estendida `\xe0` do `getwch`; digitar `à` engole a próxima tecla | aberto (P3E) |
 
 Dívida visual para o P3E: SOURCE "ENTER → CONFIGURATION" não esmaece quando o status não é VALID; `field_rows` sem renderização de campo desativado com motivo (nenhum campo desativado até o P3D); choice de uma opção mostra `◂ ▸`; painéis SETTINGS/PREVIEW arredondam números (`preview_rows`) enquanto o formulário mostra o valor exato; falta espaço em `Text(...),Text(...)` na linha de ações do READY.
+
+## Ciclo P3D — batch de pasta na TUI (2026-10-06)
+
+Origem: revisões por tarefa, revisão final da branch `claude/ciclo-p3d-tui-batch` e re-revisão da onda de correção. Ledger: `.superpowers/sdd/2026-10-06-tui-batch-queue/progress.md` (git-ignorado). P3CF1 (ffprobe sem timeout) foi corrigido neste ciclo (`4d133c3`, timeout 10 s).
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| P3DF1 | S4 | `ui/tui/app.py` (`_check_folder`) | a cada tecla cujo prefixo é uma pasta existente (`C:`, `C:\Users`…), lista os vídeos da pasta; caminho lento/de rede pode travar a UI (mesma classe de P3CF2) | aberto (P3E) |
+| P3DF2 | S4 | `ui/tui/app.py` (`_interrupted_code`) | Ctrl+C no meio da fila com DETAILS/LOG aberto não aplica `Finished(130)`: o job ativo fica "processando" no resumo (código continua 130) | aberto (P3E; 1 linha: aceitar `s.screen in S.OVERLAYS`) |
+
+Pequenos adiados (P3E): `new_draft` do preset 4 sem chaves de formulário (inofensivo); ENTER com foco no TIPO avança; lacunas de teste (preset 5-Pasta EMPTY bloqueando, janela da fila nas bordas, D/L a partir da QUEUE, ETA quando o job ativo passa da média, Cineon "off" fixado nos cenários de paridade); linha de código com 138 colunas em `screens.py`; teste do ffprobe travado depende do plugin `pytest-timeout`.

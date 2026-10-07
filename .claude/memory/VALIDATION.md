@@ -285,3 +285,13 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 | T11 | ENTER segurado ~3 s no PREVIEW: para no READY, nenhum encode. Medido com `C:\Users\Usuario\p3c_teste\diag_enter.py` (TUI real, encode falso): 1ª rodada ~50 ENTERs rejeitados, 2ª rodada 39 rejeitados, nenhum aceito no READY. Repetições chegam a cada 50–115 ms (`KeyboardDelay=1`, `KeyboardSpeed=31`). A 1ª falha relatada no reteste não se reproduziu. |
 
 **Veredito final:** PASSA.
+
+# Validação manual — Ciclo P3D (batch de pasta, Task 9)
+
+**Data:** 2026-10-06 | **Executor do teste:** usuário | **Terminal:** Windows Terminal portátil | **Entrada:** `python -m ui.tui` | **Fonte:** `C:\Users\Usuario\p3d_teste\lote` (3 clipes de 4 s, 1 com saída existente, 1 quebrado) e `C:\Users\Usuario\p3d_teste\vazia` | **Roteiro:** `C:\Users\Usuario\p3d_teste\ROTEIRO_P3D.md`
+
+| D | cenário | resultado |
+|---|---------|-----------|
+| D1–D7 | preset 3 fila completa; preset 5-Pasta com pasta de saída separada; pasta vazia bloqueando; `C` no meio da fila; Ctrl+C no meio da fila; volta ao arquivo único; arrastar a pasta | "tudo funciona como deveria" (relato do usuário) |
+
+**Veredito:** PASSA.
