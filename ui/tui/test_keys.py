@@ -81,3 +81,45 @@ def test_put_attaches_char_for_text_keys():
     r._put("ENTER", "\r")
     r._put(None, "\x03")
     assert [(k.name, k.char) for k in got] == [("CHAR", "x"), ("C", "c"), ("SPACE", " "), ("ENTER", None)]
+
+
+def test_posix_delete_is_delete():
+    assert K.decode_posix("\x1b[3~") == "DELETE"
+
+
+def test_posix_pgup_pgdn_are_ignored():
+    assert K.decode_posix("\x1b[5~") is None
+    assert K.decode_posix("\x1b[6~") is None
+
+
+def _feed(data: bytes):
+    buf = list(data)
+
+    def read(n):
+        out = bytes(buf[:n])
+        del buf[:n]
+        return out
+
+    return read, (lambda timeout: bool(buf)), buf
+
+
+@pytest.mark.parametrize("data,want", [
+    (b"\x1b[3~", "\x1b[3~"), (b"\x1b[5~", "\x1b[5~"), (b"\x1b[1;5C", "\x1b[1;5C"),
+    (b"\x1b[A", "\x1b[A"), (b"a", "a"),
+])
+def test_read_posix_seq_consumes_whole_csi(data, want):
+    read, ready, buf = _feed(data + b"z")
+    assert K._read_posix_seq(read, ready) == want
+    assert bytes(buf) == b"z"
+
+
+def test_read_posix_seq_reads_whole_utf8_char():
+    read, ready, buf = _feed("à".encode() + b"z")
+    assert K._read_posix_seq(read, ready) == "à"
+    assert K.decode_posix("à") == "CHAR"
+    assert bytes(buf) == b"z"
+
+
+def test_read_posix_seq_lone_escape():
+    read, ready, buf = _feed(b"")
+    assert K._read_posix_seq(read, ready) == ""
