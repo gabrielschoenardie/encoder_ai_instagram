@@ -3854,3 +3854,33 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 | P3D-FIX G1-G10 | done | ui/tui/{app,state,screens}.py + testes | onda final: Ctrl+C no REPORT mantém 0/1, Ctrl+C fora do job → 130 com resumo, job ativo falha/interrompido, aviso de cancelamento bloqueado, OSError na pasta, rótulos longos, textos de batch; commits cbf1071 87fbb26 |
 | P3D-9 | done | VALIDATION.md | manual no Windows Terminal D1–D7 PASSA |
 | P3D-10 | done | suíte + ruff | canônica 932 passed, 4 skipped (onda final, HEAD 87fbb26); ruff limpo; branch claude/ciclo-p3d-tui-batch sem push |
+
+## Chore .vscode
+| CH-1 | done | .gitignore | removidas as 2 linhas .vscode/ |
+| CH-2 | done | .gitignore | settings.json/tasks.json liberados pelas exceções; .vscode/x.foo segue ignorado |
+| CH-3 | done | .gitignore, .vscode/settings.json, .vscode/tasks.json | commit chore isolado, sem push |
+
+## Ciclo P3E
+| P3BF2 | done | ui/tui/__main__.py, ui/tui/test_main.py | dica do Windows Terminal em console legado; 934 passed 4 skipped, ruff ok, commit 427b126 |
+| P3BF3 | done | launcher.ps1, tests/launcher.Tests.ps1, README.md | -Tui + Build-TuiCommand; Pester 136/136, pytest 934 passed/4 skipped, ruff ok |
+| P3AF4+P3BF4 | done | render_queue.py, test_render_queue.py | run_job captura BaseException (error=str ou nome do tipo), tick 0.1; 936 passed 4 skipped, ruff ok |
+| P3DF2 | blocked | ui/tui/app.py (revertido), ui/tui/test_app.py (teste novo, nao commitado) | Redutor Finished(130) fecha modal e interrompe job ativo (OK), mas `screen != S.REPORT` quebra test_batch_held_enter_after_arm_never_starts_queue (Ctrl+C em READY de batch viraria REPORT, nao READY). Pergunta: restringir a `s.screen in (S.QUEUE, S.DETAILS, S.LOG)` (preserva READY) ou mudar o teste existente? |
+| P3DF2 | done | ui/tui/app.py, ui/tui/test_app.py | Ctrl+C em QUEUE/DETAILS/LOG de batch aplica Finished(130); READY preservado; ui/tui 291 passed, CI 939 passed 4 skipped, ruff ok |
+| P3CF2+P3DF1 | blocked | nenhum (sem alteração de código) | Conflito plano x despacho x código: plano lista só isfile/isdir/listdir; despacho inclui probe sob join(0.3) com "estourou → NOT_FOUND". Medido aqui: probe_source_dims leva 5,5–7,7 s nos 2 .mp4 e estoura os 10 s (→ None) nos 3 .mov de videos/ (ffprobe -version 0,02 s; lentidão vem do -show_entries com side_data). Pergunta: quando o probe passa de 0,3 s, o resultado é (A) NOT_FOUND literal (todo arquivo real vira NOT_FOUND), (B) VALID com dims None sem cache (igual à falha atual do probe; PREVIEW mostra "—"), ou (C) probe fica síncrono fora da thread, como no plano (congela até 10 s uma vez por caminho, como hoje)? Lentidão do probe é achado novo fora do escopo. |
+| P3CF2+P3DF1 | done | ui/tui/app.py, ui/tui/test_app.py | opção (C): isfile/isdir/scandir numa thread descartável com join(0,3) → NOT_FOUND se estourar; UNC parcial (\serv, \serv\share) não toca o disco; probe síncrono fora da thread; ui/tui 300 passed, CI 948 passed 4 skipped, ruff ok, commit b978600 |
+| P3CF5 | done | ui/tui/keys.py, ui/tui/test_keys.py | _read_posix_seq consome CSI inteira e UTF-8; [3~ -> DELETE; PgUp/PgDn -> None; CI 957 passed, ruff ok |
+| P3CF6 | done | ui/tui/keys.py, ui/tui/test_keys.py | loop Windows trata \xe0 como prefixo só com kbhit() pendente; \x00 sempre prefixo; ESC cru em _read_posix_seq trocado por b"\x1b"; CI 960 passed 4 skipped, ruff ok, commit eb14d8c |
+| P3BF1 | done | - | não reproduzido em 300 execuções, mantido aberto como S4 (laço de shell 300x isolado: 0 falhas; 300x in-process: 0; arquivo inteiro 5x e ordem alterada: verde; sem alteração de código) |
+| 9a | done | ui/tui/screens.py, state.py, test_screens.py, test_state.py | itens 1-6 P3B (READY/DETAILS/PASS·2/LOG margem/error_scroll/CANCEL dup) com teste; CI 968 passed, ruff ok |
+| 9b-1 | done | ui/tui/screens.py | "ENTER → CONFIGURATION/ADVANCED" em muted quando source_status != VALID |
+| 9b-2 | blocked | - | field_rows: nenhum Field tem atributo de desativado nem motivo; qual regra/campo/texto do motivo deve ser renderizado? |
+| 9b-3 | done | ui/tui/screens.py | choice com 1 opção sem "◂ ▸" |
+| 9b-4 | done | ui/tui/screens.py | preview_rows mostra exposição/saturação exatas (W._fmt); teste antigo "0.80" ajustado para "0.8" |
+| 9b-5 | done (já feito) | - | ações do READY já em Table.grid de 2 colunas (54714ab); sem concatenação Text+Text, sem alteração |
+| 9c-1 | done | ui/tui/forms.py | new_draft(4) igual ao 5 (SOURCE_KIND=file, OUTDIR_ON=off); teste falhava antes |
+| 9c-2 | done | ui/tui/state.py, ui/tui/screens.py | ENTER com foco no TIPO vira no-op; rodapé do TIPO sem [ENTER]; teste falhava antes |
+| 9c-3 | done | ui/tui/screens.py | linha de 138 colunas (FILA) quebrada em duas |
+| 9c-4 | done | ui/tui/test_*.py | 5 lacunas cobertas com testes novos (passam no código atual); nenhum comportamento errado revelado |
+| 9c-commit | done | - | 4c69cc1; ui/tui 331 passed; CI 979 passed 4 skipped; ruff limpo |
+| FIX-ARROWS | done | ui/tui/keys.py, ui/tui/test_keys.py | kbhit() False apos prefixo � (2o char no buffer CRT) quebrava setas; _pending_is_extended via PeekConsoleInputW; 335 ui/tui + CI 983 passed, ruff ok |
+| BUG-a-grave | done | ui/tui/keys.py, ui/tui/test_keys.py | causa: _pending_is_extended tratava registro de tecla morta (uChar NUL, vk nao-estendido) como prefixo estendido; corrigido via _records_extended; CI 988 passed |
