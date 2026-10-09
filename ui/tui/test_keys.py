@@ -185,3 +185,15 @@ def test_windows_loop_arrows_when_kbhit_false_after_prefix(monkeypatch, prefix, 
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     K._windows_loop(r)
     assert [(k.name, k.char) for k in got] == [(want, None)]
+
+
+@pytest.mark.parametrize("recs,want", [
+    ([(True, 0xDE, "\0"), (False, 0xDE, "\0"), (True, 0x41, "\xe0")], False),
+    ([(True, 0x10, "\0"), (True, 0xDB, "\0"), (False, 0xDB, "\0"), (True, 0x41, "\xe0")], False),
+    ([(True, 0x00, "\xe0")], False),
+    ([(True, 0xBA, "\xe0")], False),
+    ([(True, 0x26, "\0")], True),
+    ([(False, 0x10, "\0"), (True, 0x10, "\0"), (True, 0x2E, "\0")], True),
+])
+def test_records_extended_ignores_dead_key(recs, want):
+    assert K._records_extended(recs) is want

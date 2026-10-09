@@ -91,6 +91,14 @@ def _reader_loop(reader: KeyReader) -> None:
 
 
 _MODIFIER_VKS = frozenset({0x10, 0x11, 0x12, 0x14, 0x90, 0x91})
+_EXTENDED_VKS = frozenset(range(0x21, 0x29)) | {0x2D, 0x2E} | frozenset(range(0x70, 0x88))
+
+
+def _records_extended(recs) -> bool:
+    for down, vk, char in recs:
+        if down and vk not in _MODIFIER_VKS and (char != "\0" or vk in _EXTENDED_VKS):
+            return char == "\0"
+    return True
 
 
 def _pending_is_extended() -> bool:
@@ -114,9 +122,9 @@ def _pending_is_extended() -> bool:
         n = wintypes.DWORD()
         if not k32.PeekConsoleInputW(handle, buf, 16, ctypes.byref(n)):
             return True
-        for rec in buf[: n.value]:
-            if rec.type == 1 and rec.key.down and rec.key.vk not in _MODIFIER_VKS:
-                return rec.key.char == "\0"
+        return _records_extended(
+            (rec.key.down, rec.key.vk, rec.key.char) for rec in buf[: n.value] if rec.type == 1
+        )
     except Exception:
         pass
     return True
