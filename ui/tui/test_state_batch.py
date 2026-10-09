@@ -173,3 +173,20 @@ def test_cancel_unavailable_logs_warning_and_closes_modal():
     s = S.cancel_unavailable(s)
     assert s.modal is None and s.warnings == 1
     assert s.log[-1] == S.LogRow("WARNING", "cancelamento indisponível neste estágio — tente de novo em instantes")
+
+
+def test_queue_eta_active_job_past_mean_adds_nothing():
+    s = run(in_queue(), R.JobStart(0, ts=10.0), R.JobDone(0, "ok", None, ts=70.0), R.JobStart(1, ts=70.0))
+    assert S.queue_eta(tick(s, 200.0)) == 60.0
+
+
+def test_d_and_l_from_queue_open_overlays_and_return():
+    s = run(in_queue(), R.JobStart(0, ts=10.0))
+    assert s.screen == S.QUEUE
+    d = S.apply(s, S.Key("D"))
+    assert d.screen == S.DETAILS and d.back == S.QUEUE
+    assert S.apply(d, S.Key("D")).screen == S.QUEUE
+    lg = S.apply(s, S.Key("L"))
+    assert lg.screen == S.LOG and lg.back == S.QUEUE
+    assert S.apply(lg, S.Key("ESC")).screen == S.QUEUE
+    assert S.apply(S.apply(s, S.Key("D")), S.Key("L")).screen == S.LOG

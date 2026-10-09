@@ -338,3 +338,10 @@ def test_preview_rows_show_exact_exposure_and_saturation():
     assert dict(sc.preview_rows(d))["Exposure / Sat"] == "+0.05 EV · 1.234"
     d = {**d, "exposure_offset": -0.7, "saturation": 1.0}
     assert dict(sc.preview_rows(d))["Exposure / Sat"] == "-0.7 EV · 1"
+
+
+def test_source_preset5_tipo_footer_has_no_enter():
+    from dataclasses import replace
+    s = S.UIState(config={}, screen=S.SOURCE, preset=5, drafts=((5, F.new_draft(5)),))
+    foot = "\n".join(text_of(replace(s, tab_focus=True)).splitlines()[-2:])
+    assert "[ENTER]" not in foot

@@ -478,3 +478,22 @@ def test_esc_chain_preset5_folder_after_revisar_never_loops():
         s = S.apply(s, key("ESC"))
         assert s.screen == want
     assert F.is_folder(S.draft(s))
+
+
+def test_preset5_enter_with_tipo_focus_does_not_advance():
+    s = type_text(S.apply(home(), key("CHAR", "5")), "C:/v/a.mov")
+    s = S.apply(s, S.SourceChecked("C:/v/a.mov", "VALID"))
+    s = S.apply(s, key("UP"))
+    assert s.tab_focus
+    after = S.apply(s, key("ENTER"))
+    assert after.screen == S.SOURCE and after.tab_focus
+    assert S.apply(S.apply(after, key("DOWN")), key("ENTER")).screen == S.ADVANCED
+
+
+def test_preset5_folder_empty_blocks_enter():
+    s = S.apply(S.apply(S.apply(S.apply(home(), key("CHAR", "5")), key("UP")), key("RIGHT")), key("DOWN"))
+    assert F.is_folder(S.draft(s))
+    s = type_text(s, "C:/v/vazia")
+    s = S.apply(s, S.SourceChecked("C:/v/vazia", "EMPTY", None, 0))
+    assert s.source_status == "EMPTY" and s.source_count == 0
+    assert S.apply(s, key("ENTER")).screen == S.SOURCE

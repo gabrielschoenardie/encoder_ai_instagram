@@ -128,7 +128,7 @@ def new_draft(preset: int) -> dict:
         return EncodeConfig.preset_film_cineon().model_dump()
     if preset == 3:
         return {**EncodeConfig.preset_batch().model_dump(), SOURCE_KIND: FOLDER, OUTDIR_ON: "off"}
-    if preset == 5:
+    if preset in (4, 5):
         return {**EncodeConfig().model_dump(), SOURCE_KIND: FILE, OUTDIR_ON: "off"}
     return EncodeConfig().model_dump()
 

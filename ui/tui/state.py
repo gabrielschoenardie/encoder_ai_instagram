@@ -633,7 +633,7 @@ def _source_key(s: UIState, k: str, ch: str | None) -> UIState:
                 return _toggle_kind(s)
             if k == "DOWN":
                 return replace(s, tab_focus=False)
-            if k not in ("ENTER", "ESC"):
+            if k != "ESC":
                 return s
         elif k == "UP":
             return replace(s, tab_focus=True)

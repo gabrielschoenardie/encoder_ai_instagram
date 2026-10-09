@@ -60,7 +60,7 @@ FOOTER_KEYS = {
     S.REPORT: "[↑↓] Rolar   [ENTER] Sair   [ESC] Sair",
 }
 MODAL_KEYS = "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt"
-SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair"
+SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ESC] Voltar   [Ctrl+C] Sair"
 CONFIG_BATCH_KEYS = "[↑↓] Campo   [←→] On/Off   [digite] Pasta   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair"
 SCREEN_RENDERERS: dict[str, Callable[[S.UIState], RenderableType]] = {}
 
@@ -659,7 +659,8 @@ def _report(s: S.UIState) -> RenderableType:
         Text(""),
     ], height=6)
     start = queue_start(len(s.queue), None, S.REPORT_ROWS, s.queue_scroll)
-    table = panel(queue_table(s, start, S.REPORT_ROWS), f"FILA · {_count(len(s.queue), 'arquivo', 'arquivos')}", height=S.REPORT_ROWS + 3)
+    title = f"FILA · {_count(len(s.queue), 'arquivo', 'arquivos')}"
+    table = panel(queue_table(s, start, S.REPORT_ROWS), title, height=S.REPORT_ROWS + 3)
     parts = [top, table]
     if not s.queue and code == 0:
         parts.append(Text("   nenhum vídeo encontrado na pasta", style="muted"))
