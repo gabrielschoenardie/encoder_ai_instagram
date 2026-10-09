@@ -338,21 +338,23 @@ function Initialize-Environment {
         Write-LauncherLog "Python do venv: $venvVersion" "Success"
     }
     if ((-not $Force) -and $healthy -and $stamp -and ((Read-VenvStamp -VenvPath $VenvPath) -eq $stamp)) {
-        Write-LauncherLog "Dependencias ja instaladas (stamp confere) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
-        return $venvPython
+        $precheck = Test-VenvConsistent -VenvPython $venvPython
+        if ($precheck.Ok) {
+            Write-LauncherLog "Dependencias ja instaladas (stamp confere, pip check ok) - pulando pip. Use -ForceEnvSetup para reinstalar." "Info"
+            return $venvPython
+        }
+        Write-LauncherLog "Stamp confere mas o pip check acusou dependencias inconsistentes - reinstalando.`n$($precheck.Report)" "Warn"
     }
 
     Install-Requirements -RepoRoot $RepoRoot -VenvPython $venvPython -Config $Config
     Write-VenvLock -RepoRoot $RepoRoot -VenvPython $venvPython
-    if ($stamp) {
-        Write-VenvStamp -VenvPath $VenvPath -Stamp $stamp
-    }
     $consistency = Test-VenvConsistent -VenvPython $venvPython
     if (-not $consistency.Ok) {
-        Write-LauncherLog "pip check encontrou dependencias inconsistentes (o encoder pode falhar em runtime). Use -ForceEnvSetup depois de ajustar o pyproject.toml:`n$($consistency.Report)" "Warn"
+        throw "pip check encontrou dependencias inconsistentes apos a instalacao (o stamp nao foi gravado; a proxima abertura tenta de novo). Ajuste o pyproject.toml e use -ForceEnvSetup:`n$($consistency.Report)"
     }
-    else {
-        Write-LauncherLog "pip check: ambiente consistente." "Success"
+    Write-LauncherLog "pip check: ambiente consistente." "Success"
+    if ($stamp) {
+        Write-VenvStamp -VenvPath $VenvPath -Stamp $stamp
     }
     return $venvPython
 }
