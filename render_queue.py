@@ -146,11 +146,11 @@ def run_job(
     encode_fn: Callable[[], None],
     console: Console,
     on_tick: Callable[[], None] | None = None,
-    tick_interval: float = 0.25,
+    tick_interval: float = 0.1,
 ) -> None:
     job.status = "processando"
     job.started_at = time.time()
-    failure: Exception | None = None
+    failure: BaseException | None = None
     log_text = ""
 
     def _target() -> None:
@@ -158,7 +158,7 @@ def run_job(
         with console.capture() as capture:
             try:
                 encode_fn()
-            except Exception as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
+            except BaseException as exc:  # noqa: BLE001 - repassado via job.error, nao propagado
                 failure = exc
         log_text = capture.get()
 
@@ -188,7 +188,7 @@ def run_job(
     job.log = log_text
     if failure is not None:
         job.status = "falha"
-        job.error = str(failure)
+        job.error = str(failure) or type(failure).__name__
     else:
         job.status = "ok"
 

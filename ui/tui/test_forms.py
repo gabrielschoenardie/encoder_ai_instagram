@@ -129,3 +129,8 @@ def test_output_name():
     d = {**F.new_draft(1), "input": "C:/v/clip.mov"}
     assert F.output_name(d).endswith(".mp4")
     assert F.output_name(F.new_draft(1)) == "—"
+
+
+def test_new_draft_preset4_has_form_keys():
+    d = F.new_draft(4)
+    assert d[F.SOURCE_KIND] == F.FILE and d[F.OUTDIR_ON] == "off"

@@ -324,3 +324,46 @@ def test_stage_rail_done_by_order():
         s = S.apply(s, ev)
     rail = V.stage_rail(s).plain
     assert "✓ PREPARING" in rail and "✓ ANALYZING" not in rail and "○ ANALYZING" in rail
+
+
+def _trailing_blank_before_footer(out):
+    lines = out.splitlines()
+    rule = max(i for i, ln in enumerate(lines) if ln.startswith("────"))
+    n, i = 0, rule - 1
+    while i >= 0 and not lines[i].strip():
+        n, i = n + 1, i - 1
+    return n
+
+
+def test_ready_has_no_big_empty_gap_before_footer():
+    assert _trailing_blank_before_footer(text_of(st())) <= 1
+    assert _trailing_blank_before_footer(text_of(st(ready_error="falha"))) <= 1
+
+
+def test_details_labels_not_squeezed():
+    out = text_of(S.apply(encoding_state(), S.Key("D")))
+    for label in ("output", "report", "ebu meter"):
+        assert f"│ {label} " in out, label
+
+
+def test_details_provenance_tags_right_aligned():
+    out = text_of(S.apply(encoding_state(), S.Key("D")))
+    rows = [ln for ln in out.splitlines()
+            if any(ln.startswith(f"│ {lb} ") for lb in ("resolução", "duração", "frames", "fps", "HDR"))]
+    assert len(rows) == 5
+    cols = {ln.index("DET") for ln in rows}
+    assert len(cols) == 1 and cols.pop() > 25
+
+
+def test_mini_line_has_no_redundant_pass_chip():
+    for key in ("D", "L"):
+        out = text_of(S.apply(encoding_state(), S.Key(key)))
+        mini = next(ln for ln in out.splitlines() if "PASS 2/2" in ln)
+        assert "PASS ·" not in mini
+
+
+def test_log_screen_rows_have_left_margin():
+    out = text_of(S.apply(encoding_state(), S.Key("L")))
+    rows = [ln for ln in out.splitlines() if "PROBING" in ln or "ffprobe falhou" in ln]
+    assert len(rows) == 2
+    assert all(ln.startswith(" ") for ln in rows)

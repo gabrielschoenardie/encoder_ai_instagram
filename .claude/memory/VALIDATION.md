@@ -295,3 +295,9 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 | D1–D7 | preset 3 fila completa; preset 5-Pasta com pasta de saída separada; pasta vazia bloqueando; `C` no meio da fila; Ctrl+C no meio da fila; volta ao arquivo único; arrastar a pasta | "tudo funciona como deveria" (relato do usuário) |
 
 **Veredito:** PASSA.
+
+---
+
+## Ciclo P3E (TUI polish) — sem validação de encode
+
+O P3E não altera nenhum encode, filtro, nem o pipeline de vídeo. Nenhum `validate_encode.sh` ou `measure_vmaf.sh` foi executado. A verificação do ciclo é a suíte do CI (988 passed, 4 skipped no último relato, ver `STATE.md`), ruff limpo e checagem manual do usuário no Windows Terminal e no conhost (setas, `à` em ABNT2, Ctrl+C com LOG aberto, `-Tui`).

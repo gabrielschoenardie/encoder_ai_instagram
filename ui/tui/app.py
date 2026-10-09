@@ -5,6 +5,7 @@ import os
 import queue
 import shutil
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, replace
@@ -30,6 +31,7 @@ from ui.tui_capture import ConsoleCapture, _Sink
 TICK_S = 0.1
 READY_HOLD_S = 1.2
 KEY_GAP_S = 0.3
+PATH_CHECK_S = 0.3
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,16 @@ def _default_probe(path: str):
     from ui.probe import probe_source_dims
 
     return probe_source_dims(path)
+
+
+def _disk_check(path: str, check: Callable[[], S.SourceChecked]) -> S.SourceChecked:
+    if path.startswith("\\\\") and sum(path[2:].count(sep) for sep in "\\/") < 2:
+        return S.SourceChecked(path, "NOT_FOUND")
+    box: list = []
+    worker = threading.Thread(target=lambda: box.append(check()), daemon=True)
+    worker.start()
+    worker.join(PATH_CHECK_S)
+    return box[0] if box else S.SourceChecked(path, "NOT_FOUND")
 
 
 class App:
@@ -132,7 +144,7 @@ class App:
         s = self.state
         if s.screen == S.REPORT and s.exit_code is not None:
             return s.exit_code
-        if s.is_batch and s.screen == S.QUEUE:
+        if s.is_batch and s.screen in (S.QUEUE, S.DETAILS, S.LOG):
             self.state = S.apply(s, S.Finished(130))
         return 130
 
@@ -212,14 +224,11 @@ class App:
     def _check_source(self) -> None:
         path = W.clean_path(self.state.source.text)
         if F.is_folder(S.draft(self.state)):
-            self.state = S.apply(self.state, self._check_folder(path))
+            self.state = S.apply(self.state, _disk_check(path, lambda: self._check_folder(path)))
             return
-        if not path or os.path.isdir(path):
-            status = "INVALID"
-        elif os.path.isfile(path):
-            status = "VALID"
-        else:
-            status = "NOT_FOUND"
+        status = _disk_check(path, lambda: S.SourceChecked(
+            path, "INVALID" if not path or os.path.isdir(path) else "VALID" if os.path.isfile(path) else "NOT_FOUND",
+        )).status
         dims = None
         if status == "VALID":
             if self._probed is None or self._probed[0] != path:

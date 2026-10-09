@@ -7,6 +7,7 @@ from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.layout import Layout
 from rich.markup import escape
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -59,7 +60,7 @@ FOOTER_KEYS = {
     S.REPORT: "[↑↓] Rolar   [ENTER] Sair   [ESC] Sair",
 }
 MODAL_KEYS = "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt"
-SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ENTER] Continuar   [ESC] Voltar   [Ctrl+C] Sair"
+SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ESC] Voltar   [Ctrl+C] Sair"
 CONFIG_BATCH_KEYS = "[↑↓] Campo   [←→] On/Off   [digite] Pasta   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair"
 SCREEN_RENDERERS: dict[str, Callable[[S.UIState], RenderableType]] = {}
 
@@ -243,7 +244,8 @@ def _ready(s: S.UIState) -> RenderableType:
         Text(""),
         Text(f"   {banner_src}   {g['arrow']}   {banner_out}"),
         Text(f"   {pipeline_label(cfg)}", style="muted"),
-    ], height=7)
+        Text(""),
+    ], height=8)
     two = cfg.get("mode") == "2pass"
     cineon = cfg.get("cineon_pipeline") == "on"
     key = panel(kv_table([
@@ -257,7 +259,7 @@ def _ready(s: S.UIState) -> RenderableType:
         ("ÁUDIO", f"loudnorm {cfg.get('loudnorm')} · alvo instagram"),
         ("ENHANCE", f"{cfg.get('enhance')} · AI {cfg.get('enhance_ai')} · MCTF {cfg.get('mctf')} · dither {cfg.get('dither')}"),
         ("PERF", f"{cfg.get('performance')} · threads {cfg.get('threads')}"),
-    ]), "KEY SETTINGS", height=15)
+    ]), "KEY SETTINGS", height=18)
     analyzing = [n for n, on in (("enhance", cfg.get("enhance") == "on"),
                                  ("MCTF máscara", cfg.get("mctf") == "on" and cfg.get("enhance_ai") == "on"),
                                  ("loudness da fonte", cfg.get("loudnorm") == "on")) if on]
@@ -273,7 +275,7 @@ def _ready(s: S.UIState) -> RenderableType:
         ("○ ENCODING", encoding),
         ("○ QC", "EBU R128 · checks do master"),
         ("○ COMPLETED", "MASTER QC · certificado" if report_on else "MASTER QC · certificado desativado"),
-    ]), "PIPELINE PLAN", height=15)
+    ]), "PIPELINE PLAN", height=18)
     mid = Table.grid(expand=True)
     mid.add_column(ratio=1)
     mid.add_column(ratio=1)
@@ -466,14 +468,24 @@ def _encoding(s: S.UIState) -> RenderableType:
     return dashboard(s, cancel_modal(s) if s.modal == "CANCEL" else _middle(s))
 
 
-def _prov(value, tag: str) -> Text:
-    out = Text(str(value) if value not in (None, "") else "—")
-    out.append(f"  {tag}", style="muted")
-    return out
+def _prov(value, tag: str) -> tuple:
+    return (str(value) if value not in (None, "") else "—", tag)
+
+
+def prov_table(rows) -> Table:
+    t = Table.grid(padding=(0, 2), expand=True)
+    t.add_column(style="label", no_wrap=True, width=max(len(label) for label, _ in rows))
+    t.add_column(style="value", overflow="ellipsis", no_wrap=True, ratio=1)
+    t.add_column(style="muted", justify="right", no_wrap=True, width=max(len(tag) for _, (_, tag) in rows))
+    for label, (value, tag) in rows:
+        t.add_row(label, Text(value), Text(tag))
+    return t
 
 
 def _mini(s: S.UIState) -> Text:
     track = S.active_pass(s)
+    if track and s.stage == R.PASS:
+        return Text(f" PASS {track.index}/{track.total} {track.pct:.1f}%", style="muted")
     return Text(f" {s.stage or '—'}{' · ' + s.substep if s.substep else ''}"
                 f"{f'   PASS {track.index}/{track.total} {track.pct:.1f}%' if track else ''}", style="muted")
 
@@ -481,21 +493,21 @@ def _mini(s: S.UIState) -> Text:
 def _details(s: S.UIState) -> RenderableType:
     p, hw, ep, pr, cfg = s.probe, s.hardware or {}, s.encode_params, s.progress, s.config
     track = S.active_pass(s)
-    src = panel(kv_table([
+    src = panel(prov_table([
         ("resolução", _prov(f"{p.width} × {p.height}" if p else None, "DET")),
         ("duração", _prov(fmt_secs(p.duration) if p else None, "DET")),
         ("frames", _prov(p.total_frames if p else None, "DET")),
         ("fps", _prov(p.fps if p else None, "DET")),
         ("HDR", _prov(("sim" if p.is_hdr else "não") if p else None, "DET")),
     ]), "SOURCE", height=15)
-    hwp = panel(kv_table([
+    hwp = panel(prov_table([
         ("cpu", _prov(hw.get("cpu_name"), "DET")),
         ("cores/threads", _prov(f"{hw['cpu_cores']} / {hw['cpu_threads']}" if "cpu_cores" in hw and "cpu_threads" in hw else None, "DET")),
         ("ram", _prov(f"{hw['ram_total_gb']:.1f} GB" if "ram_total_gb" in hw else None, "DET")),
         ("tier", _prov(hw.get("tier"), "DER")),
         ("preset rec.", _prov(hw.get("recommended_preset"), "DER")),
     ]), "HARDWARE", height=15)
-    enc = panel(kv_table([
+    enc = panel(prov_table([
         ("modo", _prov(cfg.get("mode"), "CFG")),
         ("pass", _prov(f"{track.index} / {track.total}" if track else None, "LIVE")),
         ("VBV", _prov(ep.vbv_key if ep else None, "CALC")),
@@ -505,7 +517,7 @@ def _details(s: S.UIState) -> RenderableType:
         ("vbv_init", _prov(ep.vbv_init if ep else None, "CALC")),
         ("x264 preset", _prov(ep.x264_preset if ep else None, "CALC")),
     ]), "ENCODING", height=15)
-    con = panel(kv_table([
+    con = panel(prov_table([
         ("pipeline", _prov(pipeline_label(cfg), "CFG")),
         ("LUT", _prov(cfg.get("lut"), "CFG")),
         ("loudnorm", _prov(cfg.get("loudnorm"), "CFG")),
@@ -514,12 +526,12 @@ def _details(s: S.UIState) -> RenderableType:
         ("MCTF", _prov(cfg.get("mctf"), "CFG")),
         ("dither", _prov(cfg.get("dither"), "CFG")),
     ]), "CONFIG", height=15)
-    out = panel(kv_table([
+    out = panel(prov_table([
         ("output", _prov(basename(s.output_path), "CFG")),
         ("report", _prov(cfg.get("report"), "CFG")),
         ("ebu meter", _prov(cfg.get("ebu_meter"), "CFG")),
     ]), "OUTPUT", height=15)
-    prog = panel(kv_table([
+    prog = panel(prov_table([
         ("frame", _prov(f"{pr.frame} / {pr.total}" if pr else None, "LIVE")),
         ("fps", _prov(f"{pr.fps:.1f}" if pr else None, "LIVE")),
         ("speed", _prov(f"{pr.speed:.2f}x" if pr else None, "LIVE")),
@@ -541,7 +553,7 @@ def _log_screen(s: S.UIState) -> RenderableType:
         tabs.append("  ")
     rows = S.filtered_log(s)
     status = Text(f" {len(rows)} linhas · filtro {S.LOG_FILTERS[s.log_filter]}", style="muted")
-    return Group(_mini(s), tabs, Rule(style="muted"), log_rows(rows, 28),
+    return Group(_mini(s), tabs, Rule(style="muted"), Padding(log_rows(rows, 28), (0, 1)),
                  Rule(style="muted"), status)
 
 
@@ -647,7 +659,8 @@ def _report(s: S.UIState) -> RenderableType:
         Text(""),
     ], height=6)
     start = queue_start(len(s.queue), None, S.REPORT_ROWS, s.queue_scroll)
-    table = panel(queue_table(s, start, S.REPORT_ROWS), f"FILA · {_count(len(s.queue), 'arquivo', 'arquivos')}", height=S.REPORT_ROWS + 3)
+    title = f"FILA · {_count(len(s.queue), 'arquivo', 'arquivos')}"
+    table = panel(queue_table(s, start, S.REPORT_ROWS), title, height=S.REPORT_ROWS + 3)
     parts = [top, table]
     if not s.queue and code == 0:
         parts.append(Text("   nenhum vídeo encontrado na pasta", style="muted"))
@@ -678,15 +691,6 @@ def render(s: S.UIState) -> RenderableType:
     root.split_column(Layout(header(s), name="header", size=3), Layout(body, name="body", size=34),
                       Layout(footer(s), name="footer", size=3))
     return root
-
-
-def stderr_lines(err, log) -> list:
-    raw = getattr(err, "stderr_tail", None) if err is not None else None
-    if isinstance(raw, bytes):
-        raw = raw.decode("utf-8", "replace")
-    if raw:
-        return [ln for ln in raw.replace("\r", "\n").split("\n") if ln.strip()]
-    return [r.text for r in log if r.kind == "FFMPEG"][-40:]
 
 
 def action_row(s: S.UIState) -> Text:
@@ -797,9 +801,9 @@ def _error(s: S.UIState) -> RenderableType:
     err = s.error
     card = C.error_card(error_message(s))
     card.height, card.padding = 5, (0, 2)
-    lines = stderr_lines(err, s.log)
-    start = min(s.error_scroll, max(0, len(lines) - 17))
-    body = Group(*[Text(ln, overflow="ellipsis", no_wrap=True) for ln in lines[start:start + 17]]) if lines \
+    lines = S.stderr_lines(err, s.log)
+    start = min(s.error_scroll, max(0, len(lines) - S.ERROR_ROWS))
+    body = Group(*[Text(ln, overflow="ellipsis", no_wrap=True) for ln in lines[start:start + S.ERROR_ROWS]]) if lines \
         else Text("—", style="muted")
     p = s.progress
     state = panel(kv_table([
@@ -938,7 +942,8 @@ def _source(s: S.UIState) -> RenderableType:
     mid.add_column(ratio=40)
     mid.add_row(left, right)
     nxt = "ENTER → ADVANCED" if s.preset == 5 else "ENTER → CONFIGURATION"
-    return Group(mid, panel(Text(f" {nxt}", style="accent"), "PRÓXIMO", height=4))
+    return Group(mid, panel(Text(f" {nxt}", style="accent" if s.source_status == "VALID" else "muted"),
+                            "PRÓXIMO", height=4))
 
 
 SCREEN_RENDERERS[S.HOME] = _home
@@ -952,7 +957,7 @@ def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
         return path_field(s.edit, 20)
     v = d.get(field.name)
     if field.kind == "choice":
-        return Text(f"◂ {v} ▸")
+        return Text(f"◂ {v} ▸" if len(field.options) > 1 else str(v))
     if field.kind == "toggle":
         return Text(f"[{v}]", style="ok" if v == "on" else "muted")
     if field.kind == "number":
@@ -997,7 +1002,8 @@ def preview_rows(cfg: dict) -> list:
     ]
     if cfg.get("cineon_pipeline") == "on":
         exposure, sat = float(cfg.get("exposure_offset", 0)), float(cfg.get("saturation", 1))
-        rows.append(("Exposure / Sat", f"{exposure:+.1f} EV · {sat:.2f}"))
+        sign = "+" if exposure > 0 else ""
+        rows.append(("Exposure / Sat", f"{sign}{W._fmt(exposure)} EV · {W._fmt(sat)}"))
     return rows
 
 

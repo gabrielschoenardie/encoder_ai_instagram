@@ -81,3 +81,119 @@ def test_put_attaches_char_for_text_keys():
     r._put("ENTER", "\r")
     r._put(None, "\x03")
     assert [(k.name, k.char) for k in got] == [("CHAR", "x"), ("C", "c"), ("SPACE", " "), ("ENTER", None)]
+
+
+def test_posix_delete_is_delete():
+    assert K.decode_posix("\x1b[3~") == "DELETE"
+
+
+def test_posix_pgup_pgdn_are_ignored():
+    assert K.decode_posix("\x1b[5~") is None
+    assert K.decode_posix("\x1b[6~") is None
+
+
+def _feed(data: bytes):
+    buf = list(data)
+
+    def read(n):
+        out = bytes(buf[:n])
+        del buf[:n]
+        return out
+
+    return read, (lambda timeout: bool(buf)), buf
+
+
+@pytest.mark.parametrize("data,want", [
+    (b"\x1b[3~", "\x1b[3~"), (b"\x1b[5~", "\x1b[5~"), (b"\x1b[1;5C", "\x1b[1;5C"),
+    (b"\x1b[A", "\x1b[A"), (b"a", "a"),
+])
+def test_read_posix_seq_consumes_whole_csi(data, want):
+    read, ready, buf = _feed(data + b"z")
+    assert K._read_posix_seq(read, ready) == want
+    assert bytes(buf) == b"z"
+
+
+def test_read_posix_seq_reads_whole_utf8_char():
+    read, ready, buf = _feed("à".encode() + b"z")
+    assert K._read_posix_seq(read, ready) == "à"
+    assert K.decode_posix("à") == "CHAR"
+    assert bytes(buf) == b"z"
+
+
+def test_read_posix_seq_lone_escape():
+    read, ready, buf = _feed(b"")
+    assert K._read_posix_seq(read, ready) == ""
+
+
+class StoppingMsvcrt(FakeMsvcrt):
+    def __init__(self, pending, reader):
+        super().__init__(pending)
+        self.reader = reader
+
+    def getwch(self):
+        ch = super().getwch()
+        if not self.pending:
+            self.reader._stop.set()
+        return ch
+
+
+def _run_windows_loop(monkeypatch, pending):
+    got = []
+    r = K.KeyReader(got.append)
+    monkeypatch.setitem(sys.modules, "msvcrt", StoppingMsvcrt(pending, r))
+    K._windows_loop(r)
+    return [(k.name, k.char) for k in got]
+
+
+def test_windows_loop_e0_with_pending_key_is_extended(monkeypatch):
+    assert _run_windows_loop(monkeypatch, ["\xe0", "K"]) == [("LEFT", None)]
+
+
+def test_windows_loop_typed_a_grave_does_not_swallow_next_key(monkeypatch):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt(["à", "a"], r)
+    hits = iter([True, False, True])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setattr(K, "_pending_is_extended", lambda: False)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [("CHAR", "à"), ("CHAR", "a")]
+
+
+def test_windows_loop_nul_prefix_always_extended(monkeypatch):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt(["\x00", "H"], r)
+    hits = iter([True, False])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [("UP", None)]
+
+
+@pytest.mark.parametrize("prefix,second,want", [
+    ("\xe0", "H", "UP"), ("\xe0", "P", "DOWN"), ("\x00", "H", "UP"), ("\x00", "P", "DOWN"),
+])
+def test_windows_loop_arrows_when_kbhit_false_after_prefix(monkeypatch, prefix, second, want):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt([prefix, second], r)
+    hits = iter([True, False])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setattr(K, "_pending_is_extended", lambda: True)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [(want, None)]
+
+
+@pytest.mark.parametrize("recs,want", [
+    ([(True, 0xDE, "\0"), (False, 0xDE, "\0"), (True, 0x41, "\xe0")], False),
+    ([(True, 0x10, "\0"), (True, 0xDB, "\0"), (False, 0xDB, "\0"), (True, 0x41, "\xe0")], False),
+    ([(True, 0x00, "\xe0")], False),
+    ([(True, 0xBA, "\xe0")], False),
+    ([(True, 0x26, "\0")], True),
+    ([(False, 0x10, "\0"), (True, 0x10, "\0"), (True, 0x2E, "\0")], True),
+])
+def test_records_extended_ignores_dead_key(recs, want):
+    assert K._records_extended(recs) is want

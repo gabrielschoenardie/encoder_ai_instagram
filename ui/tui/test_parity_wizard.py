@@ -184,3 +184,15 @@ def test_tui_batch_matches_line_wizard(monkeypatch, tmp_path, preset, with_out, 
         assert getattr(got, k) == v, k
     assert got.batch == str(folder) and got.input is None and got.output_dir == out_dir
     assert vars(got) == vars(want)
+
+
+def test_parity_cineon_stays_off_without_explicit_on(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    folder = tmp_path / "lote"
+    folder.mkdir()
+    assert tui_ns(1, str(src), {}).cineon_pipeline == "off"
+    assert tui_ns(5, str(src), {"threads": 4}).cineon_pipeline == "off"
+    assert tui_batch_ns(3, str(folder), None, {}).cineon_pipeline == "off"
+    assert tui_batch_ns(5, str(folder), None, {}).cineon_pipeline == "off"
+    assert tui_batch_ns(3, str(folder), None, {"cineon_pipeline": "on"}).cineon_pipeline == "on"

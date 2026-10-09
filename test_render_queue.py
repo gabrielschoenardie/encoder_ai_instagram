@@ -165,6 +165,26 @@ def test_run_job_calls_on_tick_while_encode_runs():
     assert tick_count["n"] >= 2
 
 
+def test_run_job_marks_failure_on_system_exit():
+    job = QueueJob(input_path="a.mp4", output_path="a_out.mp4")
+    console = Console(file=io.StringIO(), force_terminal=False)
+
+    def encode_fn():
+        raise SystemExit(1)
+
+    run_job(job, encode_fn, console, tick_interval=0.01)
+
+    assert job.status == "falha"
+    assert job.error
+    assert job.finished_at is not None
+
+
+def test_run_job_default_tick_is_10hz():
+    import inspect
+
+    assert inspect.signature(run_job).parameters["tick_interval"].default == 0.1
+
+
 def test_build_table_shows_ticking_duration_for_running_job():
     job = QueueJob(input_path="a.mp4", output_path="a_out.mp4", status="processando")
     job.started_at = time.time() - 5.0

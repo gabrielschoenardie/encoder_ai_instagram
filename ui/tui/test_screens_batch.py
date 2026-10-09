@@ -229,3 +229,14 @@ def test_report_empty_queue_explains():
     assert "nenhum vídeo encontrado na pasta" not in text_of(report_state())
     stopped = S.apply(S.UIState(config=batch_cfg(), screen=S.QUEUE, is_batch=True, preset=3), S.Finished(130))
     assert stopped.screen == S.REPORT and "nenhum vídeo encontrado na pasta" not in text_of(stopped)
+
+
+def test_queue_start_window_edges():
+    assert V.queue_start(5, 4, 8) == 0
+    assert V.queue_start(20, 0, 8) == 0
+    assert V.queue_start(20, 19, 8) == 12
+    assert V.queue_start(20, 10, 8) == 6
+    assert V.queue_start(20, None, 8) == 0
+    assert V.queue_start(20, 10, 8, scroll=-3) == 0
+    assert V.queue_start(20, 10, 8, scroll=99) == 12
+    assert V.queue_start(20, 10, 8, scroll=5) == 5

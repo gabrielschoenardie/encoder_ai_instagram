@@ -218,6 +218,40 @@ Describe 'Build-AppCommand' {
     }
 }
 
+Describe 'Build-TuiCommand' {
+
+    It 'entrega a TUI e nada mais (termina em -m ui.tui)' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Match '-m ui\.tui$'
+    }
+
+    It 'nao chama o script do encoder' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match 'Reels_Encoder_v2_FINAL\.py'
+    }
+
+    It 'prefixa Set-Location quando recebe -WorkingDirectory' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory 'WD' |
+            Should -Match '^Set-Location ''WD''; '
+    }
+
+    It 'monta na ordem Set-Location -> $env: -> &' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
+            -WorkingDirectory 'WD' -Ffmpeg 'FF' -Ffprobe 'FP' |
+            Should -Match '^Set-Location ''WD''; \$env:REELS_FFMPEG=''FF''; \$env:REELS_FFPROBE=''FP''; & ''PY'' -m ui\.tui$'
+    }
+
+    It 'protege caminho com aspa simples' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory "Gabriel's" |
+            Should -Match '^Set-Location ''Gabriel''''s''; '
+    }
+
+    It 'Build-AppCommand continua terminando em --ui' {
+        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Match '--ui$'
+    }
+}
+
 Describe 'Resolve-LauncherShell' {
 
     It 'devolve powershell quando terminal.preferPwsh e false' {

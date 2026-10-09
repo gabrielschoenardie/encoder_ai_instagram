@@ -11,7 +11,7 @@ from ui.tui.state import Key
 _CHARS = {"\r": "ENTER", "\n": "ENTER", "\x1b": "ESC", " ": "SPACE", "\x08": "BACKSPACE", "\x7f": "BACKSPACE"}
 _HOTKEYS = {"d": "D", "l": "L", "c": "C"}
 _WIN_EXT = {"H": "UP", "P": "DOWN", "K": "LEFT", "M": "RIGHT", "S": "DELETE"}
-_ANSI = {"[A": "UP", "[B": "DOWN", "[C": "RIGHT", "[D": "LEFT"}
+_ANSI = {"[A": "UP", "[B": "DOWN", "[C": "RIGHT", "[D": "LEFT", "[3~": "DELETE"}
 _WITH_CHAR = frozenset({"CHAR", "SPACE", "D", "L", "C"})
 
 
@@ -35,7 +35,7 @@ def decode_windows(ch: str, nxt: str | None = None) -> str | None:
 
 def decode_posix(seq: str) -> str | None:
     if seq.startswith("\x1b") and len(seq) > 1:
-        return _ANSI.get(seq[1:3])
+        return _ANSI.get(seq[1:])
     return _plain(seq)
 
 
@@ -90,29 +90,93 @@ def _reader_loop(reader: KeyReader) -> None:
         return
 
 
+_MODIFIER_VKS = frozenset({0x10, 0x11, 0x12, 0x14, 0x90, 0x91})
+_EXTENDED_VKS = frozenset(range(0x21, 0x29)) | {0x2D, 0x2E} | frozenset(range(0x70, 0x88))
+
+
+def _records_extended(recs) -> bool:
+    for down, vk, char in recs:
+        if down and vk not in _MODIFIER_VKS and (char != "\0" or vk in _EXTENDED_VKS):
+            return char == "\0"
+    return True
+
+
+def _pending_is_extended() -> bool:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Key(ctypes.Structure):
+            _fields_ = [
+                ("down", wintypes.BOOL), ("repeat", wintypes.WORD), ("vk", wintypes.WORD),
+                ("scan", wintypes.WORD), ("char", wintypes.WCHAR), ("ctrl", wintypes.DWORD),
+            ]
+
+        class _Rec(ctypes.Structure):
+            _fields_ = [("type", wintypes.WORD), ("pad", wintypes.WORD), ("key", _Key)]
+
+        k32 = ctypes.windll.kernel32
+        k32.GetStdHandle.restype = wintypes.HANDLE
+        handle = k32.GetStdHandle(-10)
+        buf = (_Rec * 16)()
+        n = wintypes.DWORD()
+        if not k32.PeekConsoleInputW(handle, buf, 16, ctypes.byref(n)):
+            return True
+        return _records_extended(
+            (rec.key.down, rec.key.vk, rec.key.char) for rec in buf[: n.value] if rec.type == 1
+        )
+    except Exception:
+        pass
+    return True
+
+
 def _windows_loop(reader: KeyReader) -> None:
     import msvcrt
 
     while not reader._stop.is_set():
         if msvcrt.kbhit():
+            extended = _pending_is_extended()
             ch = msvcrt.getwch()
+            if ch == "\xe0" and not extended:
+                reader._put(_plain(ch), ch)
+                continue
             nxt = msvcrt.getwch() if ch in ("\x00", "\xe0") else None
             reader._put(decode_windows(ch, nxt), ch)
         else:
             time.sleep(0.05)
 
 
+def _read_posix_seq(read: Callable[[int], bytes], ready: Callable[[float], bool]) -> str:
+    first = read(1)
+    if first == b"\x1b":
+        data = first
+        if ready(0.03):
+            data += read(1)
+            if data[-1:] in (b"[", b"O"):
+                for _ in range(16):
+                    if not ready(0.03):
+                        break
+                    byte = read(1)
+                    data += byte
+                    if not byte or 0x40 <= byte[0] <= 0x7E:
+                        break
+        return data.decode("utf-8", "ignore")
+    if first and first[0] >= 0xC0:
+        extra = 1 if first[0] < 0xE0 else 2 if first[0] < 0xF0 else 3
+        first += read(extra)
+    return first.decode("utf-8", "ignore")
+
+
 def _posix_loop(reader: KeyReader) -> None:
     import select
 
     fd = sys.stdin.fileno()
+
+    def ready(timeout: float) -> bool:
+        return bool(select.select([fd], [], [], timeout)[0])
+
     while not reader._stop.is_set():
-        ready, _, _ = select.select([fd], [], [], 0.05)
-        if not ready:
+        if not ready(0.05):
             continue
-        seq = os.read(fd, 1).decode("utf-8", "ignore")
-        if seq == "\x1b":
-            more, _, _ = select.select([fd], [], [], 0.03)
-            if more:
-                seq += os.read(fd, 2).decode("utf-8", "ignore")
+        seq = _read_posix_seq(lambda n: os.read(fd, n), ready)
         reader._put(decode_posix(seq), seq if len(seq) == 1 else None)

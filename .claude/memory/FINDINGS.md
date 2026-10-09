@@ -1462,9 +1462,9 @@ completo: `.superpowers/sdd/2026-09-30-tui-reporter-seam/progress.md` (git-ignor
 | ID | severidade | onde | achado | status |
 |----|------------|------|--------|--------|
 | P3AF1 | S4 | HUD clássico (linha `options:` do x264) | Rich interpreta `:-1:` em `deblock=1:-1:-1` como emoji 👎 (visível no golden `classic_native_*.json` como `deblock=N👎-N`). Pré-existente, só visual | aberto |
-| P3AF2 | S3 | CI | portabilidade dos goldens native no Linux (texto do stderr do ffmpeg/libx264 apt 6.1.1 vs BtbN 6.1.3) e tempo de CI (~9 encodes Cineon por perna Linux) não medidos — exige 1 run de CI | aberto |
+| P3AF2 | S3 | CI | portabilidade dos goldens native no Linux (texto do stderr do ffmpeg/libx264 apt 6.1.1 vs BtbN 6.1.3) e tempo de CI (~9 encodes Cineon por perna Linux) não medidos — exige 1 run de CI | aberto | — **medido (2026-10-06, run 37549941700)**: goldens dão SKIP por ambiente em todas as pernas; ubuntu 389–620 s, windows 20 s; não quebra a CI
 | P3AF3 | S4 | `ui/tui_driver.py` `_run_one` | 2º Ctrl+C por sinal durante `worker_done.wait` escapa e a limpeza roda com o worker possivelmente vivo | aceito (force-quit) |
-| P3AF4 | S4 | `render_queue.run_job` | worker captura só `Exception`; `SystemExit` no encode marcaria o job "ok" (spec §7 pede BaseException). Nenhum `sys.exit` no caminho hoje | aberto |
+| P3AF4 | S4 | `render_queue.run_job` | worker captura só `Exception`; `SystemExit` no encode marcaria o job "ok" (spec §7 pede BaseException). Nenhum `sys.exit` no caminho hoje | corrigido (P3E, 6c92a8b) |
 
 ### Contrato para as telas da Phase 3 (obrigatório ao consumir `reporter`/`tui_driver`)
 
@@ -1492,10 +1492,10 @@ Origem: revisões por tarefa e revisão final da branch `claude/ciclo-p3b-tui-sh
 
 | ID | severidade | onde | achado | status |
 |----|------------|------|--------|--------|
-| P3BF1 | S4 | suíte canônica | `test_red_bt709_full_range` falhou 1× no baseline e passou ao rodar de novo (intermitente) | aberto |
-| P3BF2 | S4 | `ui/tui/__main__.py` | mensagem da guarda não diz "abra no Windows Terminal (wt)" quando o console é legado (conhost) | aberto (P3E) |
-| P3BF3 | S4 | `launcher.ps1` | sem aba/opção para a TUI (NB-1) | aberto (P3E) |
-| P3BF4 | S4 | `render_queue.run_job` | tick de 4 Hz durante o encode (spec §7 pede 10 Hz) — exige mudança no código do P3A | aberto |
+| P3BF1 | S4 | suíte canônica | `test_red_bt709_full_range` falhou 1× no baseline e passou ao rodar de novo (intermitente) | aberto (S4) — não reproduzido em 300 execuções |
+| P3BF2 | S4 | `ui/tui/__main__.py` | mensagem da guarda não diz "abra no Windows Terminal (wt)" quando o console é legado (conhost) | corrigido (P3E, 427b126) |
+| P3BF3 | S4 | `launcher.ps1` | sem aba/opção para a TUI (NB-1) | corrigido (P3E, b962274) |
+| P3BF4 | S4 | `render_queue.run_job` | tick de 4 Hz durante o encode (spec §7 pede 10 Hz) — exige mudança no código do P3A | corrigido (P3E, 6c92a8b) |
 
 Dívida visual para o P3E (sem impacto funcional): READY com ~5 linhas vazias; DETAILS com rótulos espremidos e proveniência não alinhada à direita; mini-linha "PASS · 2"; LOG sem margem; `error_scroll` sem limite superior; linha "CANCEL · requested" duplicada no LOG; leitura POSIX de setas partidas (SSH); preflight do FFmpeg roda depois do wizard; argv ignorado no caminho TUI.
 
@@ -1505,12 +1505,12 @@ Origem: revisões por tarefa, revisão final da branch `claude/ciclo-p3c-tui-con
 
 | ID | severidade | onde | achado | status |
 |----|------------|------|--------|--------|
-| P3CF1 | S3 | `ui/probe.py:27` | `probe_source_dims` chama ffprobe sem timeout; ffprobe travado congela o SOURCE | aberto (fora do escopo P3C: arquivo protegido) |
-| P3CF2 | S4 | `ui/tui/app.py` (`_check_source`) | `isfile`/`isdir` síncronos a cada tecla; caminho UNC parcial (`\serv…`) pode travar a UI segundos | aberto (P3E) |
+| P3CF1 | S3 | `ui/probe.py:27` | `probe_source_dims` chama ffprobe sem timeout; ffprobe travado congela o SOURCE | aberto (fora do escopo P3C: arquivo protegido) | — **corrigido (conferido 2026-10-06)**: `ui/probe.py` usa `timeout=PROBE_TIMEOUT_S`; ver `test_probe_hung_ffprobe_returns_none_fast`
+| P3CF2 | S4 | `ui/tui/app.py` (`_check_source`) | `isfile`/`isdir` síncronos a cada tecla; caminho UNC parcial (`\serv…`) pode travar a UI segundos | corrigido (P3E, b978600) |
 | P3CF3 | S4 | `ui/tui/app.py` (`_drop_queued_keys`) | ENTER segurado: teclas que chegam depois do descarte no armamento ainda podem dar START (cancelável com C) | corrigido no P3C (`b834ef3`, `8b343eb`: START só com ENTER isolado — READY visível ≥ 1,2 s e tecla anterior ≥ 0,3 s, carimbo na chegada); validado no manual T11 |
-| P3CF4 | S4 | `ui/tui/state.py` (foco por aba) | foco lembrado na aba Color/LUT muda de campo quando Cineon liga/desliga (índice, não nome) | aberto (P3E) |
-| P3CF5 | S4 | `ui/tui/keys.py` POSIX | Delete/PgUp/PgDn (`ESC [3~`) deixam `~` no caminho; POSIX descarta não-ASCII | aberto (P3E) |
-| P3CF6 | S4 | `ui/tui/keys.py` Windows | `à` (U+00E0) = prefixo de tecla estendida `\xe0` do `getwch`; digitar `à` engole a próxima tecla | aberto (P3E) |
+| P3CF4 | S4 | `ui/tui/state.py` (foco por aba) | foco lembrado na aba Color/LUT muda de campo quando Cineon liga/desliga (índice, não nome) | aberto (P3E) | — **corrigido (conferido 2026-10-06)**: foco guardado por chave de texto em `state.py:227-237`
+| P3CF5 | S4 | `ui/tui/keys.py` POSIX | Delete/PgUp/PgDn (`ESC [3~`) deixam `~` no caminho; POSIX descarta não-ASCII | corrigido (P3E, cfde098) |
+| P3CF6 | S4 | `ui/tui/keys.py` Windows | `à` (U+00E0) = prefixo de tecla estendida `\xe0` do `getwch`; digitar `à` engole a próxima tecla | corrigido (P3E, eb14d8c + e05855b + 2dbc2ce) |
 
 Dívida visual para o P3E: SOURCE "ENTER → CONFIGURATION" não esmaece quando o status não é VALID; `field_rows` sem renderização de campo desativado com motivo (nenhum campo desativado até o P3D); choice de uma opção mostra `◂ ▸`; painéis SETTINGS/PREVIEW arredondam números (`preview_rows`) enquanto o formulário mostra o valor exato; falta espaço em `Text(...),Text(...)` na linha de ações do READY.
 
@@ -1520,7 +1520,11 @@ Origem: revisões por tarefa, revisão final da branch `claude/ciclo-p3d-tui-bat
 
 | ID | severidade | onde | achado | status |
 |----|------------|------|--------|--------|
-| P3DF1 | S4 | `ui/tui/app.py` (`_check_folder`) | a cada tecla cujo prefixo é uma pasta existente (`C:`, `C:\Users`…), lista os vídeos da pasta; caminho lento/de rede pode travar a UI (mesma classe de P3CF2) | aberto (P3E) |
-| P3DF2 | S4 | `ui/tui/app.py` (`_interrupted_code`) | Ctrl+C no meio da fila com DETAILS/LOG aberto não aplica `Finished(130)`: o job ativo fica "processando" no resumo (código continua 130) | aberto (P3E; 1 linha: aceitar `s.screen in S.OVERLAYS`) |
+| P3DF1 | S4 | `ui/tui/app.py` (`_check_folder`) | a cada tecla cujo prefixo é uma pasta existente (`C:`, `C:\Users`…), lista os vídeos da pasta; caminho lento/de rede pode travar a UI (mesma classe de P3CF2) | corrigido (P3E, b978600) |
+| P3DF2 | S4 | `ui/tui/app.py` (`_interrupted_code`) | Ctrl+C no meio da fila com DETAILS/LOG aberto não aplica `Finished(130)`: o job ativo fica "processando" no resumo (código continua 130) | corrigido (P3E, b7f26d0) |
 
-Pequenos adiados (P3E): `new_draft` do preset 4 sem chaves de formulário (inofensivo); ENTER com foco no TIPO avança; lacunas de teste (preset 5-Pasta EMPTY bloqueando, janela da fila nas bordas, D/L a partir da QUEUE, ETA quando o job ativo passa da média, Cineon "off" fixado nos cenários de paridade); linha de código com 138 colunas em `screens.py`; teste do ffprobe travado depende do plugin `pytest-timeout`.
+Pequenos adiados (P3E): `new_draft` do preset 4 sem chaves de formulário (inofensivo); ENTER com foco no TIPO avança; lacunas de teste (preset 5-Pasta EMPTY bloqueando, janela da fila nas bordas, D/L a partir da QUEUE, ETA quando o job ativo passa da média, Cineon "off" fixado nos cenários de paridade); linha de código com 138 colunas em `screens.py`; teste do ffprobe travado depende do plugin `pytest-timeout` (**resolvido, conferido 2026-10-06**: já declarado em `pyproject.toml` extra `dev`, instalado no `venv/` e no CI; não é item do P3E).
+
+| P3EF1 | S3 | `ui/probe.py` `probe_source_dims` / `ui/tui/app.py` `_probe` | medido pelo executor em 2026-10-07: o probe leva 5,5–7,7 s nos `.mp4` de `videos/` e estoura os 10 s nos `.mov`; roda síncrono ao validar o SOURCE e congela a tela por esse tempo. Causa não investigada (candidatos: `-show_entries ...side_data`, antivírus, disco). Fora do escopo do P3E | aberto |
+
+| P3EF2 | S4 | `ui/tui/forms.py` / `ui/tui/screens.py` (formulário de config, `field_rows`) | item 9b-2 do P3C: "campo desativado" sem motivo definido. Fora do P3E por decisão do usuário (2026-10-09): é decisão de produto (qual campo e qual texto de motivo). | aberto — fora do P3E |
