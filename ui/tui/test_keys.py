@@ -155,6 +155,7 @@ def test_windows_loop_typed_a_grave_does_not_swallow_next_key(monkeypatch):
     fake = StoppingMsvcrt(["à", "a"], r)
     hits = iter([True, False, True])
     fake.kbhit = lambda: next(hits)
+    monkeypatch.setattr(K, "_pending_is_extended", lambda: False)
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     K._windows_loop(r)
     assert [(k.name, k.char) for k in got] == [("CHAR", "à"), ("CHAR", "a")]
@@ -169,3 +170,18 @@ def test_windows_loop_nul_prefix_always_extended(monkeypatch):
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     K._windows_loop(r)
     assert [(k.name, k.char) for k in got] == [("UP", None)]
+
+
+@pytest.mark.parametrize("prefix,second,want", [
+    ("\xe0", "H", "UP"), ("\xe0", "P", "DOWN"), ("\x00", "H", "UP"), ("\x00", "P", "DOWN"),
+])
+def test_windows_loop_arrows_when_kbhit_false_after_prefix(monkeypatch, prefix, second, want):
+    got = []
+    r = K.KeyReader(got.append)
+    fake = StoppingMsvcrt([prefix, second], r)
+    hits = iter([True, False])
+    fake.kbhit = lambda: next(hits)
+    monkeypatch.setattr(K, "_pending_is_extended", lambda: True)
+    monkeypatch.setitem(sys.modules, "msvcrt", fake)
+    K._windows_loop(r)
+    assert [(k.name, k.char) for k in got] == [(want, None)]

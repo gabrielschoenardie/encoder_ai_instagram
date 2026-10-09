@@ -90,13 +90,46 @@ def _reader_loop(reader: KeyReader) -> None:
         return
 
 
+_MODIFIER_VKS = frozenset({0x10, 0x11, 0x12, 0x14, 0x90, 0x91})
+
+
+def _pending_is_extended() -> bool:
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Key(ctypes.Structure):
+            _fields_ = [
+                ("down", wintypes.BOOL), ("repeat", wintypes.WORD), ("vk", wintypes.WORD),
+                ("scan", wintypes.WORD), ("char", wintypes.WCHAR), ("ctrl", wintypes.DWORD),
+            ]
+
+        class _Rec(ctypes.Structure):
+            _fields_ = [("type", wintypes.WORD), ("pad", wintypes.WORD), ("key", _Key)]
+
+        k32 = ctypes.windll.kernel32
+        k32.GetStdHandle.restype = wintypes.HANDLE
+        handle = k32.GetStdHandle(-10)
+        buf = (_Rec * 16)()
+        n = wintypes.DWORD()
+        if not k32.PeekConsoleInputW(handle, buf, 16, ctypes.byref(n)):
+            return True
+        for rec in buf[: n.value]:
+            if rec.type == 1 and rec.key.down and rec.key.vk not in _MODIFIER_VKS:
+                return rec.key.char == "\0"
+    except Exception:
+        pass
+    return True
+
+
 def _windows_loop(reader: KeyReader) -> None:
     import msvcrt
 
     while not reader._stop.is_set():
         if msvcrt.kbhit():
+            extended = _pending_is_extended()
             ch = msvcrt.getwch()
-            if ch == "\xe0" and not msvcrt.kbhit():
+            if ch == "\xe0" and not extended:
                 reader._put(_plain(ch), ch)
                 continue
             nxt = msvcrt.getwch() if ch in ("\x00", "\xe0") else None
