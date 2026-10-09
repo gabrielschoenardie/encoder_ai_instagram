@@ -307,9 +307,9 @@ Describe 'Initialize-Environment' {
             Should -Invoke Write-VenvLock -Times 0 -Exactly
         }
 
-        It 'nao roda pip check no caminho rapido' {
+        It 'roda pip check uma vez antes de pular a instalacao' {
             Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
-            Should -Invoke Test-VenvConsistent -Times 0 -Exactly
+            Should -Invoke Test-VenvConsistent -Times 1 -Exactly
         }
 
         It 'retorna o caminho do python dentro do venv informado' {
@@ -467,6 +467,36 @@ Describe 'Initialize-Environment' {
             Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config -Force | Out-Null
             Should -Invoke Install-Requirements -Times 1 -Exactly
         }
+
+        It 'nao depende do pip check previo (so checa depois do install)' {
+            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config -Force | Out-Null
+            Should -Invoke Test-VenvConsistent -Times 1 -Exactly
+        }
+    }
+
+    Context 'stamp confere mas pip check reprova' {
+
+        BeforeAll {
+            Mock Test-VenvExists      { return $true }
+            Mock Test-VenvHealthy     { return $true }
+            Mock Get-VenvPythonVersion { return [version]'3.12.0' }
+            Mock Test-VenvConsistent  { return [PSCustomObject]@{ Ok = $false; Report = 'foo 1.0 requires bar>=2, but you have bar 1.5.' } }
+            Mock Get-RequirementsStamp { return 'S' }
+            Mock Read-VenvStamp       { return 'S' }
+            Mock Write-VenvStamp      { }
+            Mock New-ProjectVenv      { }
+            Mock Install-Requirements { }
+            Mock Write-VenvLock       { }
+            Mock Write-LauncherLog    { }
+        }
+
+        It 'chama Install-Requirements em vez de pular' {
+            try {
+                Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            }
+            catch { $null = $_ }
+            Should -Invoke Install-Requirements -Times 1 -Exactly
+        }
     }
 
     Context 'pip check reprova depois do install' {
@@ -485,26 +515,25 @@ Describe 'Initialize-Environment' {
             Mock Write-LauncherLog    { }
         }
 
+        It 'lanca erro com o relatorio do pip check' {
+            { Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config } |
+                Should -Throw -ExpectedMessage '*bar>=2*'
+        }
+
         It 'instala exatamente uma vez (sem laco)' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            try {
+                Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
+            }
+            catch { $null = $_ }
             Should -Invoke Install-Requirements -Times 1 -Exactly
         }
 
-        It 'grava o stamp mesmo assim' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
-            Should -Invoke Write-VenvStamp -Times 1 -Exactly
-        }
-
-        It 'avisa com o relatorio do pip check' {
-            Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
-            Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
-                $Level -eq 'Warn' -and $Message -match 'pip check' -and $Message -match 'bar>=2'
+        It 'nao grava o stamp' {
+            try {
+                Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config | Out-Null
             }
-        }
-
-        It 'ainda devolve o interpretador' {
-            $py = Initialize-Environment -RepoRoot 'ROOT' -VenvPath 'VENV' -Config $script:Config
-            $py | Should -Match 'python'
+            catch { $null = $_ }
+            Should -Invoke Write-VenvStamp -Times 0 -Exactly
         }
     }
 
