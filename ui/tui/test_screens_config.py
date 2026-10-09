@@ -116,7 +116,7 @@ def test_preview_rows_and_chips():
     d = {**F.new_draft(5), "cineon_pipeline": "on", "exposure_offset": 0.5, "saturation": 0.8}
     rows = dict(__import__("ui.tui.screens", fromlist=["preview_rows"]).preview_rows(d))
     assert list(rows)[:9] == ["Pipeline", "Mode", "FPS", "Scale / Fit", "LUT", "HDR", "Tonemap", "Audio", "Performance"]
-    assert rows["Exposure / Sat"] == "+0.5 EV · 0.80"
+    assert rows["Exposure / Sat"] == "+0.5 EV · 0.8"
     chips = dict(__import__("ui.tui.screens", fromlist=["preview_chips"]).preview_chips(d))
     assert list(chips) == ["LUT", "Loudnorm", "Enhance", "AI", "MCTF", "Dither", "EBU Meter"]
 
@@ -302,3 +302,39 @@ def test_helpers():
     assert output_dir_text({}) == "mesma pasta" and output_dir_text({"output_dir": "D:/s"}) == "D:/s"
     assert source_text({"batch": "C:/v/lote"}, 2) == "pasta lote · 2 vídeos"
     assert source_text({"input": "C:/v/a.mov"}, None) == "a.mov"
+
+
+def _ansi_before(state, needle):
+    from ui.theme import get_console
+    con = get_console(record=True, width=120, height=40, force_terminal=True, color_system="truecolor")
+    con.print(__import__("ui.tui.screens", fromlist=["render"]).render(state))
+    line = next(ln for ln in con.export_text(styles=True).splitlines() if needle in ln)
+    head = line.split(needle)[0]
+    start = head.rfind("\x1b[")
+    return head[start:head.index("m", start) + 1]
+
+
+def test_source_next_hint_dims_unless_valid():
+    base = S.UIState(config={}, screen=S.SOURCE, preset=1, drafts=((1, {**S.draft(S.UIState(config={}, preset=1))}),),
+                     source=W.TextBuf("C:/v/clip.mov", 13))
+    valid = _ansi_before(S.UIState(**{**base.__dict__, "source_status": "VALID"}), "ENTER → CONFIGURATION")
+    muted = _ansi_before(base, "[ENTER] Continuar")
+    for status in ("NOT_FOUND", "INVALID", "CHECKING"):
+        dim = _ansi_before(S.UIState(**{**base.__dict__, "source_status": status}), "ENTER → CONFIGURATION")
+        assert dim == muted and dim != valid, status
+
+
+def test_choice_with_single_option_has_no_arrows():
+    sc = __import__("ui.tui.screens", fromlist=["_value_text"])
+    one = F.Field("x", "choice", "X", ("only",))
+    two = F.Field("x", "choice", "X", ("a", "b"))
+    assert sc._value_text(S.UIState(config={}), one, {"x": "only"}, False).plain == "only"
+    assert sc._value_text(S.UIState(config={}), two, {"x": "a"}, False).plain == "◂ a ▸"
+
+
+def test_preview_rows_show_exact_exposure_and_saturation():
+    sc = __import__("ui.tui.screens", fromlist=["preview_rows"])
+    d = {**F.new_draft(5), "cineon_pipeline": "on", "exposure_offset": 0.05, "saturation": 1.234}
+    assert dict(sc.preview_rows(d))["Exposure / Sat"] == "+0.05 EV · 1.234"
+    d = {**d, "exposure_offset": -0.7, "saturation": 1.0}
+    assert dict(sc.preview_rows(d))["Exposure / Sat"] == "-0.7 EV · 1"

@@ -941,7 +941,8 @@ def _source(s: S.UIState) -> RenderableType:
     mid.add_column(ratio=40)
     mid.add_row(left, right)
     nxt = "ENTER → ADVANCED" if s.preset == 5 else "ENTER → CONFIGURATION"
-    return Group(mid, panel(Text(f" {nxt}", style="accent"), "PRÓXIMO", height=4))
+    return Group(mid, panel(Text(f" {nxt}", style="accent" if s.source_status == "VALID" else "muted"),
+                            "PRÓXIMO", height=4))
 
 
 SCREEN_RENDERERS[S.HOME] = _home
@@ -955,7 +956,7 @@ def _value_text(s: S.UIState, field, d: dict, focused: bool) -> Text:
         return path_field(s.edit, 20)
     v = d.get(field.name)
     if field.kind == "choice":
-        return Text(f"◂ {v} ▸")
+        return Text(f"◂ {v} ▸" if len(field.options) > 1 else str(v))
     if field.kind == "toggle":
         return Text(f"[{v}]", style="ok" if v == "on" else "muted")
     if field.kind == "number":
@@ -1000,7 +1001,8 @@ def preview_rows(cfg: dict) -> list:
     ]
     if cfg.get("cineon_pipeline") == "on":
         exposure, sat = float(cfg.get("exposure_offset", 0)), float(cfg.get("saturation", 1))
-        rows.append(("Exposure / Sat", f"{exposure:+.1f} EV · {sat:.2f}"))
+        sign = "+" if exposure > 0 else ""
+        rows.append(("Exposure / Sat", f"{sign}{W._fmt(exposure)} EV · {W._fmt(sat)}"))
     return rows
 
 
