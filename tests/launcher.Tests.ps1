@@ -587,6 +587,11 @@ Describe 'Resolve-Binaries' {
     Context 'todos os binarios presentes' {
 
         BeforeAll {
+            $script:BinRoot = Join-Path $TestDrive 'repo'
+            New-Item -ItemType Directory -Path (Join-Path $script:BinRoot 'bin') -Force | Out-Null
+            foreach ($f in @($script:Config.paths.ffmpegExe, $script:Config.paths.ffprobeExe)) {
+                New-Item -ItemType File -Path (Join-Path $script:BinRoot $f) -Force | Out-Null
+            }
             # Test-RequiredBinary real lancaria (os .exe nao existem no runner);
             # mockado, devolve o proprio caminho, como faz o original quando o
             # arquivo existe.
@@ -605,7 +610,7 @@ Describe 'Resolve-Binaries' {
         }
 
         It 'devolve os cinco membros do contrato' {
-            $r = Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config
+            $r = Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config
             $names = @($r.PSObject.Properties.Name)
             foreach ($m in @('VenvPython', 'Ffmpeg', 'Ffprobe', 'WtPath', 'WtAvailable')) {
                 $names | Should -Contain $m
@@ -613,24 +618,24 @@ Describe 'Resolve-Binaries' {
         }
 
         It 'propaga o interpretador recebido' {
-            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).VenvPython |
+            (Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config).VenvPython |
                 Should -Be 'PY'
         }
 
         It 'resolve ffmpeg, ffprobe e wt a partir do launch-config.json' {
-            $r = Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config
+            $r = Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config
             $r.Ffmpeg  | Should -Match 'ffmpeg\.exe'
             $r.Ffprobe | Should -Match 'ffprobe\.exe'
             $r.WtPath  | Should -Match 'wt\.exe'
         }
 
         It 'marca WtAvailable como verdadeiro' {
-            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtAvailable |
+            (Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config).WtAvailable |
                 Should -BeTrue
         }
 
         It 'valida os tres binarios obrigatorios (python, ffmpeg, ffprobe)' {
-            Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config | Out-Null
+            Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config | Out-Null
             Should -Invoke Test-RequiredBinary -Times 3 -Exactly
         }
     }
@@ -638,6 +643,11 @@ Describe 'Resolve-Binaries' {
     Context 'Windows Terminal ausente (binario opcional)' {
 
         BeforeAll {
+            $script:BinRoot = Join-Path $TestDrive 'repo'
+            New-Item -ItemType Directory -Path (Join-Path $script:BinRoot 'bin') -Force | Out-Null
+            foreach ($f in @($script:Config.paths.ffmpegExe, $script:Config.paths.ffprobeExe)) {
+                New-Item -ItemType File -Path (Join-Path $script:BinRoot $f) -Force | Out-Null
+            }
             Mock Test-RequiredBinary { return $Path }
             Mock Test-FfmpegCapabilities { }
             Mock Test-ExecutableRuns { }
@@ -646,22 +656,22 @@ Describe 'Resolve-Binaries' {
         }
 
         It 'marca WtAvailable como falso' {
-            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtAvailable |
+            (Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config).WtAvailable |
                 Should -BeFalse
         }
 
         It 'nao lanca excecao — wt.exe e opcional, nao obrigatorio' {
-            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+            { Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config } |
                 Should -Not -Throw
         }
 
         It 'ainda devolve o WtPath calculado (para o fallback poder logar)' {
-            (Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config).WtPath |
+            (Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config).WtPath |
                 Should -Match 'wt\.exe'
         }
 
         It 'avisa o usuario em nivel Warn' {
-            Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config | Out-Null
+            Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config | Out-Null
             Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
                 $Level -eq 'Warn'
             }
@@ -671,6 +681,11 @@ Describe 'Resolve-Binaries' {
     Context 'ffmpeg nao consegue iniciar' {
 
         BeforeAll {
+            $script:BinRoot = Join-Path $TestDrive 'repo'
+            New-Item -ItemType Directory -Path (Join-Path $script:BinRoot 'bin') -Force | Out-Null
+            foreach ($f in @($script:Config.paths.ffmpegExe, $script:Config.paths.ffprobeExe)) {
+                New-Item -ItemType File -Path (Join-Path $script:BinRoot $f) -Force | Out-Null
+            }
             Mock Test-RequiredBinary { return $Path }
             Mock Test-FfmpegCapabilities { }
             Mock Test-ExecutableRuns { }
@@ -684,14 +699,29 @@ Describe 'Resolve-Binaries' {
         It 'propaga a excecao' {
             # Binario presente no disco mas quebrado (DLL faltando, download
             # truncado): existir nao e o mesmo que executar.
-            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+            { Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config } |
                 Should -Throw
         }
 
         It 'nao chega a checar capacidades' {
-            { Resolve-Binaries -RepoRoot 'ROOT' -VenvPython 'PY' -Config $script:Config } |
+            { Resolve-Binaries -RepoRoot $script:BinRoot -VenvPython 'PY' -Config $script:Config } |
                 Should -Throw
             Should -Invoke Test-FfmpegCapabilities -Times 0 -Exactly
+        }
+    }
+
+    Context 'ffmpeg ausente e fetch_ffmpeg.ps1 ausente' {
+
+        BeforeAll {
+            Mock Write-LauncherLog { }
+            $script:EmptyRoot = Join-Path $TestDrive 'empty-repo'
+            New-Item -ItemType Directory -Path $script:EmptyRoot -Force | Out-Null
+        }
+
+        It 'lanca erro informando que o script de instalacao nao foi encontrado' {
+            Mock Test-RequiredBinary { return $Path }
+            { Resolve-Binaries -RepoRoot $script:EmptyRoot -VenvPython 'PY' -Config $script:Config } |
+                Should -Throw '*Script de instalacao do FFmpeg nao encontrado*'
         }
     }
 }
