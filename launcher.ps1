@@ -444,41 +444,138 @@ function Test-FfmpegCapabilities {
     }
 }
 
+
 function Resolve-Binaries {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
         [Parameter(Mandatory)][string]$VenvPython,
         [Parameter(Mandatory)]$Config
     )
-    Test-RequiredBinary -Path $VenvPython -Name "Python (venv)" `
-        -FixHint "Rode o launcher sem -SkipEnvSetup para recriar o venv." | Out-Null
 
+    # 1. Validar o Python do ambiente virtual.
+    Test-RequiredBinary -Path $VenvPython -Name "Python (venv)" `
+        -FixHint "Rode o launcher sem -SkipEnvSetup para recriar o venv." |
+        Out-Null
+
+    # 2. Resolver os caminhos configurados do FFmpeg.
     $ffmpeg = Join-Path $RepoRoot $Config.paths.ffmpegExe
+    $ffprobe = Join-Path $RepoRoot $Config.paths.ffprobeExe
+
+    # 3. Se FFmpeg ou FFprobe estiver ausente, tentar instalar automaticamente.
+    if (
+        -not (Test-Path -LiteralPath $ffmpeg -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $ffprobe -PathType Leaf)
+    ) {
+        $fetchScript = Join-Path $RepoRoot "tools\fetch_ffmpeg.ps1"
+
+        if (-not (Test-Path -LiteralPath $fetchScript -PathType Leaf)) {
+            throw "Script de instalacao do FFmpeg nao encontrado: $fetchScript"
+        }
+
+        Write-LauncherLog `
+            "FFmpeg ou FFprobe ausente. Tentando preparar automaticamente..." `
+            "Warn"
+
+        try {
+            # Executa no processo PowerShell atual.
+            # Quando o launcher e iniciado pelo launcher.cmd,
+            # utiliza a politica de processo ja configurada pelo iniciador.
+            & $fetchScript
+        }
+        catch {
+            throw "Falha ao preparar o FFmpeg automaticamente: $($_.Exception.Message)`nVerifique o WinGet, a conexao e as permissoes do sistema."
+        }
+    }
+
+    # 4. Confirmar que os arquivos existem depois da tentativa de instalacao.
     Test-RequiredBinary -Path $ffmpeg -Name "ffmpeg.exe" `
-        -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+        -FixHint "A instalacao automatica nao concluiu. Verifique o WinGet e execute tools\fetch_ffmpeg.ps1 pelo launcher.cmd." |
+        Out-Null
+
     Write-LauncherLog "FFmpeg encontrado." "Success"
     Test-ExecutableRuns -Path $ffmpeg -Name "FFmpeg"
 
-    $ffprobe = Join-Path $RepoRoot $Config.paths.ffprobeExe
     Test-RequiredBinary -Path $ffprobe -Name "ffprobe.exe" `
-        -FixHint "Rode .\tools\fetch_ffmpeg.ps1 para baixar o FFmpeg." | Out-Null
+        -FixHint "A instalacao automatica nao concluiu. Verifique o WinGet e execute tools\fetch_ffmpeg.ps1 pelo launcher.cmd." |
+        Out-Null
+
     Write-LauncherLog "FFprobe encontrado." "Success"
     Test-ExecutableRuns -Path $ffprobe -Name "FFprobe"
 
+    # 5. Preservar a validacao dos recursos necessarios do FFmpeg.
     Test-FfmpegCapabilities -Ffmpeg $ffmpeg -Config $Config
 
+    # 6. Verificar o Windows Terminal portatil.
     $wtPath = Join-Path $RepoRoot $Config.paths.windowsTerminalExe
     $wtAvailable = Test-Path $wtPath
+
     if (-not $wtAvailable) {
-        Write-LauncherLog "Windows Terminal portatil nao encontrado ($wtPath) - vai usar janelas PowerShell separadas. Rode .\tools\fetch_wt_portable.ps1 para instalar (opcional)." "Warn"
+        Write-LauncherLog `
+            "Windows Terminal portatil nao encontrado ($wtPath) - vai usar janelas PowerShell separadas. Rode .\tools\fetch_wt_portable.ps1 para instalar (opcional)." `
+            "Warn"
     }
 
+    # 7. Retornar os caminhos validados ao restante do launcher.
     return [PSCustomObject]@{
         VenvPython  = $VenvPython
         Ffmpeg      = $ffmpeg
         Ffprobe     = $ffprobe
         WtPath      = $wtPath
         WtAvailable = $wtAvailable
+    }
+}
+
+function Ensure-WindowsTerminalPortable {
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$Config
+    )
+
+    $wtPath = Join-Path $RepoRoot $Config.paths.windowsTerminalExe
+    $fetchScript = Join-Path $RepoRoot "tools\fetch_wt_portable.ps1"
+
+    # Nao reinstalar se o executavel ja estiver presente.
+    if (Test-Path -LiteralPath $wtPath -PathType Leaf) {
+        Write-LauncherLog "Windows Terminal portatil encontrado." "Success"
+        return $true
+    }
+
+    if (-not (Test-Path -LiteralPath $fetchScript -PathType Leaf)) {
+        Write-LauncherLog `
+            "Instalador do Windows Terminal nao encontrado: $fetchScript" `
+            "Warn"
+        return $false
+    }
+
+    Write-LauncherLog `
+        "Windows Terminal ausente. Instalando versao portatil oficial..." `
+        "Info"
+
+    try {
+        # Executar no processo atual do PowerShell.
+        & $fetchScript
+
+        # Confirmar a existencia do executavel apos a instalacao.
+        if (-not (Test-Path -LiteralPath $wtPath -PathType Leaf)) {
+            throw "wt.exe nao foi encontrado no caminho esperado: $wtPath"
+        }
+
+        Write-LauncherLog `
+            "Windows Terminal portatil instalado e encontrado." `
+            "Success"
+
+        return $true
+    }
+    catch {
+        Write-LauncherLog `
+            "Nao foi possivel preparar o Windows Terminal: $($_.Exception.Message)" `
+            "Warn"
+
+        Write-LauncherLog `
+            "O launcher tentara continuar com o PowerShell convencional." `
+            "Warn"
+
+        return $false
     }
 }
 
@@ -599,8 +696,8 @@ function Open-LauncherTabs {
         $encodeCmdForWt = $EncodeCmd -replace ';', '\;'
         $setupTab += @($Shell) + $shellArgs + @($setupCmdForWt)
         $encodeTab += @($Shell) + $shellArgs + @($encodeCmdForWt)
-        $wtArgs = $setupTab + @(";") + $encodeTab
-        & $WtPath @wtArgs
+		$wtArgs = @("--maximized") + $setupTab + @(";") + $encodeTab
+		& $WtPath @wtArgs
     }
     else {
         Write-LauncherLog "Abrindo janelas PowerShell separadas (fallback) ..." "Info"
@@ -634,7 +731,10 @@ if ($MyInvocation.InvocationName -ne '.') {
             $venvPython = Initialize-Environment -RepoRoot $Script:RepoRoot -VenvPath $venvPath `
                 -Config $config -Force:$ForceEnvSetup
         }
-
+			# Preparar o Windows Terminal depois do ambiente Python.
+			$null = Ensure-WindowsTerminalPortable `
+				-RepoRoot $Script:RepoRoot `
+				-Config $config
         if ($SkipValidation) {
             # QF2: se houver FFmpeg no PATH global (ex.: instalado via tools/fetch_ffmpeg.ps1/winget), o encoder ainda vai encontrar e usar esse binário mesmo sem o bin/ffmpeg.exe local — -SkipValidation não força isolamento estrito.
             Write-LauncherLog "Validacao de binarios pulada (-SkipValidation)." "Warn"

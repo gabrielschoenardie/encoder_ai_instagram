@@ -78,5 +78,34 @@ if (-not (Test-Path $wtExe)) {
 
 New-Item -ItemType File -Path (Join-Path $DestDir ".portable") -Force | Out-Null
 
+
+# Configurar fonte padrao para a TUI do Reels Encoder AI.
+$settingsDir = Join-Path $DestDir "settings"
+
+New-Item -ItemType Directory -Path $settingsDir -Force |
+    Out-Null
+
+$settingsPath = Join-Path $settingsDir "settings.json"
+
+$settingsJson = @'
+{
+  "$schema": "https://aka.ms/terminal-profiles-schema",
+  "profiles": {
+    "defaults": {
+      "font": {
+        "size": 10
+      }
+    }
+  }
+}
+'@
+
+Set-Content -LiteralPath $settingsPath `
+    -Value $settingsJson `
+    -Encoding UTF8
+
+Write-Host "OK    Fonte padrao configurada para 10 pontos." `
+    -ForegroundColor Green
+
 Write-Host "OK    Windows Terminal portatil instalado em: $DestDir" -ForegroundColor Green
 Write-Host "      wt.exe: $wtExe" -ForegroundColor Green
