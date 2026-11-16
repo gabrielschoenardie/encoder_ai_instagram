@@ -3884,3 +3884,34 @@ Baseline HEAD (c131e3e): 585 passed com FFmpeg.
 | 9c-commit | done | - | 4c69cc1; ui/tui 331 passed; CI 979 passed 4 skipped; ruff limpo |
 | FIX-ARROWS | done | ui/tui/keys.py, ui/tui/test_keys.py | kbhit() False apos prefixo � (2o char no buffer CRT) quebrava setas; _pending_is_extended via PeekConsoleInputW; 335 ui/tui + CI 983 passed, ruff ok |
 | BUG-a-grave | done | ui/tui/keys.py, ui/tui/test_keys.py | causa: _pending_is_extended tratava registro de tecla morta (uChar NUL, vk nao-estendido) como prefixo estendido; corrigido via _records_extended; CI 988 passed |
+| LP-1 | done | tests/launcher.Tests.ps1 | 4 testes falharam antes da mudanca (RED), testes antigos incompativeis ajustados |
+| LP-2 | done | launcher.ps1 | pip check no atalho do stamp e erro sem gravar stamp pos-install |
+| LP-3 | done | launcher.ps1, tests/launcher.Tests.ps1 | Pester 137/137, ruff ok, commit feito |
+| RB-1 | done | tests/launcher.Tests.ps1 | 9 falhas reproduzidas; binarios simulados em TestDrive (BinRoot) nos 3 contextos |
+| RB-2 | done | tests/launcher.Tests.ps1 | novo contexto cobre fetch_ffmpeg ausente |
+| RB-3 | done | tests/launcher.Tests.ps1 | Pester 138 passou / 0 falhou; ruff ok |
+| RB-4 | done | tests/launcher.Tests.ps1 | commit so do teste, sem push |
+
+## Ciclo P3F
+
+| ID | status | arquivo | resultado |
+| --- | --- | --- | --- |
+| P3F-1a | done | reporter.py, ui/test_reporter.py | CancelRequested herda BaseException; cancel_stage gravado sob _lock na 1a marcação (request_cancel e force_cancel); 3 testes novos RED→GREEN |
+| P3F-1b | done (não verificado por teste automatizado) | Reels_Encoder_v2_FINAL.py | `except _rep.CancelRequested` antes do `except Exception` no laço de _render_pass (cancelled=True, sem traceback) + `raise _rep.CancelRequested()` após terminate/wait/kill e após o `if interrupted`; py_compile ok. Sem harness simulado: o único harness (enhance/test_cineon_e2e.py) exige FFmpeg real e enhance/ está fora da lista de arquivos do ciclo. Varredura: nenhum outro emit de Stage/Pass/Progress dentro de `except Exception` com limpeza (run_ffmpeg_with_progress usa finally) |
+| P3F-2 | done | ui/tui_driver.py, ui/test_tui_driver.py | _failure_cleanup após R.Error (single, só se output não preexistia) e após JobDone (batch); temp presente → aviso sem apagar; stage QC/DONE → "Falha após o encode — master mantido…"; senão discard + "output parcial removido"/avisos YF1 via _unremovable_warning (compartilhado com _cancel_cleanup). _temp_path antecipado do P3F-3b (necessário à regra 1). 7 testes novos (6 RED→GREEN; preexistente já passava) |
+| P3F-3 | done | ui/tui_driver.py, ui/test_tui_driver.py | _run_one anexa exc.worker_finished; caminho normal com wait False levanta KeyboardInterrupt(worker_finished=False) (cai no mesmo ramo de Ctrl+C); callers usam getattr(exc,"worker_finished",False) (default conservador: sem atributo = não tocar em arquivos). _cancel_cleanup reescrito pela tabela (cancel_stage None → caso "outro"). 3 testes de QC atualizados (renomeado test_ctrl_c_during_qc_keeps_new_master; fakes agora escrevem só master+.qc.json porque o helper antigo sobrescrevia o .qc.html "antigo", incompatível com o PLAN; helper _write_master_and_certificate removido por ficar sem uso) + 6 novos (remux i–v, timeout) RED→GREEN; 2 testes R-11 novos já passavam por causa do P3F-1a; 5 execuções seguidas sem flake |
+| P3F-4 | done | ui/tui/state.py, ui/tui/screens.py, ui/tui/test_state.py, ui/tui/test_screens.py | UIState.master_kept ligado por R.Info que começa com "Master mantido"; partial_wording → "master mantido: {nome}" antes dos demais casos; 2 testes RED→GREEN |
+| P3F-5 | done | ui/test_reporter.py, ui/test_tui_driver.py, ui/tui/test_state.py, ui/tui/test_screens.py | testes escritos junto de cada item (TDD); nenhum teste removido; test_render_queue.py não precisou mudar; teste do motor (P3F-1b) não escrito — ver linha P3F-1b |
+| P3F-6 | done | — (medição) + .claude/memory/FINDINGS.md | conjunto dirigido 156 passed; suíte completa 1009 passed, 4 skipped, 0 failed; ruff limpo; git diff --check limpo; achados P3FF1–P3FF3 em FINDINGS.md |
+
+Comandos (venv\Scripts\python.exe, 2026-11-16):
+- `python -m pytest ui/test_tui_driver.py test_render_queue.py ui/test_reporter.py ui/tui/test_state.py ui/tui/test_state_batch.py ui/tui/test_screens.py -q --timeout=60` → 156 passed, 0 failed, 0 skipped (6,5 s)
+- `python -m pytest -q --timeout=120` → 1009 passed, 4 skipped, 0 failed (17 min 12 s). Inclui os e2e com FFmpeg real (bin/ffmpeg.exe), que NÃO exercitam o caminho de cancelamento; o cancelamento foi verificado só por simulação (fakes de `_encode_single_file`)
+- `python -m ruff check .` → All checks passed!
+- `git diff --check` → sem saída (exit 0)
+- `ui/test_tui_driver.py` rodado 5× seguidas → 37 passed em todas (sem flake)
+| P3F-7 | done | reporter.py, ui/tui_driver.py, ui/test_reporter.py, ui/test_tui_driver.py | CancelControl.begin_job zera stage/cancel_stage; run_batch chama por job; 2 testes novos |
+| P3F-8 | done | ui/tui/state.py, ui/tui/screens.py, ui/tui/test_state.py, ui/tui/test_screens.py | UIState.kept_unvalidated + partial_wording; 2 testes novos (textos reais do driver) |
+| P3F-9 | done | .claude/memory/FINDINGS.md | pytest direcionado 114 passed; ruff ok; git diff --check ok; P3FF1/P3FF2 resolvidos |
+| P3F-10 | done | enhance/test_cineon_cancel.py (novo) | 2 testes sem FFmpeg real/vídeo (av.open, Popen, probe, hardware, LUT falsos; frames yuv420p 16x16): CancelRequested no 1º Progress → terminate antes da propagação (ordem ["cancel","terminate"]), propaga CancelRequested exato, sem remux (output intacto, sem _temp.mp4, sem Stage FINALIZING, Popen 1×); contraprova ValueError → RuntimeError "Encoding interrompido" com terminate. Local enhance/: CI coleta `test_render_queue.py enhance/ ui/ tools/` (tests/ só tem Pester e não é coletado); vizinho dos testes Cineon. Mutação em memória (cópia do motor sem o `except _rep.CancelRequested` executada em sys.modules por driver fora do repo; arquivo do motor intocado) → teste de cancelamento FALHA (`['cancel'] == ['cancel','terminate']`), contraprova passa. Fecha a ressalva da linha P3F-1b |
+| P3F-11 | done | .claude/memory/STATE.md, .claude/memory/FINDINGS.md | `python -m pytest enhance/test_cineon_cancel.py ui/test_tui_driver.py -q --timeout=60` → 40 passed, 0 failed, 0 skipped; ruff All checks passed!; `git diff --check` sem saída (exit 0); arquivo novo não rastreado checado com `git diff --no-index --check /dev/null enhance/test_cineon_cancel.py` → sem avisos; P3FF3 resolvido |

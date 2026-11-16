@@ -138,6 +138,8 @@ class UIState:
     cancel_phase: str | None = None
     partial_removed: bool | None = None
     removal_failed: bool = False
+    master_kept: bool = False
+    kept_unvalidated: bool = False
     output_preexisted: bool = False
     exit_code: int | None = None
     seal_reveal_start: float | None = None
@@ -412,6 +414,10 @@ def _engine(s: UIState, ev) -> UIState:
     if isinstance(ev, R.Info):
         if "NÃO foi possível remover" in ev.text:
             s = replace(s, removal_failed=True)
+        if ev.text.startswith("Master mantido"):
+            s = replace(s, master_kept=True)
+        if ev.text.startswith(("Restauração do remux falhou", "O encoder não encerrou")):
+            s = replace(s, kept_unvalidated=True)
         return _log(s, "WARNING" if _WARNING_RE.search(ev.text) else "INFO", ev.text)
     if isinstance(ev, R.Qc):
         return replace(s, qc=ev.payload)

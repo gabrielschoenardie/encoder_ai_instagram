@@ -236,6 +236,25 @@ def test_cancelled_wording_removal_failed():
     assert "NÃO foi possível remover clip_final_Hollywood_2Pass.mp4" in out and "apague à mão" in out
 
 
+def test_cancelled_wording_master_kept():
+    out = text_of(cancelled_state(R.Cancel("cleaned", False, ts=251.0),
+                                  R.Info("Master mantido — QC não concluído.", ts=251.1)))
+    assert "master mantido: clip_final_Hollywood_2Pass.mp4" in out
+    assert "nenhum output parcial" not in out
+    assert_fits(out)
+
+
+def test_cancelled_wording_kept_unvalidated():
+    from ui import tui_driver as D
+    name = "clip_final_Hollywood_2Pass.mp4"
+    for msg in (D.TEMP_PRESENT_MSG.format(name=name, temp="clip_temp.mp4"),
+                D.WORKER_STUCK_MSG.format(n=D.WORKER_WAIT_S, name=name)):
+        out = text_of(cancelled_state(R.Cancel("terminated", ts=251.0), R.Info(msg, ts=251.1)))
+        assert f"arquivo mantido SEM validação: {name}" in out and "veja o LOG" in out
+        assert "nenhum output parcial" not in out
+        assert_fits(out)
+
+
 def test_cancelled_wording_no_file_written_is_not_an_alarm():
     out = text_of(cancelled_state(R.Cancel("cleaned", False, ts=251.0)))
     assert "nenhum output parcial" in out and "apague à mão" not in out

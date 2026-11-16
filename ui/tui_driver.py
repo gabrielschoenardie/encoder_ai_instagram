@@ -48,7 +48,7 @@ def _run_one(job, ns, events, control, on_tick, job_id, is_batch) -> str:
 
     try:
         render_queue.run_job(job, encode_fn, Console(file=io.StringIO()), on_tick=on_tick)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         events.put(R.Cancel("requested", job_id=job_id))
         control.force_cancel()
         RE.terminate_active_ffmpeg()
@@ -58,8 +58,12 @@ def _run_one(job, ns, events, control, on_tick, job_id, is_batch) -> str:
                 on_tick()
             except KeyboardInterrupt:
                 pass
+        exc.worker_finished = worker_done.is_set()
         raise
-    worker_done.wait(WORKER_WAIT_S)
+    if not worker_done.wait(WORKER_WAIT_S):
+        stuck = KeyboardInterrupt()
+        stuck.worker_finished = False
+        raise stuck
     if control.cancelled and job.status == "falha":
         return "cancelado"
     if job.status == "falha":
@@ -82,28 +86,90 @@ def _existing_qc_reports(output_path: str) -> frozenset:
     return frozenset(p for p in _qc_report_paths(output_path) if os.path.exists(p))
 
 
-def _cancel_cleanup(job, events, remove_partial: bool, job_id: int,
-                    batch: bool = False, reports_preexisted: frozenset = frozenset()) -> None:
+TEMP_PRESENT_MSG = ("Restauração do remux falhou ou é indeterminada — nada foi apagado. "
+                    "{temp} pode conter o master original; {name} NÃO foi validado e será "
+                    "tratado como pronto se continuar na pasta.")
+WORKER_STUCK_MSG = ("O encoder não encerrou em {n:g} s — nenhum arquivo foi alterado. {name} pode "
+                    "estar incompleto e NÃO passou pelo controle de qualidade.")
+MASTER_KEPT_MSG = {
+    R.QC: "Master mantido — QC não concluído.",
+    R.FINALIZING: "Master mantido — remux não confirmado (átomo colr) e QC não concluído.",
+    R.DONE: "Master mantido — QC concluído.",
+}
+
+
+def _temp_path(output: str) -> str:
+    return output.replace(".mp4", "_temp.mp4")
+
+
+def _unremovable_warning(job, events, job_id: int, batch: bool) -> None:
+    rerun = "rodar a fila de novo" if batch else "rodar o encode de novo"
+    events.put(R.Info(
+        f"NÃO foi possível remover {os.path.basename(job.output_path)}",
+        job_id=job_id))
+    events.put(R.Info(
+        "Este arquivo está incompleto e NÃO passou pelo controle de qualidade. "
+        f"Apague-o à mão antes de {rerun}, ou ele será tratado "
+        "como pronto.", job_id=job_id))
+
+
+def _temp_present_warning(job, events, job_id: int) -> bool:
+    temp = _temp_path(job.output_path)
+    if not os.path.exists(temp):
+        return False
+    events.put(R.Info(TEMP_PRESENT_MSG.format(
+        temp=os.path.basename(temp), name=os.path.basename(job.output_path)), job_id=job_id))
+    return True
+
+
+def _failure_cleanup(job, events, control: R.CancelControl, job_id: int, batch: bool = False) -> None:
+    name = os.path.basename(job.output_path)
+    if _temp_present_warning(job, events, job_id):
+        return
+    if control.stage is not None and control.stage[0] in (R.QC, R.DONE):
+        events.put(R.Info(f"Falha após o encode — master mantido sem QC concluído: {name}",
+                          job_id=job_id))
+        return
+    if render_queue.discard_partial_output(job):
+        events.put(R.Info(f"output parcial removido: {name}", job_id=job_id))
+    elif os.path.exists(job.output_path):
+        _unremovable_warning(job, events, job_id, batch)
+
+
+def _remove_new_reports(output_path: str, reports_preexisted: frozenset) -> None:
+    for path in _qc_report_paths(output_path):
+        if path not in reports_preexisted:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _cancel_cleanup(job, events, control: R.CancelControl, remove_partial: bool, job_id: int,
+                    batch: bool = False, reports_preexisted: frozenset = frozenset(),
+                    worker_finished: bool = True) -> None:
     events.put(R.Cancel("terminated", job_id=job_id))
+    name = os.path.basename(job.output_path)
+    if not worker_finished:
+        events.put(R.Info(WORKER_STUCK_MSG.format(n=WORKER_WAIT_S, name=name), job_id=job_id))
+        return
+    stage = control.cancel_stage[0] if control.cancel_stage is not None else None
+    if remove_partial and stage in MASTER_KEPT_MSG:
+        if _temp_present_warning(job, events, job_id):
+            return
+        if os.path.exists(job.output_path):
+            if stage != R.DONE:
+                _remove_new_reports(job.output_path, reports_preexisted)
+            events.put(R.Cancel("cleaned", False, job_id=job_id))
+            events.put(R.Info(MASTER_KEPT_MSG[stage], job_id=job_id))
+            return
     if remove_partial:
         removed = render_queue.discard_partial_output(job)
         if removed:
-            for path in _qc_report_paths(job.output_path):
-                if path not in reports_preexisted:
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+            _remove_new_reports(job.output_path, reports_preexisted)
         events.put(R.Cancel("cleaned", removed, job_id=job_id))
         if not removed and os.path.exists(job.output_path):
-            rerun = "rodar a fila de novo" if batch else "rodar o encode de novo"
-            events.put(R.Info(
-                f"NÃO foi possível remover {os.path.basename(job.output_path)}",
-                job_id=job_id))
-            events.put(R.Info(
-                "Este arquivo está incompleto e NÃO passou pelo controle de qualidade. "
-                f"Apague-o à mão antes de {rerun}, ou ele será tratado "
-                "como pronto.", job_id=job_id))
+            _unremovable_warning(job, events, job_id, batch)
 
 
 def run_single(ns, events: queue.Queue, control: R.CancelControl,
@@ -116,16 +182,20 @@ def run_single(ns, events: queue.Queue, control: R.CancelControl,
     job = render_queue.QueueJob(input_path=ns.input, output_path=out)
     output_preexisted = os.path.exists(out)
     reports_preexisted = _existing_qc_reports(out)
+    worker_finished = True
     try:
         result = _run_one(job, ns, events, control, on_tick, 0, is_batch=False)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         result = "cancelado"
+        worker_finished = getattr(exc, "worker_finished", False)
     if result == "ok":
         return 0
     if result == "falha":
+        if not output_preexisted:
+            _failure_cleanup(job, events, control, 0)
         return 1
-    _cancel_cleanup(job, events, remove_partial=not output_preexisted, job_id=0,
-                    reports_preexisted=reports_preexisted)
+    _cancel_cleanup(job, events, control, remove_partial=not output_preexisted, job_id=0,
+                    reports_preexisted=reports_preexisted, worker_finished=worker_finished)
     return 130
 
 
@@ -178,16 +248,20 @@ def run_batch(ns, events: queue.Queue, control: R.CancelControl,
             continue
         events.put(R.JobStart(i, job_id=i))
         reports_preexisted = _existing_qc_reports(job.output_path)
+        control.begin_job()
         try:
             result = _run_one(job, ns, events, control, on_tick, job_id=i, is_batch=True)
-        except KeyboardInterrupt:
-            _cancel_cleanup(job, events, True, i, batch=True,
-                            reports_preexisted=reports_preexisted)
+        except KeyboardInterrupt as exc:
+            _cancel_cleanup(job, events, control, True, i, batch=True,
+                            reports_preexisted=reports_preexisted,
+                            worker_finished=getattr(exc, "worker_finished", False))
             events.put(R.QueueDone(130))
             return 130
         events.put(R.JobDone(i, job.status, job.error, job_id=i))
+        if result == "falha":
+            _failure_cleanup(job, events, control, i, batch=True)
         if result == "cancelado":
-            _cancel_cleanup(job, events, True, i, batch=True,
+            _cancel_cleanup(job, events, control, True, i, batch=True,
                             reports_preexisted=reports_preexisted)
             events.put(R.QueueDone(130))
             return 130

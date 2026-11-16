@@ -92,6 +92,57 @@ def test_request_cancel_checks_stage_under_lock():
     assert result == [False] and not ctl.cancelled
 
 
+def test_cancel_requested_is_not_absorbed_by_except_exception():
+    assert not issubclass(R.CancelRequested, Exception)
+    ctl = R.CancelControl(terminate=lambda: False)
+    rep = R.QueueReporter(queue.Queue(), control=ctl)
+    rep.emit(R.Stage(R.PASS, "1"))
+    ctl.force_cancel()
+    after = []
+    with pytest.raises(R.CancelRequested):
+        try:
+            rep.emit(R.Progress(1, 10, 1.0, 1.0, "x", 0.0))
+        except Exception:
+            pass
+        after.append(1)
+    assert after == []
+
+
+def test_cancel_stage_records_force_cancel_instant_and_stays():
+    ctl = R.CancelControl(terminate=lambda: False)
+    rep = R.QueueReporter(queue.Queue(), control=ctl)
+    assert ctl.cancel_stage is None
+    rep.emit(R.Stage(R.FINALIZING, "remux"))
+    ctl.force_cancel()
+    with pytest.raises(R.CancelRequested):
+        rep.emit(R.Stage(R.QC))
+    ctl.force_cancel()
+    assert ctl.stage == (R.QC, None)
+    assert ctl.cancel_stage == (R.FINALIZING, "remux")
+
+
+def test_cancel_stage_records_request_cancel_instant_and_stays():
+    ctl = R.CancelControl(terminate=lambda: True)
+    rep = R.QueueReporter(queue.Queue(), control=ctl)
+    rep.emit(R.Stage(R.PASS, "2"))
+    assert ctl.request_cancel() is True
+    with pytest.raises(R.CancelRequested):
+        rep.emit(R.Stage(R.DONE))
+    ctl.force_cancel()
+    assert ctl.cancel_stage == (R.PASS, "2")
+
+
+def test_begin_job_resets_stage_and_cancel_stage():
+    ctl = R.CancelControl(terminate=lambda: True)
+    rep = R.QueueReporter(queue.Queue(), control=ctl)
+    rep.emit(R.Stage(R.PASS, "2"))
+    ctl.force_cancel()
+    assert ctl.stage == (R.PASS, "2") and ctl.cancel_stage == (R.PASS, "2")
+    ctl.begin_job()
+    assert ctl.stage is None and ctl.cancel_stage is None
+    assert ctl.cancelled is True
+
+
 def test_stage_qc_emit_waits_for_inflight_cancel():
     ctl = R.CancelControl(terminate=lambda: True)
     rep = R.QueueReporter(queue.Queue(), control=ctl)

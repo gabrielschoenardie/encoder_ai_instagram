@@ -213,6 +213,23 @@ def test_removal_failed_only_from_driver_warning():
     assert s.removal_failed is True
 
 
+def test_master_kept_only_from_driver_info():
+    s = _run(_s(screen=S.ENCODING), R.Cancel("requested", ts=1.0), R.Cancel("cleaned", False, ts=2.0))
+    assert s.master_kept is False
+    s = S.apply(s, R.Info("Master mantido — QC não concluído.", ts=3.0))
+    assert s.master_kept is True
+
+
+def test_kept_unvalidated_from_driver_infos():
+    from ui import tui_driver as D
+    base = _run(_s(screen=S.ENCODING), R.Cancel("requested", ts=1.0), R.Cancel("terminated", ts=2.0))
+    assert base.kept_unvalidated is False
+    s = S.apply(base, R.Info(D.TEMP_PRESENT_MSG.format(name="out.mp4", temp="out_temp.mp4"), ts=3.0))
+    assert s.kept_unvalidated is True
+    s = S.apply(base, R.Info(D.WORKER_STUCK_MSG.format(n=D.WORKER_WAIT_S, name="out.mp4"), ts=3.0))
+    assert s.kept_unvalidated is True
+
+
 def test_seal_reveal_tolerates_float_error():
     payload = {"summary": {"ready": True}, "checks": []}
     s = _run(_s(screen=S.ENCODING), R.Stage(R.QC, ts=300.0), R.Qc(payload, ts=301.0),
