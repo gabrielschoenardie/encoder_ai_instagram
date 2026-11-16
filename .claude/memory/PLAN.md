@@ -79,6 +79,17 @@ Tarefas P3F-1a a P3F-6 já estão `done` — não refazer. Mesmas regras do cicl
 | P3F-8 (P3FF2) | `ui/tui/state.py`, `ui/tui/screens.py`, testes | Novo campo `kept_unvalidated: bool = False` em `UIState`, ligado por `R.Info` cujo texto começa com "Restauração do remux falhou" ou "O encoder não encerrou" (prefixos de `TEMP_PRESENT_MSG` e `WORKER_STUCK_MSG` do driver). Em `partial_wording`, logo após o caso `master_kept`: `kept_unvalidated` → `f"arquivo mantido SEM validação: {name} — veja o LOG"`. Testes em `ui/tui/test_state.py` e `ui/tui/test_screens.py` para os dois cenários, usando os textos reais formatados a partir das constantes do driver. |
 | P3F-9 | — | Rodar `python -m pytest ui/test_tui_driver.py ui/test_reporter.py ui/tui/test_state.py ui/tui/test_screens.py -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Não rodar a suíte completa. Marcar P3FF1/P3FF2 como resolvidos em FINDINGS.md e anexar linhas em STATE.md. |
 
+## Adendo P3F-10 (P3FF3 — aprovado pelo usuário em 2026-11-16; agente alvo: `executor-pesado`)
+
+P3F-1a a P3F-9 estão `done` e commitados em `8c150a9`. Mesmas regras do ciclo; **sem commit e sem `git add`** (o Orquestrador faz).
+
+| ID | arquivo | tarefa |
+| --- | --- | --- |
+| P3F-10 | novo `tests/test_cineon_cancel.py` (ou, se `tests/` não for coletado pelo pytest/der conflito de import, `enhance/test_cineon_cancel.py` ou `ui/test_cineon_cancel.py` — escolher o que a config do pytest coleta e justificar) | Teste unitário do laço de frames de `_render_pass` (closure dentro de `run_ffmpeg_with_cineon`), **sem FFmpeg real e sem vídeo**: chamar `run_ffmpeg_with_cineon` com `unittest.mock.patch`/`monkeypatch` nas dependências (probe, hardware, LUT, loudness, `av.open` devolvendo container falso com alguns frames sintéticos pequenos, `subprocess.Popen` devolvendo `MagicMock` com `stdin`, `stdout`, `stderr`, `poll` → None, `terminate`, `wait`, `kill`, `pid`). Usar como referência de mocks `enhance/test_cineon_constants_guard.py`, `enhance/test_cineon_color_io.py`, `enhance/test_ffmpeg_tracked.py`. O reporter é um fake cujo `emit` levanta `reporter.CancelRequested` no primeiro `Progress`. Provar: (a) `proc.terminate()` foi chamado **antes** de a exceção chegar ao chamador (ex.: registrar ordem de chamadas / assert dentro de `pytest.raises`); (b) `pytest.raises(CancelRequested)` — não vira `RuntimeError` nem é engolido; (c) o remux não é executado (output não é movido para `_temp.mp4`). Incluir contraprova: erro comum no laço (ex.: `emit` levantando `ValueError`) continua virando `RuntimeError("Encoding interrompido…")` com terminate chamado. **Não alterar `Reels_Encoder_v2_FINAL.py`**; se o teste for inviável sem alterar o motor → `blocked` com o motivo exato. Verificar que o teste falha se o `except _rep.CancelRequested` for ignorado (raciocínio ou mutação temporária desfeita à mão — sem git checkout/stash). |
+| P3F-11 | `.claude/memory/STATE.md`, `.claude/memory/FINDINGS.md` | Anexar linha P3F-10 em STATE.md; marcar P3FF3 como resolvido em FINDINGS.md. Rodar: o teste novo + `ui/test_tui_driver.py` (`-q --timeout=60`), `python -m ruff check .`, `git diff --check`. Registrar contagens reais. |
+
+Situação do ciclo após P3F-10: completo. Resta apenas, como opcional, ensaio manual de Ctrl+C no QC e no remux com FFmpeg real.
+
 ---
 
 ## Arquivado — plano anterior (PR #76, concluído e mergeado em `cb30f3a`; não executar)
