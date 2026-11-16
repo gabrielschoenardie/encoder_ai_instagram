@@ -816,6 +816,10 @@ def _error(s: S.UIState) -> RenderableType:
 
 def partial_wording(s: S.UIState) -> str:
     name = basename(s.output_path)
+    if s.master_kept:
+        return f"master mantido: {name}"
+    if s.kept_unvalidated:
+        return f"arquivo mantido SEM validação: {name} — veja o LOG"
     if s.partial_removed is True:
         return f"output parcial removido: {name}"
     if s.removal_failed:

@@ -1528,3 +1528,11 @@ Pequenos adiados (P3E): `new_draft` do preset 4 sem chaves de formulário (inofe
 | P3EF1 | S3 | `ui/probe.py` `probe_source_dims` / `ui/tui/app.py` `_probe` | medido pelo executor em 2026-10-07: o probe leva 5,5–7,7 s nos `.mp4` de `videos/` e estoura os 10 s nos `.mov`; roda síncrono ao validar o SOURCE e congela a tela por esse tempo. Causa não investigada (candidatos: `-show_entries ...side_data`, antivírus, disco). Fora do escopo do P3E | aberto |
 
 | P3EF2 | S4 | `ui/tui/forms.py` / `ui/tui/screens.py` (formulário de config, `field_rows`) | item 9b-2 do P3C: "campo desativado" sem motivo definido. Fora do P3E por decisão do usuário (2026-10-09): é decisão de produto (qual campo e qual texto de motivo). | aberto — fora do P3E |
+
+## Ciclo P3F — entrega segura (2026-11-16)
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| P3FF1 | S4 | `ui/tui_driver.py` `run_batch` / `reporter.CancelControl` | a fila reusa um único `CancelControl` e nunca zera `control.stage`/`cancel_stage` entre jobs. `_failure_cleanup` (stage QC/DONE → mantém) e `_cancel_cleanup` (cancel_stage) leriam o estágio do job anterior se o job novo falhasse/fosse cancelado antes do primeiro `Stage`. Hoje seguro só porque `_encode_single_file` emite `Stage(PREPARING)` como 1ª instrução (linha ~4116). Sem reset por estar fora do escopo | resolvido (P3F-7: CancelControl.begin_job chamado por job em run_batch) |
+| P3FF2 | S4 | `ui/tui/screens.py` `partial_wording` | casos "temp presente" e "worker não encerrou" emitem só `Cancel("terminated")` + `R.Info` (conforme a tabela do PLAN); a tela CANCELADO cai em "nenhum output parcial", o que é enganoso (o aviso fica só no LOG). P3F-4 pediu apenas `master_kept` | resolvido (P3F-8: kept_unvalidated + partial_wording) |
+| P3FF3 | S4 | `Reels_Encoder_v2_FINAL.py` `_render_pass` (P3F-1b) | encerramento do FFmpeg do Cineon ao receber `CancelRequested` não tem teste automatizado: o único harness (`enhance/test_cineon_e2e.py`) usa FFmpeg real e `enhance/` estava fora da lista do ciclo | aberto |

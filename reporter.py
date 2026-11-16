@@ -19,7 +19,7 @@ DONE = "DONE"
 CANCEL_BLOCKED = {(ANALYZING, "mctf_mask"), (QC, None)}
 
 
-class CancelRequested(Exception):
+class CancelRequested(BaseException):
     pass
 
 
@@ -177,21 +177,33 @@ class CancelControl:
         self._flag = threading.Event()
         self._lock = threading.Lock()
         self.stage: tuple[str, str | None] | None = None
+        self.cancel_stage: tuple[str, str | None] | None = None
 
     @property
     def cancelled(self) -> bool:
         return self._flag.is_set()
 
+    def _mark_cancelled(self) -> None:
+        if not self._flag.is_set():
+            self.cancel_stage = self.stage
+        self._flag.set()
+
     def request_cancel(self) -> bool:
         with self._lock:
             if self.stage in CANCEL_BLOCKED:
                 return False
-            self._flag.set()
+            self._mark_cancelled()
         self._terminate()
         return True
 
+    def begin_job(self) -> None:
+        with self._lock:
+            self.stage = None
+            self.cancel_stage = None
+
     def force_cancel(self) -> None:
-        self._flag.set()
+        with self._lock:
+            self._mark_cancelled()
 
 
 _CHECKPOINTS = (Stage, Pass, Progress)

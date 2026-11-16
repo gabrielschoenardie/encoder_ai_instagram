@@ -3667,6 +3667,7 @@ def run_ffmpeg_with_cineon(
         frame_count = 0
         error_occurred = False
         interrupted = False
+        cancelled = False
 
         _live_cm = (Live(hud.render(), refresh_per_second=7, console=console)
                     if reporter is None else contextlib.nullcontext())
@@ -3757,6 +3758,10 @@ def run_ffmpeg_with_cineon(
                 error_occurred = True
                 interrupted = True
 
+            except _rep.CancelRequested:
+                error_occurred = True
+                cancelled = True
+
             except Exception as e:
                 console.print(f"\n[red]✗ Erro durante processamento: {e}[/red]")
                 import traceback
@@ -3787,6 +3792,8 @@ def run_ffmpeg_with_cineon(
 
             if interrupted:
                 raise KeyboardInterrupt
+            if cancelled:
+                raise _rep.CancelRequested()
             raise RuntimeError("Encoding interrompido por erro no processamento")
 
         # ═══════════════════════════════════════════════════════════════
