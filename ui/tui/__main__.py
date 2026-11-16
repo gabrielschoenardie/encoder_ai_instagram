@@ -3,18 +3,17 @@ from __future__ import annotations
 import shutil
 import sys
 
-import Reels_Encoder_v2_FINAL as RE
 from ui import components as C
 from ui.theme import get_console
 from ui.tui.app import App
-from ui.tui.state import MIN_SIZE
+from ui.tui.state import FALLBACK_SIZE
 
 
 def terminal_ok(console, stdin=None, stdout=None) -> bool:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     return (stdin.isatty() and stdout.isatty() and console.is_terminal and not console.legacy_windows
-            and console.size.width >= MIN_SIZE[0] and console.size.height >= MIN_SIZE[1])
+            and console.size.width >= FALLBACK_SIZE[0] and console.size.height >= FALLBACK_SIZE[1])
 
 
 def _missing_binaries() -> list:
@@ -26,24 +25,14 @@ def _missing_binaries() -> list:
         return [name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None]
 
 
-def _exit_code(exc: SystemExit) -> int:
-    if exc.code is None:
-        return 0
-    return exc.code if isinstance(exc.code, int) else 1
-
-
 def main() -> int:
     console = get_console()
     if not terminal_ok(console):
         hint = (" Console legado detectado: abra o launcher no Windows Terminal (wt)."
                 if getattr(console, "legacy_windows", False) else "")
-        console.print("[warn]A TUI precisa de um terminal interativo com VT e pelo menos 120×40 — "
-                      f"abrindo o modo clássico.{hint}[/warn]")
-        try:
-            RE.main()
-        except SystemExit as exc:
-            return _exit_code(exc)
-        return 0
+        w, h = FALLBACK_SIZE
+        console.print(f"[err]Erro: a TUI precisa de um terminal interativo com VT e pelo menos {w}×{h}.{hint}[/err]")
+        return 1
     missing = _missing_binaries()
     if missing:
         console.print(C.dependency_error_card(missing))

@@ -19,7 +19,7 @@ Qualquer tarefa abaixo DEVE ser delegada via Task ao agente correspondente. O Or
 | refactor multi-arquivo, mudança cruzando `enhance/` + pipeline, execução sem supervisão | `executor-pesado` |
 | rodar `validate_encode.sh` / `measure_vmaf.sh`, veredito de encode | `validador` |
 | QC de entrega final, veredito + flag a corrigir | `encode-validator` |
-| mudou menu/preset/seção em `ui/launcher.py` | `ui-flow-reviewer` |
+| mudou preset/campo/aba/tela/ação da TUI em `ui/tui/` | `ui-flow-reviewer` |
 | ler logs, saída de ffprobe, stack traces, grep no codebase | `leitor` |
 
 A escolha entre `executor` e `executor-pesado` é do Orquestrador, registrada na coluna `agente alvo` do PLAN.md.

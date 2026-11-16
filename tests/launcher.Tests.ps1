@@ -66,7 +66,7 @@ Describe 'Contrato de dot-source' {
         'Resolve-Binaries'
         'Protect-PSLiteral'
         'Build-SetupCommand'
-        'Build-AppCommand'
+        'Build-TuiCommand'
         'Resolve-LauncherShell'
         'Open-LauncherTabs'
     ) {
@@ -155,69 +155,6 @@ Describe 'Build-SetupCommand' {
     }
 }
 
-Describe 'Build-AppCommand' {
-
-    It 'entrega o wizard e nada mais (termina em --ui)' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
-            Should -Match '--ui$'
-    }
-
-    It 'referencia o script do encoder e o interpretador recebido' {
-        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config
-        $cmd | Should -Match 'Reels_Encoder_v2_FINAL\.py'
-        $cmd | Should -Match 'PY'
-    }
-
-    It 'nao pre-decide nenhum parametro de encode (<_>)' -ForEach @(
-        '--performance'
-        '--batch'
-        '--mode'
-        '--enhance'
-        '--cineon-pipeline'
-        '--crf'
-    ) {
-        # Regra de Ouro (skill instagram-reels-encoder): rate control e decisao
-        # de pipeline vem da analise adaptativa do encoder, nunca do launcher.
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
-            Should -Not -Match $_
-    }
-
-    It 'nao cita nome de perfil nenhum' {
-        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config
-        foreach ($n in @('fast', 'balanced', 'quality', 'cinematic')) {
-            $cmd | Should -Not -Match $n
-        }
-    }
-
-    It 'prefixa Set-Location quando recebe -WorkingDirectory' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory 'WD' |
-            Should -Match '^Set-Location ''WD''; '
-    }
-
-    It 'nao prefixa Set-Location quando -WorkingDirectory fica vazio' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
-            Should -Not -Match 'Set-Location'
-    }
-
-    It 'exporta REELS_FFMPEG e REELS_FFPROBE dentro da string' {
-        $cmd = Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -Ffmpeg 'FF' -Ffprobe 'FP'
-        $cmd | Should -Match '\$env:REELS_FFMPEG=''FF'''
-        $cmd | Should -Match '\$env:REELS_FFPROBE=''FP'''
-    }
-
-    It 'monta na ordem Set-Location -> $env: -> &' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
-            -WorkingDirectory 'WD' -Ffmpeg 'FF' -Ffprobe 'FP' |
-            Should -Match '^Set-Location ''WD''; \$env:REELS_FFMPEG=''FF''; \$env:REELS_FFPROBE=''FP''; & '
-    }
-
-    It 'protege caminho com aspa simples' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory "Gabriel's" |
-            Should -Match '^Set-Location ''Gabriel''''s''; '
-    }
-}
-
 Describe 'Build-TuiCommand' {
 
     It 'entrega a TUI e nada mais (termina em -m ui.tui)' {
@@ -230,9 +167,52 @@ Describe 'Build-TuiCommand' {
             Should -Not -Match 'Reels_Encoder_v2_FINAL\.py'
     }
 
+    It 'referencia o interpretador recebido' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Match 'PY'
+    }
+
+    It 'nao passa --ui' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match '--ui'
+    }
+
+    It 'nao pre-decide nenhum parametro de encode (<_>)' -ForEach @(
+        '--performance'
+        '--batch'
+        '--mode'
+        '--enhance'
+        '--cineon-pipeline'
+        '--crf'
+    ) {
+        # Regra de Ouro (skill instagram-reels-encoder): rate control e decisao
+        # de pipeline vem da analise adaptativa do encoder, nunca do launcher.
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match $_
+    }
+
+    It 'nao cita nome de perfil nenhum' {
+        $cmd = Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config
+        foreach ($n in @('fast', 'balanced', 'quality', 'cinematic')) {
+            $cmd | Should -Not -Match $n
+        }
+    }
+
     It 'prefixa Set-Location quando recebe -WorkingDirectory' {
         Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory 'WD' |
             Should -Match '^Set-Location ''WD''; '
+    }
+
+    It 'nao prefixa Set-Location quando -WorkingDirectory fica vazio' {
+        Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
+            Should -Not -Match 'Set-Location'
+    }
+
+    It 'exporta REELS_FFMPEG e REELS_FFPROBE dentro da string' {
+        $cmd = Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config `
+            -Ffmpeg 'FF' -Ffprobe 'FP'
+        $cmd | Should -Match '\$env:REELS_FFMPEG=''FF'''
+        $cmd | Should -Match '\$env:REELS_FFPROBE=''FP'''
     }
 
     It 'monta na ordem Set-Location -> $env: -> &' {
@@ -244,11 +224,6 @@ Describe 'Build-TuiCommand' {
     It 'protege caminho com aspa simples' {
         Build-TuiCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config -WorkingDirectory "Gabriel's" |
             Should -Match '^Set-Location ''Gabriel''''s''; '
-    }
-
-    It 'Build-AppCommand continua terminando em --ui' {
-        Build-AppCommand -VenvPython 'PY' -RepoRoot 'ROOT' -Config $script:Config |
-            Should -Match '--ui$'
     }
 }
 

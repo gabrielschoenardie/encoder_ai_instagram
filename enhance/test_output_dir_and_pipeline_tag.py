@@ -196,21 +196,17 @@ def test_validate_args_consistency_catches_launcher_namespace(tmp_path):
     assert "--batch" in msg
 
 
-# ─── AT2(d) — teste de wiring: main() valida o Namespace vindo da UI ───────────
+# ─── AT2(d) — teste de wiring: sem input/--batch, main() entrega à TUI ─────────
 
-def test_main_exits_2_when_ui_namespace_is_inconsistent(monkeypatch):
-    cli_ns = EncodeConfig(ui=True).to_namespace()
+def test_main_without_job_exits_with_tui_code(monkeypatch):
+    cli_ns = EncodeConfig().to_namespace()
     monkeypatch.setattr(R, "parse_cli", lambda: cli_ns)
 
     import ui.preflight
     monkeypatch.setattr(ui.preflight, "missing_ffmpeg_binaries", lambda: [])
 
-    invalid_ns = EncodeConfig(
-        input="x.mp4", output_dir="/d", batch=None
-    ).to_namespace()
-
-    import ui.launcher
-    monkeypatch.setattr(ui.launcher, "run_launcher", lambda console=None: invalid_ns)
+    import ui.tui.__main__
+    monkeypatch.setattr(ui.tui.__main__, "main", lambda: 2)
 
     raised = False
     code = None

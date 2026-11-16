@@ -4472,12 +4472,6 @@ COMPARAÇÃO:
         help="[BATCH] Pasta de destino para os arquivos gerados. Default: mesma pasta do input.",
     )
     parser.add_argument(
-        "--ui",
-        action="store_true",
-        help="Abre a UI interativa (launcher Premiere). Também abre automaticamente "
-             "quando nenhum input/--batch é informado. Requer o pacote 'ui'.",
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="Mostra o traceback técnico completo em caso de erro (diagnóstico).",
@@ -4540,29 +4534,11 @@ def main():
             )
             sys.exit(1)
 
-    # ─── UI INTERATIVA (aditiva) ────────────────────────────────────────────────
-    # Dispara quando --ui é passado, ou quando nenhum trabalho foi especificado
-    # (sem input e sem --batch). O launcher devolve um Namespace equivalente ao
-    # argparse, que substitui `args` e segue pelo dispatch normal (batch/single).
-    if args.ui or (args.input is None and args.batch is None):
-        try:
-            from ui.launcher import run_launcher
-            launched = run_launcher(console=console)
-            if launched is None:
-                sys.exit(0)  # usuário cancelou
-            args = launched
-            msg = _validate_args_consistency(args)
-            if msg:
-                console.print(f"[red]Erro:[/red] {msg}")
-                sys.exit(2)
-        except ImportError:
-            if args.ui:
-                console.print(
-                    "[red]Erro:[/red] pacote 'ui' indisponível "
-                    "(instale 'pydantic>=2'). Use a CLI tradicional."
-                )
-                sys.exit(1)
-            # sem --ui explícito, cai no erro padrão de input obrigatório abaixo
+    # ─── TUI ──────────────────────────────────────────────────────────────────
+    # Sem input e sem --batch, abre a TUI (interface interativa única).
+    if args.input is None and args.batch is None:
+        from ui.tui.__main__ import main as tui_main
+        sys.exit(tui_main())
 
     # ─── BATCH MODE ───────────────────────────────────────────────────────────
     if args.batch is not None:

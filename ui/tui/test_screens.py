@@ -63,6 +63,17 @@ def test_small_terminal_notice():
     out = text_of(st(size=(100, 30)), width=100, height=30)
     assert "terminal pequeno" in out and "120×40" in out and "100×30" in out
     assert "READY TO ENCODE" not in out
+    assert "encode continua" not in out
+
+
+def test_small_terminal_notice_mentions_running_encode_only_while_running():
+    for screen in (S.ENCODING, S.QC, S.QUEUE):
+        out = text_of(st(screen=screen, size=(100, 30)), width=100, height=30)
+        assert "terminal pequeno" in out and "o encode continua rodando" in out, screen
+    for screen in (S.HOME, S.SOURCE, S.PREVIEW, S.COMPLETED):
+        out = text_of(st(screen=screen, size=(100, 30), exit_code=0 if screen == S.COMPLETED else None),
+                      width=100, height=30)
+        assert "terminal pequeno" in out and "encode continua" not in out, screen
 
 
 def encoding_state():

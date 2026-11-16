@@ -677,8 +677,10 @@ SCREEN_RENDERERS[S.REPORT] = _report
 
 def _small(s: S.UIState) -> RenderableType:
     w, h = s.size
-    return Panel(Text(f"terminal pequeno — amplie para 120×40 (atual {w}×{h})\n"
-                      "o encode continua rodando", style="warn"), box=PANEL_BOX, border_style="warn")
+    msg = f"terminal pequeno — amplie para {S.MIN_SIZE[0]}×{S.MIN_SIZE[1]} (atual {w}×{h})"
+    if S.encode_running(s):
+        msg += "\no encode continua rodando"
+    return Panel(Text(msg, style="warn"), box=PANEL_BOX, border_style="warn")
 
 
 def render(s: S.UIState) -> RenderableType:
@@ -886,6 +888,7 @@ _SOURCE_STATUS = {
     "NOT_FOUND": ("✗ arquivo não encontrado", "err"),
     "INVALID": ("⚠ informe um arquivo de vídeo", "warn"),
     "CHECKING": ("verificando…", "muted"),
+    "PROBING": ("lendo dimensões…", "muted"),
 }
 
 

@@ -6,7 +6,7 @@ cd /d "%~dp0"
 
 REM Executar o launcher PowerShell sem alterar
 REM permanentemente a politica de execucao do Windows
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher.ps1" -Tui %*
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher.ps1" %*
 
 set "RC=%ERRORLEVEL%"
 

@@ -19,9 +19,3 @@ def test_banner_can_carry_version():
     con = get_console(record=True, width=80)
     con.print(C.banner("REELS ENCODER", f"v{version.__version__}"))
     assert version.__version__ in con.export_text()
-
-
-def test_launcher_exposes_version():
-    import ui.launcher as L
-
-    assert getattr(L, "_APP_VERSION", None) == version.__version__

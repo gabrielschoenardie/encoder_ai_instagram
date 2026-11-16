@@ -28,6 +28,7 @@ FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED, REPORT})
 OVERLAYS = frozenset({DETAILS, LOG})
 SEAL_REVEAL_S = 1.2
 MIN_SIZE = (120, 40)
+FALLBACK_SIZE = (80, 24)
 LOG_CAP = 500
 REPORT_ROWS = 21
 ERROR_ROWS = 17
@@ -62,6 +63,7 @@ class SourceChecked:
     status: str
     dims: tuple | None = None
     count: int | None = None
+    folder: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,20 @@ class UIState:
     queue_scroll: int = 0
 
 
+def too_small(s: UIState) -> bool:
+    return s.size[0] < MIN_SIZE[0] or s.size[1] < MIN_SIZE[1]
+
+
+def encode_running(s: UIState) -> bool:
+    if s.exit_code is not None:
+        return False
+    if s.screen in OVERLAYS:
+        return s.back in (ENCODING, QC, QUEUE)
+    if s.screen == QC:
+        return s.back not in FINAL_SCREENS
+    return s.screen in (ENCODING, QUEUE)
+
+
 def cancel_blocked(s: UIState) -> bool:
     return (s.stage, s.substep) in R.CANCEL_BLOCKED
 
@@ -262,11 +278,15 @@ def apply(s: UIState, ev) -> UIState:
     if isinstance(ev, Tick):
         return _tick(s, ev)
     if isinstance(ev, Key):
+        if too_small(s) and not encode_running(s):
+            return s
         return _key(s, ev.name, ev.char)
     if isinstance(ev, Finished):
         return _finished(s, ev.exit_code)
     if isinstance(ev, SourceChecked):
         if ev.path != W.clean_path(s.source.text):
+            return s
+        if ev.folder is not None and ev.folder != F.is_folder(draft(s)):
             return s
         return replace(s, source_status=ev.status, source_dims=ev.dims, source_count=ev.count)
     if isinstance(ev, Armed):

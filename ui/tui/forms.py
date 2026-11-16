@@ -7,8 +7,14 @@ from typing import Callable
 from pydantic import ValidationError
 
 from ui.config import EncodeConfig
-from ui.launcher import PRESETS
 
+PRESETS = [
+    "Encode rápido (FFmpeg)",
+    "Film look (Cineon)",
+    "Batch de pasta",
+    "Tools (utilitários)",
+    "Configurar avançado…",
+]
 FIT = ("contain", "cover")
 FPS = ("auto", "24", "25", "30", "60")
 MODE = ("crf", "2pass")

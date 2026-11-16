@@ -31,7 +31,6 @@ from ui.tui_capture import ConsoleCapture, _Sink
 TICK_S = 0.1
 READY_HOLD_S = 1.2
 KEY_GAP_S = 0.3
-PATH_CHECK_S = 0.3
 
 
 @dataclass(frozen=True)
@@ -51,7 +50,7 @@ def _default_perf():
 
 
 def _default_tools(con) -> None:
-    from ui.launcher import _flow_tools
+    from ui.tui.tools import _flow_tools
 
     _flow_tools(con)
 
@@ -62,21 +61,15 @@ def _default_probe(path: str):
     return probe_source_dims(path)
 
 
-def _disk_check(path: str, check: Callable[[], S.SourceChecked]) -> S.SourceChecked:
-    if path.startswith("\\\\") and sum(path[2:].count(sep) for sep in "\\/") < 2:
-        return S.SourceChecked(path, "NOT_FOUND")
-    box: list = []
-    worker = threading.Thread(target=lambda: box.append(check()), daemon=True)
-    worker.start()
-    worker.join(PATH_CHECK_S)
-    return box[0] if box else S.SourceChecked(path, "NOT_FOUND")
+def _spawn(fn: Callable[[], None]) -> None:
+    threading.Thread(target=fn, daemon=True).start()
 
 
 class App:
     def __init__(self, ns=None, *, console=None, run_single=None, run_batch=None, reader_factory=None, live_factory=None,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
                  perf=None, size=None, output_path: str | None = None, terminate=None, tools=None, probe=None,
-                 system=None):
+                 system=None, spawn=None):
         self._ns = ns
         self._console = console or get_console()
         self._run_single = run_single or D.run_single
@@ -90,6 +83,7 @@ class App:
         self._terminate = terminate or RE.terminate_active_ffmpeg
         self._tools = tools or _default_tools
         self._probe = probe or _default_probe
+        self._spawn = spawn or _spawn
         self._probed: tuple | None = None
         self._ready_at: float | None = None
         self._last_key_at: float | None = None
@@ -223,18 +217,36 @@ class App:
 
     def _check_source(self) -> None:
         path = W.clean_path(self.state.source.text)
-        if F.is_folder(S.draft(self.state)):
-            self.state = S.apply(self.state, _disk_check(path, lambda: self._check_folder(path)))
+        if path.startswith("\\\\") and sum(path[2:].count(sep) for sep in "\\/") < 2:
+            self.state = S.apply(self.state, S.SourceChecked(path, "NOT_FOUND"))
             return
-        status = _disk_check(path, lambda: S.SourceChecked(
-            path, "INVALID" if not path or os.path.isdir(path) else "VALID" if os.path.isfile(path) else "NOT_FOUND",
-        )).status
-        dims = None
-        if status == "VALID":
-            if self._probed is None or self._probed[0] != path:
-                self._probed = (path, self._probe(path))
-            dims = self._probed[1]
-        self.state = S.apply(self.state, S.SourceChecked(path, status, dims))
+        folder = F.is_folder(S.draft(self.state))
+        self._spawn(lambda: self._source_worker(path, folder))
+
+    def _source_worker(self, path: str, folder: bool) -> None:
+        try:
+            if folder:
+                ev = self._check_folder(path)
+            else:
+                ev = S.SourceChecked(path, "INVALID" if not path or os.path.isdir(path)
+                                     else "VALID" if os.path.isfile(path) else "NOT_FOUND")
+        except Exception:
+            ev = S.SourceChecked(path, "NOT_FOUND")
+        ev = replace(ev, folder=folder)
+        if folder or ev.status != "VALID":
+            self._queue.put(ev)
+            return
+        if path != W.clean_path(self.state.source.text):
+            return
+        cached = self._probed
+        if cached is None or cached[0] != path:
+            self._queue.put(S.SourceChecked(path, "PROBING", folder=False))
+            try:
+                cached = (path, self._probe(path))
+            except Exception:
+                cached = (path, None)
+            self._probed = cached
+        self._queue.put(S.SourceChecked(path, "VALID", cached[1], folder=False))
 
     @staticmethod
     def _check_folder(path: str) -> S.SourceChecked:
@@ -301,9 +313,12 @@ class App:
 
     def _tick(self) -> None:
         try:
-            self._drain()
             cpu, ram, used = self._perf()
             self.state = S.apply(self.state, S.Tick(self._clock(), tuple(self._size()), cpu, ram, used))
+        except Exception:
+            pass
+        try:
+            self._drain()
         except Exception:
             pass
         try:
