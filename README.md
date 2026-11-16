@@ -88,23 +88,21 @@ cd encoder_ai_instagram
 ```
 
 `launcher.ps1` é o bootstrap do projeto: ele apenas **prepara o ambiente e
-abre o wizard interativo** — não decide nada sobre o encode.
+abre a TUI interativa** — não decide nada sobre o encode.
 
 Cria um venv local em `./venv` (instala via `requirements.txt`, mesma fonte
 de sempre), valida `bin/ffmpeg.exe`/`bin/ffprobe.exe` e abre 2 abas
 (Setup + Encode) no Windows Terminal — se `.\tools\fetch_wt_portable.ps1`
 não tiver sido rodado ainda, cai automaticamente em duas janelas
 PowerShell separadas. A aba Setup mostra o diagnóstico de hardware
-(`--hardware-info`); a aba Encode entrega o controle ao encoder:
+(`--hardware-info`); a aba Encode abre a TUI:
 
 ```powershell
-python Reels_Encoder_v2_FINAL.py --ui
+python -m ui.tui
 ```
 
-`.\launcher.ps1 -Tui` troca o wizard da aba Encode pela TUI (`python -m ui.tui`); a aba Setup não muda.
-
 O launcher não passa nenhum parâmetro de encode. Toda escolha — preset,
-LUT, enhance, CRF — acontece dentro do wizard e da análise adaptativa do
+LUT, enhance, CRF — acontece dentro da TUI e da análise adaptativa do
 encoder. Para linha de comando, chame o encoder direto dentro do venv
 (veja [🎛️ Uso & Opções CLI](#️-uso--opções-cli)).
 
@@ -116,16 +114,17 @@ Detalhes completos (venv, resolução de FFmpeg, Windows Terminal) na seção
 
 ### 🎛️ UI interativa (estilo Premiere Pro)
 
-`launcher.ps1` já abre esse launcher interativo por baixo dos panos: menu de
+`launcher.ps1` já abre essa TUI em tela cheia por baixo dos panos: menu de
 presets, configuração por abas (Source · Color/LUT · Audio · Enhance · Export),
 **preview das configurações** antes do encode e um dashboard ao vivo com progresso,
-fps/speed/ETA, monitor de performance (CPU/RAM) e log. A CLI tradicional continua
-100% idêntica — a UI é uma camada aditiva. Rodando via Python puro, o mesmo
-launcher abre com:
+fps/speed/ETA, monitor de performance (CPU/RAM) e log. A CLI com input/`--batch`
+continua idêntica. A TUI exige um terminal interativo com VT de pelo menos 80×24
+(a tela completa pede 120×40); fora disso ela sai com erro e código 1. Rodando via
+Python puro, a mesma TUI abre com:
 
 ```bash
-python Reels_Encoder_v2_FINAL.py            # abre o launcher
-python Reels_Encoder_v2_FINAL.py --ui       # força o launcher
+python Reels_Encoder_v2_FINAL.py            # sem input/--batch: abre a TUI
+python -m ui.tui                            # abre a TUI direto
 ```
 
 > Conceito visual e plano completo: [`docs/terminal-ui-masterplan.md`](docs/terminal-ui-masterplan.md).
@@ -216,7 +215,7 @@ O encoder localiza cada binário do FFmpeg por um **resolvedor de 3 níveis** (`
 
 > Se faltar `ffmpeg`/`ffprobe`, a UI mostra um card de dependência ausente com as duas rotas de correção.
 >
-> Caminho de entrada recomendado no Windows (`launcher.ps1`, venv + wizard
+> Caminho de entrada recomendado no Windows (`launcher.ps1`, venv + TUI
 > zero-config): veja [⚡ Início Rápido](#-início-rápido).
 
 ---
@@ -357,7 +356,6 @@ python Reels_Encoder_v2_FINAL.py input.mp4 --ebu-meter off # só auditoria, sem 
 | --- | --- | --- | --- |
 | `--show-hardware` | `on/off` | `on` | Exibe perfil de hardware antes do encode |
 | `--hardware-info` | flag | — | Exibe hardware e sai (sem fazer encode) |
-| `--ui` | flag | — | Abre o launcher interativo (estilo Premiere) |
 | `--debug` | flag | — | Mostra o traceback técnico completo em erros |
 | `--version` | flag | — | Mostra a versão e sai |
 
@@ -464,8 +462,8 @@ encoder_ai_instagram/
 │   ├── theme.py                   # Paleta, estilos Rich, glyphs (get_console)
 │   ├── config.py                  # EncodeConfig (Pydantic) ↔ argparse.Namespace
 │   ├── components.py              # Renderáveis: banner, preview, selo, log…
-│   ├── prompts.py                 # Inputs interativos validados
-│   ├── launcher.py                # run_launcher() (wizard de presets/abas)
+│   ├── prompts.py                 # Inputs interativos validados (menu de Tools)
+│   ├── tui/                       # TUI em tela cheia (python -m ui.tui)
 │   ├── dashboard.py               # EncodeDashboard ao vivo (make_dashboard)
 │   ├── aspect.py                  # Classificação de aspecto/orientação
 │   ├── probe.py                   # Dimensões efetivas da fonte (ffprobe)
@@ -679,14 +677,14 @@ A suíte cobre:
 - Chain denoise → deband → sharpen (ordem e força dos filtros)
 - Integridade do vetor de features (normalização, limites)
 - UI (`ui/`, 130 testes): round-trip do `EncodeConfig`, tokens do tema, render dos
-  componentes, wiring do launcher e matemática/render do dashboard
+  componentes, fluxo da TUI e matemática/render do dashboard
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] **UI interativa estilo Premiere** — launcher com presets, abas e dashboard ao vivo ✓
-- [x] **Perfis de preset** — presets no launcher (menu de configuração rápida) ✓
+- [x] **UI interativa estilo Premiere** — TUI com presets, abas e dashboard ao vivo ✓
+- [x] **Perfis de preset** — presets na TUI (menu de configuração rápida) ✓
 - [x] **Portabilidade / FFmpeg embarcado** — resolvedor `./bin` + `fetch_ffmpeg.ps1` ✓
 - [x] **Empacotamento pip** — instalável como pacote com o comando `reels-encoder` ✓
 - [ ] **Modelo ONNX real** — substituir MockCNN por modelo treinado em dataset de vídeos reais

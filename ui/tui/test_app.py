@@ -2,7 +2,6 @@ import argparse
 import os
 import sys
 import threading
-import time
 from dataclasses import replace
 
 import pytest
@@ -314,18 +313,45 @@ def test_summary_line_absent_on_ready_esc(tmp_path):
     assert con.export_text().strip() == ""
 
 
+def recording_spawn(threads):
+    def spawn(fn):
+        t = threading.Thread(target=fn, daemon=True)
+        threads.append(t)
+        t.start()
+    return spawn
+
+
+def settle(app):
+    for t in app.threads:
+        t.join(5)
+        assert not t.is_alive()
+    while not app._queue.empty():
+        app.state = S.apply(app.state, app._queue.get_nowait())
+
+
+def advance_with_enter(app):
+    s = app.state
+    if s.screen == S.HOME or (s.screen == S.SOURCE and s.source_status != "VALID"):
+        return
+    if s.screen in S.FINAL_SCREENS | S.CONFIG_SCREENS | {S.READY}:
+        app._queue.put(S.Key("ENTER"))
+
+
 def make_home(tmp_path, keys, run_single=None, **kw):
     live = FakeLive()
     reader = CharReader(keys)
     holder = []
+    threads = []
 
     def sleep(_):
         if holder and holder[0].state.screen in S.FINAL_SCREENS:
             holder[0]._queue.put(S.Key("ENTER"))
 
+    kw.setdefault("spawn", recording_spawn(threads))
     app = A.App(run_single=run_single or (lambda *a: 0), reader_factory=reader, live_factory=lambda c: live,
                 clock=Clock(), sleep=sleep, perf=lambda: (10.0, 20.0, 1.0), size=lambda: (120, 40),
                 system=(("FFmpeg", "x"),), probe=lambda p: (1080, 1920), **kw)
+    app.threads = threads
     holder.append(app)
     return app, live, reader
 
@@ -363,10 +389,10 @@ def test_full_flow_home_to_completed(tmp_path):
         return 0
 
     def sleep(_):
-        if holder and holder[0].state.screen in S.FINAL_SCREENS | {S.READY}:
-            holder[0]._queue.put(S.Key("ENTER"))
+        if holder:
+            advance_with_enter(holder[0])
 
-    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 6
+    keys = [("CHAR", "1")] + keys_for(str(src))
     live = FakeLive()
     app = A.App(run_single=run, reader_factory=CharReader(keys), live_factory=lambda c: live, clock=Clock(),
                 sleep=sleep, perf=lambda: (None, None, None), size=lambda: (120, 40),
@@ -383,14 +409,22 @@ def test_enters_queued_after_arm_do_not_start_encode(tmp_path):
     ran = []
     first_pause = []
     holder = []
+    burst = []
 
     def sleep(_):
         app = holder[0]
+        if not burst:
+            if app.state.screen == S.SOURCE and app.state.source_status == "VALID":
+                burst.append(1)
+                for k in ["ENTER"] * 5 + ["ENTER", "ENTER", ("CHAR", "x")]:
+                    name, ch = k if isinstance(k, tuple) else (k, None)
+                    app._queue.put(S.Key(name, ch))
+            return
         if not first_pause:
             first_pause.append(app.state.screen)
         app._queue.put(S.Key("ESC"))
 
-    keys = [("CHAR", "1")] + keys_for(str(src)) + ["ENTER"] * 5 + ["ENTER", "ENTER", ("CHAR", "x")]
+    keys = [("CHAR", "1")] + keys_for(str(src))
     app = A.App(run_single=lambda *a: ran.append(1) or 0, reader_factory=CharReader(keys),
                 live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
                 size=lambda: (120, 40), system=(), probe=lambda p: None)
@@ -602,6 +636,7 @@ def test_check_source_quoted_path_with_spaces_is_valid(tmp_path):
     for name, ch in keys_for(f'"{f}"'):
         app.state = S.apply(app.state, S.Key(name, ch))
     app._check_source()
+    settle(app)
     assert app.state.source_status == "VALID" and app.state.source_dims == (1080, 1920)
 
 
@@ -685,8 +720,8 @@ def batch_app(folder, run_batch, **kw):
     holder = []
 
     def sleep(_):
-        if holder and holder[0].state.screen in S.FINAL_SCREENS | {S.READY}:
-            holder[0]._queue.put(S.Key("ENTER"))
+        if holder:
+            advance_with_enter(holder[0])
 
     def no_single(*a):
         raise AssertionError("run_single chamado em batch")
@@ -694,7 +729,7 @@ def batch_app(folder, run_batch, **kw):
     def no_probe(p):
         raise AssertionError("probe chamado para pasta")
 
-    keys = [("CHAR", "3")] + keys_for(str(folder)) + ["ENTER"] * 6
+    keys = [("CHAR", "3")] + keys_for(str(folder))
     app = A.App(run_single=no_single, run_batch=run_batch, reader_factory=CharReader(keys),
                 live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
                 size=lambda: (120, 40), system=(), probe=no_probe, **kw)
@@ -783,6 +818,7 @@ def test_check_source_folder_counts_videos_like_engine(tmp_path):
         text = str(path)
         app.state = replace(app.state, source=W.TextBuf(text, len(text)))
         app._check_source()
+        settle(app)
         assert (app.state.source_status, app.state.source_count) == (status, count), path
 
 
@@ -912,8 +948,7 @@ def test_batch_ctrl_c_on_report_keeps_queue_exit_code(tmp_path, code, last, line
     def sleep(_):
         if app.state.screen == S.REPORT:
             raise KeyboardInterrupt
-        if app.state.screen == S.READY:
-            app._queue.put(S.Key("ENTER"))
+        advance_with_enter(app)
 
     app._sleep = sleep
     assert app.run() == code
@@ -1042,13 +1077,14 @@ def test_check_folder_oserror_is_not_found(tmp_path, monkeypatch):
     app.state = replace(app.state, source=W.TextBuf(str(folder), len(str(folder))))
     monkeypatch.setattr(RE, "find_video_files", _scandir_down)
     app._check_source()
+    settle(app)
     assert (app.state.source_status, app.state.source_count) == ("NOT_FOUND", None)
 
 
 def _source_app(tmp_path, preset, text):
     app, _, _ = make_home(tmp_path, [])
     app.state = S.apply(app.state, S.Key("CHAR", preset))
-    app.state = replace(app.state, source=W.TextBuf(text, len(text)))
+    app.state = replace(app.state, source=W.TextBuf(text, len(text)), source_status="CHECKING")
     return app
 
 
@@ -1063,24 +1099,104 @@ def test_check_source_partial_unc_does_not_touch_disk(tmp_path, monkeypatch, pre
     assert calls == [] and app.state.source_status == "NOT_FOUND" and app.state.source_count is None
 
 
-@pytest.mark.parametrize("preset", ["1", "3"])
-def test_check_source_slow_disk_does_not_freeze(tmp_path, monkeypatch, preset):
-    app = _source_app(tmp_path, preset, str(tmp_path / "lento"))
-    monkeypatch.setattr(os.path, "isdir", lambda p: time.sleep(2) or True)
-    t0 = time.monotonic()
-    app._check_source()
-    assert time.monotonic() - t0 < 0.6
-    assert (app.state.source_status, app.state.source_count, app.state.source_dims) == ("NOT_FOUND", None, None)
+def _gated(monkeypatch, mod, name, gate):
+    real = getattr(mod, name)
+
+    def slow(p):
+        assert gate.wait(5)
+        return real(p)
+
+    monkeypatch.setattr(mod, name, slow)
 
 
-def test_check_source_probe_runs_on_caller_thread(tmp_path):
+@pytest.mark.parametrize("preset, want", [("1", ("VALID", None, (1080, 1920))), ("3", ("VALID", 2, None))])
+def test_check_source_slow_disk_returns_at_once_and_finishes_without_key(tmp_path, monkeypatch, preset, want):
+    target = tmp_path / "x.mov" if preset == "1" else batch_folder(tmp_path)
+    if preset == "1":
+        target.write_bytes(b"x")
+    app = _source_app(tmp_path, preset, str(target))
+    gate = threading.Event()
+    _gated(monkeypatch, os.path, "isfile" if preset == "1" else "isdir", gate)
+    try:
+        app._check_source()
+        assert app.state.source_status == "CHECKING" and app._queue.empty()
+    finally:
+        gate.set()
+    settle(app)
+    assert (app.state.source_status, app.state.source_count, app.state.source_dims) == want
+
+
+def test_check_source_probe_runs_off_the_caller_thread(tmp_path):
     f = tmp_path / "x.mov"
     f.write_bytes(b"x")
     app = _source_app(tmp_path, "1", str(f))
     seen = []
     app._probe = lambda p: seen.append(threading.current_thread()) or (1080, 1920)
     app._check_source()
-    assert seen == [threading.current_thread()] and app.state.source_status == "VALID"
+    settle(app)
+    assert seen and seen[0] is not threading.current_thread() and app.state.source_status == "VALID"
+
+
+def test_check_source_probing_blocks_enter_and_shows_label(tmp_path):
+    f = tmp_path / "x.mov"
+    f.write_bytes(b"x")
+    app = _source_app(tmp_path, "1", str(f))
+    gate = threading.Event()
+    app._probe = lambda p: gate.wait(5) and (1080, 1920)
+    try:
+        app._check_source()
+        ev = app._queue.get(timeout=5)
+        assert ev == S.SourceChecked(str(f), "PROBING", folder=False)
+        app.state = S.apply(app.state, ev)
+        assert app.state.source_status == "PROBING"
+        assert S.apply(app.state, S.Key("ENTER")).screen == S.SOURCE
+        assert "lendo dimensões…" in screen_text(app.state)
+    finally:
+        gate.set()
+    settle(app)
+    assert (app.state.source_status, app.state.source_dims) == ("VALID", (1080, 1920))
+    assert S.apply(app.state, S.Key("ENTER")).screen == S.CONFIGURATION
+
+
+def test_check_source_result_for_old_path_is_discarded_and_not_probed(tmp_path, monkeypatch):
+    f = tmp_path / "x.mov"
+    f.write_bytes(b"x")
+    app = _source_app(tmp_path, "1", str(f))
+    probed = []
+    app._probe = lambda p: probed.append(p) or (1080, 1920)
+    gate = threading.Event()
+    _gated(monkeypatch, os.path, "isfile", gate)
+    try:
+        app._check_source()
+        app.state = S.apply(app.state, S.Key("BACKSPACE"))
+        assert app.state.source_status == "CHECKING"
+    finally:
+        gate.set()
+    settle(app)
+    assert probed == [] and app.state.source_status == "CHECKING" and app.state.source_dims is None
+
+
+def test_check_source_probe_exception_is_valid_without_dims(tmp_path):
+    f = tmp_path / "x.mov"
+    f.write_bytes(b"x")
+    app = _source_app(tmp_path, "1", str(f))
+    app._probe = lambda p: 1 / 0
+    app._check_source()
+    settle(app)
+    assert (app.state.source_status, app.state.source_dims) == ("VALID", None)
+
+
+@pytest.mark.parametrize("preset, name", [("1", "isfile"), ("3", "isdir")])
+def test_check_source_disk_exception_is_not_found(tmp_path, monkeypatch, preset, name):
+    app = _source_app(tmp_path, preset, str(tmp_path / "x"))
+
+    def boom(p):
+        raise OSError("rede caiu")
+
+    monkeypatch.setattr(os.path, name, boom)
+    app._check_source()
+    settle(app)
+    assert (app.state.source_status, app.state.source_count, app.state.source_dims) == ("NOT_FOUND", None, None)
 
 
 @pytest.mark.timeout(30)
@@ -1091,3 +1207,28 @@ def test_ready_blocks_unreadable_folder(tmp_path, monkeypatch):
     monkeypatch.setattr(RE, "find_video_files", _scandir_down)
     assert app.run() == 0
     assert ran == [] and errors and str(folder) in errors[0] and "erro de rede inesperado" in errors[0]
+
+
+def test_first_tick_applies_real_size_before_draining_queued_key(tmp_path):
+    app, _, _ = make_home(tmp_path, [])
+    app._size = lambda: (80, 24)
+    app._queue.put(S.Key("CHAR", "1"))
+    app._tick()
+    assert app.state.screen == S.HOME and app.state.size == (80, 24) and app.state.preset == 0
+
+
+def test_source_worker_tags_events_with_checked_kind(tmp_path):
+    f = tmp_path / "x.mov"
+    f.write_bytes(b"x")
+    app = _source_app(tmp_path, "1", str(f))
+    app._probe = lambda p: (1080, 1920)
+    app._check_source()
+    settle(app)
+    folder_app = _source_app(tmp_path, "3", str(batch_folder(tmp_path)))
+    folder_app._check_source()
+    for t in folder_app.threads:
+        t.join(5)
+    evs = []
+    while not folder_app._queue.empty():
+        evs.append(folder_app._queue.get_nowait())
+    assert evs and all(e.folder is True for e in evs)

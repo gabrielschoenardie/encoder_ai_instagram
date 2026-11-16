@@ -19,9 +19,11 @@ def test_hidden_fields_never_exposed():
     assert exposed.isdisjoint({"report", "cineon_lut", "debug", "hardware_info", "ui", "batch", "input"})
 
 
-def test_preset_labels_are_the_wizard_labels():
-    from ui.launcher import PRESETS
-    assert F.PRESET_LABELS == tuple(PRESETS)
+def test_preset_labels_are_the_home_labels():
+    assert F.PRESET_LABELS == tuple(F.PRESETS) == (
+        "Encode rápido (FFmpeg)", "Film look (Cineon)", "Batch de pasta", "Tools (utilitários)",
+        "Configurar avançado…",
+    )
     assert F.ENABLED_PRESETS == (1, 2, 3, 4, 5)
     assert "P3D" not in F.PRESET_HELP[3]
 

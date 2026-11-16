@@ -238,3 +238,68 @@ def test_seal_reveal_tolerates_float_error():
     assert s.screen == S.COMPLETED
     assert S.seal_revealed(s)
     assert not S.seal_revealed(dataclasses.replace(s, now=301.5))
+
+
+SMALL = (100, 30)
+
+
+@pytest.mark.parametrize("screen", [S.HOME, S.SOURCE, S.CONFIGURATION, S.ADVANCED, S.PREVIEW, S.READY])
+def test_keys_ignored_below_min_size_without_running_encode(screen):
+    s = _s(screen=screen, preset=1, size=SMALL)
+    for name, ch in (("DOWN", None), ("ENTER", None), ("ESC", None), ("CHAR", "1"), ("C", None)):
+        assert S.apply(s, S.Key(name, ch)) == s
+
+
+@pytest.mark.parametrize("screen", [S.COMPLETED, S.ERROR, S.CANCELLED, S.REPORT])
+def test_keys_ignored_below_min_size_on_final_screens(screen):
+    s = _s(screen=screen, exit_code=0, size=SMALL)
+    for name in ("ENTER", "ESC", "RIGHT", "DOWN"):
+        assert S.apply(s, S.Key(name)) == s
+
+
+def test_keys_on_home_work_again_at_min_size():
+    s = _s(screen=S.HOME, size=SMALL)
+    s = S.apply(s, S.Tick(1.0, S.MIN_SIZE))
+    assert S.apply(s, S.Key("ESC")).action == "exit"
+
+
+@pytest.mark.parametrize("screen", [S.ENCODING, S.QUEUE])
+def test_c_still_cancels_running_encode_below_min_size(screen):
+    s = _s(screen=screen, size=SMALL, is_batch=screen == S.QUEUE)
+    s = _run(s, S.Key("C"))
+    assert s.modal == "CANCEL"
+    s = _run(s, S.Key("RIGHT"), S.Key("ENTER"))
+    assert s.action == "cancel"
+
+
+def test_overlay_over_running_encode_still_answers_keys_below_min_size():
+    s = _s(screen=S.ENCODING, size=SMALL)
+    s = S.apply(s, S.Key("L"))
+    assert s.screen == S.LOG
+    assert S.apply(s, S.Key("ESC")).screen == S.ENCODING
+
+
+def test_encode_running_predicate():
+    assert S.encode_running(_s(screen=S.ENCODING))
+    assert S.encode_running(_s(screen=S.QUEUE, is_batch=True))
+    assert S.encode_running(_s(screen=S.QC))
+    assert S.encode_running(_s(screen=S.LOG, back=S.QC))
+    assert not S.encode_running(_s(screen=S.QC, exit_code=0))
+    assert not S.encode_running(_s(screen=S.LOG, back=S.COMPLETED, exit_code=0))
+    assert not S.encode_running(_s(screen=S.QC, back=S.COMPLETED))
+    for screen in (S.HOME, S.SOURCE, S.CONFIGURATION, S.ADVANCED, S.PREVIEW, S.READY, S.COMPLETED, S.REPORT):
+        assert not S.encode_running(_s(screen=screen))
+
+
+def test_source_checked_of_old_kind_is_discarded_after_toggle(tmp_path):
+    s = S.apply(S.UIState(config={}, screen=S.HOME), S.Key("CHAR", "5"))
+    path = str(tmp_path)
+    s = dataclasses.replace(s, source=S.W.TextBuf(path, len(path)), source_status="CHECKING")
+    s = S._toggle_kind(s)
+    assert s.source_status == "CHECKING"
+    s = S.apply(s, S.SourceChecked(path, "INVALID", folder=False))
+    assert s.source_status == "CHECKING"
+    s = S.apply(s, S.SourceChecked(path, "EMPTY", None, 0, folder=True))
+    assert (s.source_status, s.source_count) == ("EMPTY", 0)
+    s = S.apply(s, S.SourceChecked(path, "NOT_FOUND"))
+    assert s.source_status == "NOT_FOUND"

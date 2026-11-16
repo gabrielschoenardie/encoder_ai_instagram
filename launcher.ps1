@@ -11,9 +11,7 @@ param(
     [switch]$SkipValidation,
     [switch]$SkipEnvSetup,
     # Reinstala as dependencias mesmo quando o stamp de requirements/pyproject confere.
-    [switch]$ForceEnvSetup,
-    # A aba Encode abre a TUI (python -m ui.tui) em vez do wizard --ui.
-    [switch]$Tui
+    [switch]$ForceEnvSetup
 )
 
 $ErrorActionPreference = "Stop"
@@ -609,29 +607,6 @@ function Build-SetupCommand {
     return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --hardware-info"
 }
 
-function Build-AppCommand {
-    param(
-        [Parameter(Mandatory)][string]$VenvPython,
-        [Parameter(Mandatory)][string]$RepoRoot,
-        [Parameter(Mandatory)]$Config,
-        [AllowEmptyString()][string]$WorkingDirectory = '',
-        [AllowEmptyString()][string]$Ffmpeg = '',
-        [AllowEmptyString()][string]$Ffprobe = ''
-    )
-    $script = Join-Path $RepoRoot $Config.paths.encoderScript
-    $prefix = ''
-    if ($WorkingDirectory) {
-        $prefix = "Set-Location $(Protect-PSLiteral -Value $WorkingDirectory); "
-    }
-    if ($Ffmpeg) {
-        $prefix += "`$env:REELS_FFMPEG=$(Protect-PSLiteral -Value $Ffmpeg); "
-    }
-    if ($Ffprobe) {
-        $prefix += "`$env:REELS_FFPROBE=$(Protect-PSLiteral -Value $Ffprobe); "
-    }
-    return "$prefix& $(Protect-PSLiteral -Value $VenvPython) $(Protect-PSLiteral -Value $script) --ui"
-}
-
 function Build-TuiCommand {
     param(
         [Parameter(Mandatory)][string]$VenvPython,
@@ -753,14 +728,8 @@ if ($MyInvocation.InvocationName -ne '.') {
 
         $setupCmd = Build-SetupCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
             -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
-        $encodeCmd = if ($Tui) {
-            Build-TuiCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
-                -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
-        }
-        else {
-            Build-AppCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
-                -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
-        }
+        $encodeCmd = Build-TuiCommand -VenvPython $binaries.VenvPython -RepoRoot $Script:RepoRoot -Config $config `
+            -WorkingDirectory $Script:RepoRoot -Ffmpeg $binaries.Ffmpeg -Ffprobe $binaries.Ffprobe
 
         $launcherShell = Resolve-LauncherShell -Config $config
         $useNoProfile = $true
