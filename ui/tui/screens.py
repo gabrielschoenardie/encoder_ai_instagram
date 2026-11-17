@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from typing import Callable
 
-from rich.align import Align
 from rich.console import Group, RenderableType
 from rich.layout import Layout
 from rich.markup import escape
@@ -49,17 +48,16 @@ FOOTER_KEYS = {
     S.ADVANCED: "[↑↓] Campo   [←→] Valor/Aba   [SPACE] On/Off   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair",
     S.PREVIEW: "[←→] Escolher   [ENTER] Confirmar   [ESC] Voltar   [Ctrl+C] Sair",
     S.READY: "[←→] Choose   [ENTER] Start encode   [ESC] Sair",
-    S.ENCODING: "[D] Details   [L] Log   [C] Cancel   [Ctrl+C] Interrupt",
+    S.ENCODING: "[D] Details   [L] Log   [Ctrl+C] Interrupt",
     S.DETAILS: "[D] Voltar   [L] Log   [ESC] Voltar   [Ctrl+C] Interrupt",
     S.LOG: "[←→] Filtro   [D] Details   [ESC] Voltar   [Ctrl+C] Interrupt",
-    S.QC: "[D] Details   [L] Log   ░[C] Cancel   [Ctrl+C] Interrupt",
+    S.QC: "[D] Details   [L] Log   [Ctrl+C] Interrupt",
     S.COMPLETED: "[←→] Choose   [ENTER] Confirmar   [ESC] Sair",
     S.ERROR: "[↑↓] Rolar   [←→] Choose   [ENTER] Confirmar   [ESC] Sair",
     S.CANCELLED: "[←→] Choose   [ENTER] Confirmar   [ESC] Sair",
-    S.QUEUE: "[D] Details   [L] Log   [C] Cancelar fila   [Ctrl+C] Interrupt",
+    S.QUEUE: "[D] Details   [L] Log   [Ctrl+C] Interrupt",
     S.REPORT: "[↑↓] Rolar   [ENTER] Sair   [ESC] Sair",
 }
-MODAL_KEYS = "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt"
 SOURCE_TIPO_KEYS = "[←→] Tipo   [↓] Caminho   [ESC] Voltar   [Ctrl+C] Sair"
 CONFIG_BATCH_KEYS = "[↑↓] Campo   [←→] On/Off   [digite] Pasta   [ENTER] Próximo   [ESC] Voltar   [Ctrl+C] Sair"
 SCREEN_RENDERERS: dict[str, Callable[[S.UIState], RenderableType]] = {}
@@ -141,8 +139,6 @@ def hero(lines, height: int, style: str = "panel.border") -> Panel:
 
 def _status(s: S.UIState) -> str:
     base = STATUS.get(s.screen, s.screen)
-    if s.modal == "CANCEL":
-        return "⚠ CANCEL?"
     if s.cancel_phase is not None and s.screen not in S.FINAL_SCREENS and s.screen != S.READY:
         return "⚠ CANCELANDO"
     if s.screen in (S.ENCODING, S.QC, S.QUEUE) and s.exit_code is None:
@@ -208,14 +204,10 @@ def header(s: S.UIState) -> RenderableType:
 
 def footer(s: S.UIState) -> RenderableType:
     keys = FOOTER_KEYS.get(s.screen, "")
-    if s.modal == "CANCEL":
-        keys = MODAL_KEYS.replace("Keep encoding", "Keep queue") if s.is_batch else MODAL_KEYS
-    elif s.screen in (S.QC, S.DETAILS) and s.back in S.FINAL_SCREENS:
+    if s.screen in (S.QC, S.DETAILS) and s.back in S.FINAL_SCREENS:
         keys = "[ESC] Voltar"
     elif s.screen == S.LOG and s.back in S.FINAL_SCREENS:
         keys = "[←→] Filtro   [ESC] Voltar"
-    elif s.screen in (S.ENCODING, S.QUEUE) and (S.cancel_blocked(s) or s.cancel_phase is not None):
-        keys = keys.replace("[C] Cancel", "░[C] Cancel")
     elif s.screen == S.SOURCE and s.preset == 5:
         keys = SOURCE_TIPO_KEYS if s.tab_focus else "[↑] Tipo   " + keys
     elif s.screen == S.CONFIGURATION and s.preset == 3:
@@ -439,35 +431,12 @@ def _middle(s: S.UIState) -> RenderableType:
     return row
 
 
-def cancel_modal(s: S.UIState) -> RenderableType:
-    g = glyphs()
-    track = S.active_pass(s)
-    where = f"{s.stage or '—'}{' · ' + s.substep if s.substep else ''}"
-    pct = f" · {track.pct:.0f}%" if track else ""
-    noun = "FILA" if s.is_batch else "ENCODE"
-    buttons = Text("   ")
-    for i, label in enumerate((f"CONTINUAR {noun}", f"CANCELAR {noun}")):
-        focused = s.modal_focus == i
-        buttons.append(f"{g['arrow'] if focused else ' '}[ {label} ]   ", style="tab.active" if focused else "muted")
-    lines = [
-        Text(""),
-        Text(f"  etapa ativa: {where}{pct}"),
-        Text("  usa o caminho de interrupção existente (o mesmo do Ctrl+C)", style="muted"),
-        Text(f"  parcial: {basename(s.output_path)}", style="muted"),
-    ]
-    if s.is_batch:
-        lines.append(Text("  cancela a fila inteira; os jobs restantes não rodam", style="muted"))
-    body = Group(*lines, Text(""), buttons)
-    box = Panel(body, title=f"[warn]CANCELAR {noun}?[/]", box=PANEL_BOX, border_style="warn", width=64, height=12)
-    return Align.center(box, vertical="middle", height=13)
-
-
 def dashboard(s: S.UIState, middle: RenderableType) -> RenderableType:
     return Group(_job_strip(s), _progress_header(s), Text(""), middle, Text(""), _log_panel(s))
 
 
 def _encoding(s: S.UIState) -> RenderableType:
-    return dashboard(s, cancel_modal(s) if s.modal == "CANCEL" else _middle(s))
+    return dashboard(s, _middle(s))
 
 
 def _prov(value, tag: str) -> tuple:
@@ -626,8 +595,7 @@ def _queue(s: S.UIState) -> RenderableType:
              f" · ETA {mmss(eta) if eta is not None else '—'}")
     start = queue_start(len(s.queue), s.active_job, QUEUE_ROWS)
     table = panel(queue_table(s, start, QUEUE_ROWS), title, height=QUEUE_ROWS + 3)
-    lower = [cancel_modal(s)] if s.modal == "CANCEL" else [_progress_header(s), _log_panel(s, 12, 14)]
-    return Group(_queue_strip(s), table, *lower)
+    return Group(_queue_strip(s), table, _progress_header(s), _log_panel(s, 12, 14))
 
 
 def _count(n: int, one: str, many: str) -> str:

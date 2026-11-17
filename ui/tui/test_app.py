@@ -132,24 +132,6 @@ def test_error_flow_returns_1(tmp_path):
     assert app.state.screen == S.ERROR
 
 
-def test_c_confirm_calls_request_cancel(tmp_path):
-    calls = []
-
-    def run(ns_, q, control, on_tick):
-        q.put(R.Stage(R.PASS, "1", ts=1.0))
-        on_tick()
-        q.put(S.Key("C"))
-        q.put(S.Key("RIGHT"))
-        q.put(S.Key("ENTER"))
-        on_tick()
-        calls.append(control.cancelled)
-        return 130
-
-    app, _, _ = make(tmp_path, ["ENTER"], run, terminate=lambda: True)
-    assert app.run() == 130
-    assert calls == [True] and app.state.screen == S.CANCELLED
-
-
 def test_ctrl_c_in_ready_returns_130_and_restores(tmp_path, monkeypatch):
     orig = sys.stderr
     app, _, reader = make(tmp_path, [], lambda *a: 0)
@@ -234,29 +216,6 @@ def test_output_preexisted_detected_at_start(tmp_path):
     (tmp_path / "out.mp4").write_bytes(b"old")
     app, _, _ = make(tmp_path, ["ESC"], lambda *a: 0)
     assert app.state.output_preexisted is True
-
-
-def test_confirmed_cancel_draws_cancel_requested_and_c_does_not_reopen(tmp_path):
-    seen = {}
-
-    def run(ns_, q, control, on_tick):
-        q.put(R.Stage(R.PASS, "1", ts=1.0))
-        q.put(R.Pass(1, 1, "Encode", "start", ts=1.0))
-        on_tick()
-        for k in ("C", "RIGHT", "ENTER"):
-            q.put(S.Key(k))
-        on_tick()
-        seen["phase"] = app.state.cancel_phase
-        seen["text"] = screen_text(app.state)
-        q.put(S.Key("C"))
-        on_tick()
-        seen["modal"] = app.state.modal
-        return 130
-
-    app, _, _ = make(tmp_path, ["ENTER"], run, terminate=lambda: True)
-    assert app.run() == 130
-    assert seen["phase"] == "requested" and "CANCELAMENTO SOLICITADO" in seen["text"]
-    assert seen["modal"] is None
 
 
 def test_events_queued_before_return_apply_before_finished(tmp_path):
@@ -775,11 +734,10 @@ def test_batch_cancel_from_queue_code_130(tmp_path):
     folder = batch_folder(tmp_path)
     rec = []
     con = recording()
-    evs = [R.JobStart(0), R.Stage(R.PASS, "1", job_id=0), S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"),
+    evs = [R.JobStart(0), R.Stage(R.PASS, "1", job_id=0), R.Cancel("requested"),
            R.JobDone(0, "falha", "cancelado pelo usuário"), R.Cancel("terminated"), R.Cancel("cleaned", True)]
     app = batch_app(folder, fake_batch(evs, 130, rec), console=con, terminate=lambda: True)
     assert app.run() == 130
-    assert rec[-1] is True
     assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
     assert summary_lines(con) == ["⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"]
 
@@ -1039,31 +997,6 @@ def test_batch_runner_exception_after_cancel_returns_130(tmp_path):
     assert app.run() == 130
     assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
     assert summary_lines(con) == ["⚠ fila interrompida: 0 ok · 0 pulados · 0 falhas · 1 interrompido (código 130)"]
-
-
-@pytest.mark.timeout(30)
-def test_batch_cancel_in_blocked_stage_warns_in_log(tmp_path):
-    folder = batch_folder(tmp_path)
-    seen = []
-
-    def run(ns_, q, control, on_tick):
-        for ev in (R.QueueInit(_jobs(folder)), R.JobStart(0), R.JobDone(0, "ok", None), R.JobStart(1)):
-            q.put(ev)
-        on_tick()
-        control.stage = (R.QC, None)
-        for k in ("C", "RIGHT", "ENTER"):
-            q.put(S.Key(k))
-        on_tick()
-        seen.append((control.cancelled, app.state.modal, app.state.log[-1]))
-        for ev in (R.JobDone(1, "ok", None), R.QueueDone(0)):
-            q.put(ev)
-        on_tick()
-        return 0
-
-    app = batch_app(folder, run, terminate=lambda: True)
-    assert app.run() == 0
-    assert seen == [(False, None, S.LogRow("WARNING", S.CANCEL_UNAVAILABLE))]
-    assert S.CANCEL_UNAVAILABLE == "cancelamento indisponível neste estágio — tente de novo em instantes"
 
 
 def _scandir_down(path):
@@ -1407,48 +1340,6 @@ def test_new_encode_after_batch_report_runs_single(tmp_path):
     assert app.state.screen == S.COMPLETED and not app.state.is_batch
     assert summary_lines(con) == ["✓ fila: 2 ok · 0 pulados · 0 falhas (código 0)",
                                   f"✓ entregue: {app.state.output_path}"]
-
-
-@pytest.mark.timeout(30)
-def test_cancel_in_second_encode_reaches_new_control(tmp_path):
-    src = tmp_path / "clip.mov"
-    src.write_bytes(b"x")
-    con = recording()
-    controls, seen = [], {}
-
-    def run(ns_, q, control, on_tick):
-        controls.append(control)
-        q.put(R.Stage(R.PASS, "1", ts=1.0))
-        on_tick()
-        if len(controls) == 1:
-            return 0
-        for k in ("C", "RIGHT", "ENTER"):
-            q.put(S.Key(k))
-        on_tick()
-        seen["requested"] = control.cancelled
-        seen["phase"] = app.state.cancel_phase
-        seen["old_untouched"] = not controls[0].cancelled
-        q.put(R.Cancel("cleaned", True, ts=3.0))
-        on_tick()
-        return 130
-
-    def sleep(_):
-        s = app.state
-        if s.screen == S.COMPLETED:
-            app._queue.put(S.Key("CHAR", "n"))
-        elif s.screen == S.HOME:
-            app._queue.put(S.Key("CHAR", "1"))
-        else:
-            advance_with_enter(app)
-
-    keys = [("CHAR", "1")] + keys_for(str(src))
-    app = A.App(run_single=run, reader_factory=CharReader(keys), live_factory=lambda c: FakeLive(), clock=Clock(),
-                sleep=sleep, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
-                probe=lambda p: None, terminate=lambda: True, console=con)
-    assert app.run() == 130
-    assert len(controls) == 2 and controls[0] is not controls[1]
-    assert seen == {"requested": True, "phase": "requested", "old_untouched": True}
-    assert app.state.screen == S.CANCELLED
 
 
 @pytest.mark.timeout(30)

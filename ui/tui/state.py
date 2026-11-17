@@ -33,7 +33,6 @@ LOG_CAP = 500
 REPORT_ROWS = 21
 ERROR_ROWS = 17
 LOG_FILTERS = ("TUDO", "SYSTEM", "INFO", "WARNING", "FFMPEG")
-CANCEL_UNAVAILABLE = "cancelamento indisponível neste estágio — tente de novo em instantes"
 _WARNING_RE = re.compile(r"^aviso\b|\bfalhou\b|n[ãa]o foi poss[ií]vel", re.IGNORECASE)
 
 
@@ -183,10 +182,6 @@ def encode_running(s: UIState) -> bool:
     if s.screen == QC:
         return s.back not in FINAL_SCREENS
     return s.screen in (ENCODING, QUEUE)
-
-
-def cancel_blocked(s: UIState) -> bool:
-    return (s.stage, s.substep) in R.CANCEL_BLOCKED
 
 
 def seal_revealed(s: UIState) -> bool:
@@ -363,10 +358,6 @@ def _interrupt_active(s: UIState, at: float) -> UIState:
 def _fail_active(s: UIState, at: float) -> UIState:
     last = next((r.text for r in reversed(s.log) if r.kind == "WARNING"), "")
     return _end_active(s, at, "falha", _first_line(last) or "erro")
-
-
-def cancel_unavailable(s: UIState) -> UIState:
-    return replace(_log(s, "WARNING", CANCEL_UNAVAILABLE), modal=None, modal_focus=0)
 
 
 def internal_warning(s: UIState, text: str) -> UIState:
@@ -709,14 +700,6 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
                 return replace(s, screen=PREVIEW, ready_error=None)
             return replace(s, action="exit", exit_code=0)
         return s
-    if s.modal == "CANCEL":
-        if k in ("LEFT", "RIGHT"):
-            return replace(s, modal_focus=1 - s.modal_focus)
-        if k == "ESC":
-            return replace(s, modal=None, modal_focus=0)
-        if k == "ENTER":
-            return replace(s, modal=None, modal_focus=0, action="cancel" if s.modal_focus == 1 else s.action)
-        return s
     if s.screen in FINAL_SCREENS and k == "CHAR" and ch and ch in "nN" and "NOVO ENCODE" in final_actions(s):
         return replace(s, action="new")
     if s.screen == REPORT:
@@ -763,6 +746,4 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
             return replace(s, screen=DETAILS, back=s.screen)
         if k == "L":
             return replace(s, screen=LOG, back=s.screen)
-        if k == "C" and s.screen in (ENCODING, QUEUE) and s.cancel_phase is None and not cancel_blocked(s):
-            return replace(s, modal="CANCEL", modal_focus=0)
     return s

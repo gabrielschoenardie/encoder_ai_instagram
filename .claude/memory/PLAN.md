@@ -71,3 +71,17 @@ Mesmas regras do ciclo (sem commit/add/push). Arquivos permitidos: `ui/tui/state
 | P3H-7b | **UF4.** O rodapé (`FOOTER_KEYS` / `screens.py`) de COMPLETED, ERROR e CANCELLED cita `[N] Novo encode` **só quando** NOVO ENCODE está em `final_actions` (mesma condição do REPORT). Teste de render com e sem a ação (sem `preset`; com `worker_stuck`). |
 | P3H-7c | **Testes que faltam:** `N` ignorado em QC e LOG abertos a partir de tela final (`action` continua `None`, tela inalterada). Cancelamento no **2º** encode da mesma `App`: o 1º termina 0, NOVO ENCODE, o 2º é cancelado via modal (C → confirmar), o `CancelControl` novo recebe o pedido (`request_cancel` verdadeiro, evento `Cancel` na fila) e o estado termina CANCELLED. |
 | P3H-7d | Rodar `python -m pytest ui/tui -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Registrar em STATE.md (§ Ciclo P3H, adendo P3H-7) e marcar UF1/UF4 como resolvidos em VALIDATION.md. UF2/UF3 vão para FINDINGS.md (P3HF6/P3HF7) como latentes não tratados. |
+
+## Adendo P3H-8 (decisão do usuário em 2026-11-16) — agente alvo: `executor`
+
+Contexto: no teste manual (VALIDATION § P3H manual), o B2 falhou: o C foi confirmado no modal e o 2º encode não parou. O usuário decidiu **remover o cancelamento pela tecla C da TUI** (modal CANCEL incluído). A interrupção passa a ser só por Ctrl+C (`KeyboardInterrupt` → `App._interrupted_code` / `tui_driver._run_one`), que **não muda**. O backend de cancelamento (`reporter.CancelControl`, `tui_driver._cancel_cleanup` etc.) **fica** porque o Ctrl+C usa.
+
+Mesmas regras do ciclo (sem commit/add/push). Arquivos permitidos: `ui/tui/state.py`, `ui/tui/screens.py`, `ui/tui/app.py`, testes em `ui/tui/`, `.claude/memory/{STATE,FINDINGS,VALIDATION}.md`.
+
+| ID | tarefa |
+| --- | --- |
+| P3H-8a | `state.py`: remover a abertura do modal por `C` em ENCODING/QUEUE, o ramo `s.modal == "CANCEL"` e a ação `"cancel"`. Remover o que ficar sem uso por causa disso (ex.: `cancel_blocked`, se só servir a isso; `cancel_unavailable` e `CANCEL_UNAVAILABLE`, se só servirem ao C). Os campos de estado usados pelo Ctrl+C e pelos eventos `R.Cancel` (`cancel_phase`, `partial_removed`, `master_kept` …) **ficam**. |
+| P3H-8b | `app.py`: remover o tratamento de `action == "cancel"` em `_drain` (`request_cancel` / `cancel_unavailable`). `self._control` continua sendo passado ao driver (Ctrl+C). |
+| P3H-8c | `screens.py`: remover o render do modal CANCEL e as dicas `[C]` de rodapé/telas. Onde fizer sentido mostrar como interromper, usar `Ctrl+C interromper`. Não mudar nada mais. |
+| P3H-8d | Testes: remover os que existem **só** para C/modal (inclusive o de cancelamento no 2º encode do P3H-7c) e listar cada um em STATE.md. Ajustar os que só citam a dica `[C]`. Novo: `C` em ENCODING/QUEUE não muda o estado nem gera ação. O fluxo de dois encodes com o 1º terminando em 130 (fake) continua. |
+| P3H-8e | Rodar `python -m pytest ui/tui -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Registrar em STATE.md (adendo P3H-8). |

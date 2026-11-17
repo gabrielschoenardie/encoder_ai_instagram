@@ -64,33 +64,14 @@ def test_pass_tracks_keep_pass1_and_end_is_100():
     assert S.active_pass(s) is p2
 
 
-def test_c_opens_modal_and_confirm_requests_cancel_once():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0), S.Key("C"))
-    assert s.modal == "CANCEL" and s.modal_focus == 0
-    s = S.apply(s, S.Key("ENTER"))
-    assert s.modal is None and s.action is None
-    s = _run(s, S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"))
-    assert s.action == "cancel" and s.modal is None
-
-
-def test_double_enter_in_modal_single_cancel():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0),
-             S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"))
-    s2 = S.apply(s, S.Key("ENTER"))
-    assert s.action == "cancel"
-    assert s2.modal is None and s2.action == "cancel"
-
-
-def test_esc_closes_modal_without_cancel():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0), S.Key("C"), S.Key("ESC"))
-    assert s.modal is None and s.action is None
-
-
-@pytest.mark.parametrize("stage", [R.Stage(R.ANALYZING, "mctf_mask", ts=1.0), R.Stage(R.QC, ts=1.0)])
-def test_c_ignored_when_blocked(stage):
-    s = _run(_s(screen=S.ENCODING), stage)
-    assert S.cancel_blocked(s)
-    assert S.apply(s, S.Key("C")).modal is None
+@pytest.mark.parametrize("screen", [S.ENCODING, S.QUEUE])
+def test_c_in_encoding_and_queue_changes_nothing(screen):
+    s = _run(_s(screen=screen, is_batch=screen == S.QUEUE), R.Stage(R.PASS, "1", ts=1.0))
+    for ch in ("C", "c"):
+        s2 = S.apply(s, S.Key("CHAR", ch))
+        assert s2 == s and s2.action is None
+    s2 = S.apply(s, S.Key("C"))
+    assert s2 == s and s2.action is None and s2.modal is None
 
 
 def test_events_after_cancel_ignored():
@@ -262,15 +243,6 @@ def test_keys_on_home_work_again_at_min_size():
     s = _s(screen=S.HOME, size=SMALL)
     s = S.apply(s, S.Tick(1.0, S.MIN_SIZE))
     assert S.apply(s, S.Key("ESC")).action == "exit"
-
-
-@pytest.mark.parametrize("screen", [S.ENCODING, S.QUEUE])
-def test_c_still_cancels_running_encode_below_min_size(screen):
-    s = _s(screen=screen, size=SMALL, is_batch=screen == S.QUEUE)
-    s = _run(s, S.Key("C"))
-    assert s.modal == "CANCEL"
-    s = _run(s, S.Key("RIGHT"), S.Key("ENTER"))
-    assert s.action == "cancel"
 
 
 def test_overlay_over_running_encode_still_answers_keys_below_min_size():

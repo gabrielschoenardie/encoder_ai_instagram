@@ -56,7 +56,7 @@ def test_queue_screen_three_jobs():
     for txt in ("BATCH", "C:/v/lote", "3 arquivos", "saída: mesma pasta", "RENDER QUEUE", "Job 2 de 3",
                 "ETA 01:40", "JOB", "ARQUIVO", "STATUS", "ETA/DURAÇÃO", "RESULTADO", "clip_00.mov",
                 "✓ COMPLETED", "01:00", "ENCODING", "· QUEUED", "…", "PASS 1 / 1", "frame=  300", "LOG",
-                "QUEUE · JOB 2/3", "[C] Cancelar fila", "[D] Details"):
+                "QUEUE · JOB 2/3", "[Ctrl+C] Interrupt", "[D] Details"):
         assert txt in out, txt
     assert_fits(out)
     assert_no_emoji(out)
@@ -73,15 +73,6 @@ def test_queue_screen_twenty_jobs_scrolls_to_active():
 def test_queue_eta_dash_before_first_done():
     out = text_of(queue_state(active=0))
     assert "ETA —" in out and "Job 1 de 3" in out
-
-
-def test_queue_cancel_modal_and_blocked_footer():
-    out = text_of(S.apply(queue_state(), S.Key("C")))
-    assert "CANCELAR FILA?" in out and "CONTINUAR FILA" in out and "CANCELAR FILA ]" in out
-    assert "RENDER QUEUE" in out
-    assert_fits(out)
-    blocked = S.apply(queue_state(), R.Stage(R.ANALYZING, "mctf_mask", ts=500.0))
-    assert "░[C] Cancelar fila" in text_of(blocked)
 
 
 def test_batch_rail_on_queue_and_folder_source():
@@ -208,8 +199,8 @@ def test_batch_footers_say_queue():
     ready = S.UIState(config=batch_cfg(), screen=S.READY, is_batch=True, preset=3, source_count=3)
     foot = _footer(text_of(ready))
     assert "[ENTER] Start queue" in foot and "Start encode" not in foot
-    foot = _footer(text_of(S.apply(queue_state(), S.Key("C"))))
-    assert "[ESC] Keep queue" in foot and "Keep encoding" not in foot
+    foot = _footer(text_of(queue_state()))
+    assert "[Ctrl+C] Interrupt" in foot and "[C] Cancel" not in foot
 
 
 def _has_reverse(state):

@@ -395,11 +395,5 @@ class App:
             if isinstance(ev, S.Key) and not self._key_accepted(ev, ts):
                 continue
             self.state = S.apply(self.state, ev)
-            if self.state.action == "cancel":
-                self.state = replace(self.state, action=None)
-                if self._control.request_cancel():
-                    self._queue.put(R.Cancel("requested"))
-                elif self.state.is_batch:
-                    self.state = S.cancel_unavailable(self.state)
-            elif self.state.action in S.ACTIONS:
+            if self.state.action in S.ACTIONS:
                 break
