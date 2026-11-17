@@ -1561,3 +1561,11 @@ Pequenos adiados (P3E): `new_draft` do preset 4 sem chaves de formulário (inofe
 | P3HF5 | info | `ui/tui/app.py` `_interrupted_code` | Ctrl+C na HOME depois de ≥1 encode devolve 130 (não o código do último encode, como a saída por ESC); resumo ainda imprime as linhas acumuladas | aberto (info) |
 | P3HF6 | S4 | `ui/tui/app.py:182-200` (UF2 do ui-flow-reviewer) | o laço interno de `_session` não trata `action == "new"` (cairia em start); hoje inalcançável | resolvido (Limpeza P3H C-2: `act == "new"` no laço interno é no-op) |
 | P3HF7 | S4 | `ui/tui/app.py:404-405` (UF3 do ui-flow-reviewer) | N no REPORT antes de `run_batch` retornar descarta os eventos que chegarem depois do `QueueDone` | resolvido (Limpeza P3H C-3: fila drenada até esvaziar antes do `Finished`; `new` com `worker_stuck` é ignorado) |
+
+## Ciclo L2 — launcher (2026-11-17)
+
+| ID | severidade | onde | achado | status |
+|----|------------|------|--------|--------|
+| L2F1 | S4 | `launcher.ps1` `Resolve-Binaries` passo 6 + `Ensure-WindowsTerminalPortable` | com WT ausente e `-NoDownload`, o usuário vê dois Warn sobre o WT (o do `Ensure-…` e o do passo 6 do `Resolve-Binaries`, que ainda manda rodar `fetch_wt_portable.ps1`). Redundante, não errado | aberto |
+| L2F2 | S4 | `launcher.ps1` help `.PARAMETER SkipValidation` (texto movido verbatim) | contém "só"/"não"; o arquivo é UTF-8 sem BOM, então `Get-Help` no Windows PowerShell 5.1 mostra mojibake nesse trecho (já ocorria antes, como comentário de parâmetro). O comentário QF2 em `:767` também tem acentos (só comentário) | aberto |
+| L2F3 | info | `.claude/memory/PLAN.md` L2-9 vs regra do executor | L2-9 pede escrever em VALIDATION.md; o executor é proibido de editá-lo. Linha "smoke manual … PENDENTE — usuário" ficou em STATE.md § Ciclo L2 | aberto — Orquestrador |

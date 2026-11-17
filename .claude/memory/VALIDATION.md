@@ -340,3 +340,9 @@ Veredito: FLOW OK. Nenhum modal preso, nenhuma transição morta, nenhuma dica `
 - Baixa: os campos `modal`/`modal_focus` em `state.py:115-116` ficaram sem função (mantidos de propósito, ver STATE P3H-8a).
 - Info: em produção, nada chama mais `reporter.CancelControl.request_cancel` (o driver usa `force_cancel`).
 - Info: `docs/Phase_2_TUI_Specification.md` (não rastreado) e os planos antigos em `docs/superpowers/` ainda descrevem o modal CANCEL e o `[C]`.
+
+## Ciclo L2 (2026-11-17)
+
+- Pester 5.7.1: pwsh 7 com 156 passed / 0 failed e Windows PowerShell 5.1 com 156 passed / 0 failed, conferidos pelo Orquestrador. ruff e `git diff --check` limpos. Zero tabs em `launcher.ps1`, `launcher.cmd` e `tools/*.ps1`.
+- PENDENTE (usuário): smoke manual do `launcher.cmd`, no modo padrão e com `-NoDownload`, tendo o FFmpeg só no PATH.
+- PENDENTE (CI): leg ubuntu do Pester, que não foi verificado localmente. Os 4 testes que executam o fetch falso dependem de `tools\fetch_*.ps1` com `\` resolver no pwsh/Linux.
