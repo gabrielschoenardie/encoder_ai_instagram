@@ -224,6 +224,8 @@ def footer(s: S.UIState) -> RenderableType:
         keys = keys.replace("[ESC] Sair", "[ESC] Voltar")
     if s.screen == S.READY and s.is_batch:
         keys = keys.replace("Start encode", "Start queue")
+    if s.screen in S.FINAL_SCREENS and "NOVO ENCODE" in S.final_actions(s):
+        keys += "   [N] Novo encode"
     return Group(Rule(characters="─", style="muted"), Text(" " + keys, style="muted"))
 
 

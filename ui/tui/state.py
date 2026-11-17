@@ -23,7 +23,7 @@ PREVIEW = "PREVIEW"
 QUEUE = "QUEUE"
 REPORT = "REPORT"
 CONFIG_SCREENS = frozenset({HOME, SOURCE, CONFIGURATION, ADVANCED, PREVIEW})
-ACTIONS = ("start", "exit", "tools", "arm", "check_source")
+ACTIONS = ("start", "exit", "tools", "arm", "check_source", "new")
 FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED, REPORT})
 OVERLAYS = frozenset({DETAILS, LOG})
 SEAL_REVEAL_S = 1.2
@@ -168,6 +168,7 @@ class UIState:
     queue_finished: float | None = None
     is_batch: bool = False
     queue_scroll: int = 0
+    worker_stuck: bool = False
 
 
 def too_small(s: UIState) -> bool:
@@ -201,8 +202,15 @@ def active_pass(s: UIState) -> PassTrack | None:
 
 def final_actions(s: UIState) -> tuple:
     if s.screen == COMPLETED or s.back == COMPLETED:
-        return ("SAIR", "VER QC", "VER LOG") if s.qc is not None else ("SAIR", "VER LOG")
-    return ("SAIR", "VER LOG")
+        actions = ("SAIR", "VER QC", "VER LOG") if s.qc is not None else ("SAIR", "VER LOG")
+    else:
+        actions = ("SAIR", "VER LOG")
+    return actions + ("NOVO ENCODE",) if s.preset and not s.worker_stuck else actions
+
+
+def new_session(s: UIState) -> UIState:
+    return UIState(config={}, screen=HOME, drafts=s.drafts, focus=s.focus, home_focus=s.home_focus,
+                   system=s.system, size=s.size, now=s.now, cpu=s.cpu, ram=s.ram, ram_used_gb=s.ram_used_gb)
 
 
 def stderr_lines(err, log) -> list:
@@ -361,6 +369,10 @@ def cancel_unavailable(s: UIState) -> UIState:
     return replace(_log(s, "WARNING", CANCEL_UNAVAILABLE), modal=None, modal_focus=0)
 
 
+def internal_warning(s: UIState, text: str) -> UIState:
+    return _log(s, "WARNING", text)
+
+
 def _to_report(s: UIState) -> UIState:
     return replace(s, screen=REPORT, modal=None, modal_focus=0, action_focus=0, queue_scroll=0)
 
@@ -438,6 +450,9 @@ def _engine(s: UIState, ev) -> UIState:
             s = replace(s, master_kept=True)
         if ev.text.startswith(("Restauração do remux falhou", "O encoder não encerrou")):
             s = replace(s, kept_unvalidated=True)
+        if ev.text.startswith("O encoder não encerrou"):
+            s = replace(s, worker_stuck=True)
+            s = replace(s, action_focus=min(s.action_focus, len(final_actions(s)) - 1))
         return _log(s, "WARNING" if _WARNING_RE.search(ev.text) else "INFO", ev.text)
     if isinstance(ev, R.Qc):
         return replace(s, qc=ev.payload)
@@ -702,6 +717,8 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         if k == "ENTER":
             return replace(s, modal=None, modal_focus=0, action="cancel" if s.modal_focus == 1 else s.action)
         return s
+    if s.screen in FINAL_SCREENS and k == "CHAR" and ch and ch in "nN" and "NOVO ENCODE" in final_actions(s):
+        return replace(s, action="new")
     if s.screen == REPORT:
         if k in ("UP", "DOWN"):
             top = max(0, len(s.queue) - REPORT_ROWS)
@@ -721,9 +738,11 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         if k == "ESC":
             return replace(s, action="exit")
         if k == "ENTER":
-            chosen = actions[s.action_focus]
+            chosen = actions[min(s.action_focus, len(actions) - 1)]
             if chosen == "SAIR":
                 return replace(s, action="exit")
+            if chosen == "NOVO ENCODE":
+                return replace(s, action="new")
             return replace(s, screen=QC if chosen == "VER QC" else LOG, back=s.screen)
         return s
     if s.screen in OVERLAYS:

@@ -397,3 +397,25 @@ def test_log_screen_rows_have_left_margin():
     rows = [ln for ln in out.splitlines() if "PROBING" in ln or "ffprobe falhou" in ln]
     assert len(rows) == 2
     assert all(ln.startswith(" ") for ln in rows)
+
+
+def test_completed_action_bar_shows_new_encode_last_for_home_session():
+    s = S.apply(S.apply(qc_state(True), S.Finished(0)), S.Tick(400.0, (120, 40)))
+    out = text_of(replace(s, preset=1))
+    assert "[ SAIR ]" in out and "[ NOVO ENCODE ]" in out
+    assert out.index("[ VER LOG ]") < out.index("[ NOVO ENCODE ]")
+    assert_fits(out)
+    assert "NOVO ENCODE" not in text_of(s)
+
+
+def _footer_line(s):
+    return [ln for ln in text_of(s).splitlines() if ln.strip()][-1]
+
+
+def test_final_footers_cite_new_encode_only_when_action_available():
+    base = S.apply(S.apply(qc_state(True), S.Finished(0)), S.Tick(400.0, (120, 40)))
+    for screen, code in ((S.COMPLETED, 0), (S.ERROR, 1), (S.CANCELLED, 130)):
+        s = replace(base, screen=screen, exit_code=code, preset=1)
+        assert "[N] Novo encode" in _footer_line(s)
+        assert "[N]" not in _footer_line(replace(s, preset=0))
+        assert "[N]" not in _footer_line(replace(s, worker_stuck=True))

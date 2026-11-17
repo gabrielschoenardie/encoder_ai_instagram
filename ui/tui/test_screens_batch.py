@@ -240,3 +240,12 @@ def test_queue_start_window_edges():
     assert V.queue_start(20, 10, 8, scroll=-3) == 0
     assert V.queue_start(20, 10, 8, scroll=99) == 12
     assert V.queue_start(20, 10, 8, scroll=5) == 5
+
+
+def test_report_footer_hints_new_encode_when_available():
+    s = report_state()
+    assert s.screen == S.REPORT
+    foot = "\n".join(text_of(s).splitlines()[-3:])
+    assert "[N] Novo encode" in foot
+    assert "[N]" not in "\n".join(text_of(replace(s, worker_stuck=True)).splitlines()[-3:])
+    assert "[N]" not in "\n".join(text_of(replace(s, preset=0)).splitlines()[-3:])

@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 # ── Path setup: import the root module ────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_HERE) if os.path.basename(_HERE).lower() == "enhance" else _HERE
@@ -436,3 +438,19 @@ def test_human_helpers():
     assert E._human_duration(252.3) == "4m 12s"
     assert E._human_duration(3780) == "1h 03m"
     assert E._human_duration("nope") is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="flags de console só existem no Windows")
+def test_launch_meter_window_detaches_ffplay_from_console_on_windows(monkeypatch):
+    seen = {}
+
+    def fake_popen(args, **kwargs):
+        seen.update(kwargs)
+        return "proc"
+
+    monkeypatch.setattr(E, "_FFPLAY_OK", True)
+    monkeypatch.setattr(E.subprocess, "Popen", fake_popen)
+    assert E.launch_meter_window("in.mov", -14.0, "EBU") == "proc"
+    flags = E.subprocess.DETACHED_PROCESS | E.subprocess.CREATE_NEW_PROCESS_GROUP
+    assert seen["creationflags"] == flags
+    assert seen["stdin"] == seen["stdout"] == seen["stderr"] == E.subprocess.DEVNULL

@@ -475,6 +475,7 @@ def generate_mctf_mask_video(
                 out_path,
             ],
             stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
