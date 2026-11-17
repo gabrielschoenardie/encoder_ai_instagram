@@ -301,3 +301,42 @@ BF1 (`-async 1` no comando de saída do Cineon) está validada: a cauda de áudi
 ## Ciclo P3E (TUI polish) — sem validação de encode
 
 O P3E não altera nenhum encode, filtro, nem o pipeline de vídeo. Nenhum `validate_encode.sh` ou `measure_vmaf.sh` foi executado. A verificação do ciclo é a suíte do CI (988 passed, 4 skipped no último relato, ver `STATE.md`), ruff limpo e checagem manual do usuário no Windows Terminal e no conhost (setas, `à` em ABNT2, Ctrl+C com LOG aberto, `-Tui`).
+
+---
+
+## Ciclo P3H (tela limpa R-06/R-07/R-10) — sem validação de encode
+
+O P3H não altera encode, filtro nem pipeline (motor intocado). Verificação automatizada em `STATE.md` § Ciclo P3H.
+
+- R-06 — verificação manual no Windows (FFplay + MCTF + preflight enhance-ai) PENDENTE
+
+| item | roteiro |
+|------|---------|
+| R-06 | rodar na TUI real (Windows Terminal) um encode com `ebu_meter on` (janelas FFplay abrem e nada do ffplay aparece na tela da TUI), um com `--enhance on --enhance-ai on --mctf on` (preflight e máscara MCTF sem texto/barra vazando sobre a TUI; mensagens aparecem no LOG) e conferir que a tela não fica em branco nem pisca. Depois, NOVO ENCODE (N) a partir de CANCELLED/COMPLETED e de REPORT, e saída pela HOME imprimindo uma linha por encode |
+
+## P3H ui-flow (ui-flow-reviewer, 2026-11-16)
+
+Veredito: FLOW OK com ressalvas, sem bloqueante. Rota, renderer e overlays da ação "new" estão corretos. `new_session` não deixa vazar nenhum campo de encode.
+- UF1 (baixa-média, latente) `state.py:740-745`: `action_focus` não é reclampado quando `worker_stuck` encolhe `final_actions`. Com o foco em NOVO ENCODE, o ENTER lança `IndexError`, que vira WARNING, e a tecla é perdida. Hoje não é alcançável no fluxo single.
+- UF2 (baixa) `app.py:182-200`: o laço interno de `_session` não trata "new" (cairia em start). Hoje não é alcançável.
+- UF3 (baixa, teórica) `app.py:404-405`: se o usuário apertar N no REPORT antes de `run_batch` retornar, os eventos que chegarem depois do `QueueDone` são descartados.
+- UF4 (info): o REPORT mostra NOVO ENCODE só como dica no rodapé, e o rodapé de COMPLETED/ERROR/CANCELLED não cita `[N]`.
+- Lacunas de teste: UF1, N ignorado em QC/LOG, cancelamento do 2º encode.
+
+### Adendo P3H-7 — resolução (2026-11-16)
+
+- UF1 **resolvido** (`state.py`: ENTER indexa com `min(action_focus, len-1)`; Info de stuck reclampa o foco). Testes em `test_state.py`.
+- UF4 **resolvido** (`screens.py`: rodapé de COMPLETED/ERROR/CANCELLED/REPORT cita `[N] Novo encode` só com NOVO ENCODE em `final_actions`). Teste em `test_screens.py`.
+- Lacunas de teste fechadas: N ignorado em QC/LOG vindos de tela final; cancelamento no 2º encode da mesma App (`test_app.py`).
+- UF2, UF3: latentes, não tratados (FINDINGS P3HF6/P3HF7).
+
+## P3H manual Windows (usuário, 2026-11-16)
+
+A1–A4 ✓ (preflight enhance-ai, MCTF, FFplay e teclas sem sujar a tela) · B1 ✓ · B3 ✓ · C1 ✓ · **B2 ✗**: no 2º encode, o C foi confirmado no modal e o encode não parou. Decisão do usuário: remover o cancelamento por C da TUI (adendo P3H-8). Interrupção só por Ctrl+C.
+
+## P3H-8 ui-flow (ui-flow-reviewer, 2026-11-16)
+
+Veredito: FLOW OK. Nenhum modal preso, nenhuma transição morta, nenhuma dica `[C]` no código de produção e a ação "cancel" não é mais produzida. NOVO ENCODE e o caminho do Ctrl+C estão intactos.
+- Baixa: os campos `modal`/`modal_focus` em `state.py:115-116` ficaram sem função (mantidos de propósito, ver STATE P3H-8a).
+- Info: em produção, nada chama mais `reporter.CancelControl.request_cancel` (o driver usa `force_cancel`).
+- Info: `docs/Phase_2_TUI_Specification.md` (não rastreado) e os planos antigos em `docs/superpowers/` ainda descrevem o modal CANCEL e o `[C]`.

@@ -1,4 +1,5 @@
 import dataclasses
+from dataclasses import replace
 
 import pytest
 
@@ -63,33 +64,14 @@ def test_pass_tracks_keep_pass1_and_end_is_100():
     assert S.active_pass(s) is p2
 
 
-def test_c_opens_modal_and_confirm_requests_cancel_once():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0), S.Key("C"))
-    assert s.modal == "CANCEL" and s.modal_focus == 0
-    s = S.apply(s, S.Key("ENTER"))
-    assert s.modal is None and s.action is None
-    s = _run(s, S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"))
-    assert s.action == "cancel" and s.modal is None
-
-
-def test_double_enter_in_modal_single_cancel():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0),
-             S.Key("C"), S.Key("RIGHT"), S.Key("ENTER"))
-    s2 = S.apply(s, S.Key("ENTER"))
-    assert s.action == "cancel"
-    assert s2.modal is None and s2.action == "cancel"
-
-
-def test_esc_closes_modal_without_cancel():
-    s = _run(_s(screen=S.ENCODING), R.Stage(R.PASS, "1", ts=1.0), S.Key("C"), S.Key("ESC"))
-    assert s.modal is None and s.action is None
-
-
-@pytest.mark.parametrize("stage", [R.Stage(R.ANALYZING, "mctf_mask", ts=1.0), R.Stage(R.QC, ts=1.0)])
-def test_c_ignored_when_blocked(stage):
-    s = _run(_s(screen=S.ENCODING), stage)
-    assert S.cancel_blocked(s)
-    assert S.apply(s, S.Key("C")).modal is None
+@pytest.mark.parametrize("screen", [S.ENCODING, S.QUEUE])
+def test_c_in_encoding_and_queue_changes_nothing(screen):
+    s = _run(_s(screen=screen, is_batch=screen == S.QUEUE), R.Stage(R.PASS, "1", ts=1.0))
+    for ch in ("C", "c"):
+        s2 = S.apply(s, S.Key("CHAR", ch))
+        assert s2 == s and s2.action is None
+    s2 = S.apply(s, S.Key("C"))
+    assert s2 == s and s2.action is None and s2.modal is None
 
 
 def test_events_after_cancel_ignored():
@@ -263,15 +245,6 @@ def test_keys_on_home_work_again_at_min_size():
     assert S.apply(s, S.Key("ESC")).action == "exit"
 
 
-@pytest.mark.parametrize("screen", [S.ENCODING, S.QUEUE])
-def test_c_still_cancels_running_encode_below_min_size(screen):
-    s = _s(screen=screen, size=SMALL, is_batch=screen == S.QUEUE)
-    s = _run(s, S.Key("C"))
-    assert s.modal == "CANCEL"
-    s = _run(s, S.Key("RIGHT"), S.Key("ENTER"))
-    assert s.action == "cancel"
-
-
 def test_overlay_over_running_encode_still_answers_keys_below_min_size():
     s = _s(screen=S.ENCODING, size=SMALL)
     s = S.apply(s, S.Key("L"))
@@ -303,3 +276,84 @@ def test_source_checked_of_old_kind_is_discarded_after_toggle(tmp_path):
     assert (s.source_status, s.source_count) == ("EMPTY", 0)
     s = S.apply(s, S.SourceChecked(path, "NOT_FOUND"))
     assert s.source_status == "NOT_FOUND"
+
+
+def _final(screen, preset=1, **kw):
+    return _s(screen=screen, preset=preset, exit_code={S.COMPLETED: 0, S.CANCELLED: 130}.get(screen, 1), **kw)
+
+
+def test_final_actions_offer_new_encode_last_only_for_home_session():
+    assert S.final_actions(_final(S.COMPLETED)) == ("SAIR", "VER LOG", "NOVO ENCODE")
+    assert S.final_actions(_final(S.COMPLETED, qc={})) == ("SAIR", "VER QC", "VER LOG", "NOVO ENCODE")
+    assert S.final_actions(_final(S.ERROR)) == ("SAIR", "VER LOG", "NOVO ENCODE")
+    assert S.final_actions(_final(S.CANCELLED, preset=0)) == ("SAIR", "VER LOG")
+    assert S.final_actions(_final(S.CANCELLED, worker_stuck=True)) == ("SAIR", "VER LOG")
+
+
+def test_worker_stuck_set_by_driver_info_only():
+    from ui import tui_driver as D
+    base = _run(_s(screen=S.ENCODING, preset=1), R.Cancel("requested", ts=1.0))
+    assert S.apply(base, R.Info("Master mantido — QC não concluído.")).worker_stuck is False
+    s = S.apply(base, R.Info(D.WORKER_STUCK_MSG.format(n=D.WORKER_WAIT_S, name="out.mp4"), ts=3.0))
+    assert s.worker_stuck is True
+    s = S.apply(s, S.Finished(130))
+    assert "NOVO ENCODE" not in S.final_actions(s)
+    assert S.apply(s, S.Key("CHAR", "n")).action is None
+
+
+def test_enter_on_new_encode_requests_new_session():
+    s = _final(S.CANCELLED)
+    s = _run(s, S.Key("RIGHT"), S.Key("RIGHT"), S.Key("RIGHT"))
+    assert s.action_focus == 2
+    assert S.apply(s, S.Key("ENTER")).action == "new"
+
+
+def test_stuck_info_reclamps_focus_and_enter_executes_focused_action():
+    from ui import tui_driver as D
+    s = _final(S.COMPLETED, qc={})
+    s = _run(s, S.Key("RIGHT"), S.Key("RIGHT"), S.Key("RIGHT"))
+    assert S.final_actions(s)[s.action_focus] == "NOVO ENCODE"
+    s = S.apply(s, R.Info(D.WORKER_STUCK_MSG.format(n=D.WORKER_WAIT_S, name="out.mp4"), ts=3.0))
+    assert s.worker_stuck is True
+    assert 0 <= s.action_focus < len(S.final_actions(s))
+    assert S.apply(s, S.Key("ENTER")).screen == S.LOG
+
+
+def test_enter_clamps_stale_action_focus():
+    s = replace(_final(S.COMPLETED, qc={}, worker_stuck=True), action_focus=3)
+    assert S.apply(s, S.Key("ENTER")).screen == S.LOG
+    assert S.apply(replace(_final(S.ERROR, worker_stuck=True), action_focus=2), S.Key("ENTER")).screen == S.LOG
+
+
+@pytest.mark.parametrize("screen", [S.QC, S.LOG])
+@pytest.mark.parametrize("ch", ["n", "N"])
+def test_n_ignored_in_qc_and_log_opened_from_final(screen, ch):
+    s = replace(_final(S.COMPLETED, qc={}), screen=screen, back=S.COMPLETED)
+    out = S.apply(s, S.Key("CHAR", ch))
+    assert out.action is None and out == s
+
+
+@pytest.mark.parametrize("screen", [S.COMPLETED, S.ERROR, S.CANCELLED, S.REPORT])
+@pytest.mark.parametrize("ch", ["n", "N"])
+def test_n_shortcut_requests_new_session(screen, ch):
+    assert S.apply(_final(screen), S.Key("CHAR", ch)).action == "new"
+    assert S.apply(_final(screen, preset=0), S.Key("CHAR", ch)).action is None
+    assert S.apply(_final(screen, worker_stuck=True), S.Key("CHAR", ch)).action is None
+
+
+def test_new_encode_is_a_known_action():
+    assert "new" in S.ACTIONS
+
+
+def test_new_session_carries_only_navigation_fields():
+    dirty = _s(screen=S.CANCELLED, preset=3, drafts=((1, {"input": "a.mov"}),), focus=(("CONFIGURATION", 2),),
+               home_focus=2, system=(("FFmpeg", "x"),), size=(130, 45), now=50.0, cpu=1.0, ram=2.0,
+               ram_used_gb=3.0, cancel_phase="cleaned", exit_code=0, is_batch=True, back=S.QC,
+               seal_reveal_start=4.0, stage=R.PASS, passes=(S.PassTrack(1, 1, "x"),), action="new",
+               log=(S.LogRow("INFO", "x"),), queue=(S.Job("a", "b"),), worker_stuck=False)
+    fresh = S.new_session(dirty)
+    want = S.UIState(config={}, screen=S.HOME, drafts=dirty.drafts, focus=dirty.focus, home_focus=2,
+                     system=dirty.system, size=(130, 45), now=50.0, cpu=1.0, ram=2.0, ram_used_gb=3.0)
+    for f in dataclasses.fields(S.UIState):
+        assert getattr(fresh, f.name) == getattr(want, f.name), f.name
+    assert fresh.drafts == ((1, {"input": "a.mov"}),)

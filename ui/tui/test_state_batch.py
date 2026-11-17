@@ -115,18 +115,13 @@ def test_ctrl_c_without_job_done_marks_active_interrupted():
     assert s.screen == S.REPORT and s.queue[0].status == "interrompido" and s.exit_code == 130
 
 
-def test_queue_keys_overlays_and_cancel_modal():
+def test_queue_keys_overlays_and_c_is_ignored():
     s = run(in_queue(), R.JobStart(0, ts=10.0), R.Stage(R.PASS, "1", ts=11.0))
     d = S.apply(s, S.Key("D"))
     assert d.screen == S.DETAILS and d.back == S.QUEUE
     assert S.apply(d, S.Key("ESC")).screen == S.QUEUE
     assert S.apply(s, S.Key("L")).screen == S.LOG
-    m = S.apply(s, S.Key("C"))
-    assert m.modal == "CANCEL"
-    m = S.apply(S.apply(m, S.Key("RIGHT")), S.Key("ENTER"))
-    assert m.action == "cancel" and m.modal is None
-    blocked = S.apply(s, R.Stage(R.ANALYZING, "mctf_mask", ts=12.0))
-    assert S.apply(blocked, S.Key("C")).modal is None
+    assert S.apply(s, S.Key("C")) == s
 
 
 def test_qc_stage_in_batch_never_opens_qc_screen():
@@ -165,14 +160,6 @@ def test_finished_error_with_queue_fails_active_job():
     assert (s.queue[0].status, s.queue[0].reason) == ("falha", "erro")
     s = run(in_queue(), R.JobStart(0, ts=10.0), S.Finished(0))
     assert s.queue[0].status == "processando"
-
-
-def test_cancel_unavailable_logs_warning_and_closes_modal():
-    s = S.apply(run(in_queue(), R.JobStart(0, ts=10.0)), S.Key("C"))
-    assert s.modal == "CANCEL"
-    s = S.cancel_unavailable(s)
-    assert s.modal is None and s.warnings == 1
-    assert s.log[-1] == S.LogRow("WARNING", "cancelamento indisponível neste estágio — tente de novo em instantes")
 
 
 def test_queue_eta_active_job_past_mean_adds_nothing():

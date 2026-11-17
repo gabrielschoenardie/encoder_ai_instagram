@@ -1,56 +1,87 @@
 <!-- Escreve: Orquestrador. Lê: executor, executor-pesado. -->
-# PLAN — Ciclo P3G: TUI única + acesso e resposta (R-03, R-04, R-05)
+# PLAN — Ciclo P3H: Tela limpa (R-06, R-07, R-10)
 
-Data: 2026-11-16 | Branch: `fix/p3g-tui-only-r03-r04-r05` (base `eae27af` = `origin/main`). Decisões aprovadas pelo usuário: remover o modo clássico (wizard) por completo; TUI é a interface única; só Windows.
+Data: 2026-11-16 | Branch: `fix/p3h-clean-screen-r06-r07-r10` (base `8f7aab2` = `origin/main`). Agente alvo: **`executor-pesado`** (toca `ui/tui`, `ui/tui_capture.py`, `ebu_meter.py`, `enhance_visualizer.py`).
 
 ## Regras do ciclo
 
-- **Sem commit, sem push, sem merge.** Sem `git add`. Sem `git reset --hard`, `git clean`, `git stash`, `git checkout --`/`restore` em arquivo que você não criou.
-- Pendências preexistentes NÃO são suas e não podem ser tocadas: `.claude/memory/PLAN.md`, `docs/terminal-ui-masterplan.md` (exclusão), `Reels_Encoder_AI.ico`, `docs/*.md` não rastreados, `*.qc.html`/`*.qc.json` na raiz, `videos/`.
-- Não tocar em `CLAUDE.md` nem em `.claude/agents/*` (decisão do usuário; ver FINDINGS).
-- Remoção de teste só quando o teste existe **exclusivamente** para o wizard/fallback clássico; listar cada um removido em STATE.md. Os demais: atualizar a expectativa.
-- Testes sem `sleep` arbitrário (usar `threading.Event`); só `tmp_path`; efeitos observáveis.
-- Python: `venv\Scripts\python.exe`. Lint: `python -m ruff check .`. Pester: `Invoke-Pester -Path ./tests` (pwsh) se disponível.
-- Ambíguo ou conflitante com o código → `blocked` com a pergunta exata em STATE.md. Não ampliar escopo (nada de R-06+, P3H, L2, P3I).
-- Mapa de referência: extrato do leitor de 2026-11-16 (linhas em `eae27af`; reconfirme antes de editar).
+- **Sem commit, sem push, sem merge, sem `git add`.** Sem `git reset --hard`, `git clean`, `git stash`, `git checkout --`/`restore` em arquivo que você não criou.
+- Pendências preexistentes não são suas: `.claude/memory/PLAN.md`, `docs/terminal-ui-masterplan.md` (exclusão), `Reels_Encoder_AI.ico`, `docs/*.md` não rastreados, `*.qc.html`/`*.qc.json` na raiz, `videos/`.
+- Não tocar `CLAUDE.md`, `.claude/agents/*`, `launcher.ps1`. Motor (`Reels_Encoder_v2_FINAL.py`): **nada muda** neste ciclo.
+- Testes sem `sleep` arbitrário (`threading.Event`), só `tmp_path`, efeitos observáveis. Python: `venv\Scripts\python.exe`.
+- Ambíguo/conflitante com o código → `blocked` com a pergunta exata em STATE.md. Nada fora de R-06/R-07/R-10. Achados fora do escopo → FINDINGS.md.
+- Linhas citadas são de `8f7aab2`; reconfirme antes de editar.
 
-## Tarefas (agente alvo: `executor-pesado`, nesta ordem)
+## Tarefas
 
 | ID | arquivos | tarefa |
 | --- | --- | --- |
-| P3G-1a | `ui/launcher.py`, `ui/tui/forms.py`, `ui/tui/app.py`, `ui/__init__.py`, `ui/prompts.py` | **Remover o wizard.** A TUI depende de `ui.launcher.PRESETS` (`forms.py:10`) e `_flow_tools` (`app.py:54`): mover `PRESETS` para `ui/tui/forms.py` e `_flow_tools` (com o que só ele usa) para um módulo da TUI (`ui/tui/tools.py`); depois apagar `ui/launcher.py` e o lazy `run_launcher` de `ui/__init__.py`. Apagar `ui/prompts.py` só se, após a mudança, nada mais o importar. |
-| P3G-1b | `Reels_Encoder_v2_FINAL.py` (`main`, `parse_cli`) | Remover `--ui` (`:4474-4479`) e o ramo interativo (`:4543-4565`). Sem `input` e sem `--batch`, `main()` abre a TUI: import tardio de `ui.tui.__main__.main` e `sys.exit(<código>)`. CLI não interativa (input/`--batch`/flags de encode, batch com `Live`, handlers Ctrl+C) **fica como está** — é motor, não modo clássico. Nada mais muda no motor. |
-| P3G-1c | `ui/tui/__main__.py`, `ui/tui/state.py` | **R-03 guarda.** Sem fallback para `RE.main()`. Nova constante `FALLBACK_SIZE = (80, 24)` em `state.py` (ao lado de `MIN_SIZE`); `terminal_ok` exige TTY, `is_terminal`, não legado e ≥ 80×24. Se falhar: imprimir erro claro (manter dica de Windows Terminal no console legado; citar o mínimo 80×24) e retornar **1**. Remover `import Reels_Encoder_v2_FINAL` se ficar sem uso. |
-| P3G-1d | `ui/tui/state.py`, `ui/tui/screens.py` | **R-03 tela "amplie".** (a) Enquanto `size` < `MIN_SIZE`, `S.apply` ignora `Key` em toda tela que **não** tem encode/fila rodando (HOME, SOURCE, CONFIGURATION, ADVANCED, PREVIEW, READY e finais). Com encode/fila em andamento o comportamento atual se mantém (cancelar com C etc.). Ctrl+C é sinal e não passa por aqui. (b) `_small` (`screens.py:678`) só diz "o encode continua rodando" quando há encode/QC/fila em andamento; nas demais, texto sem essa linha. Confirmar que o primeiro frame já recebe o tamanho real (o `_tick` aplica `Tick` antes do `render`). |
-| P3G-1e | `launcher.ps1`, `launcher.cmd`, `tests/launcher.Tests.ps1` | Remover `Build-AppCommand` (`:612-632`), o parâmetro `-Tui` e o `if ($Tui)` (`:756-761`): o launcher sempre usa `Build-TuiCommand`. `launcher.cmd` deixa de passar `-Tui`. Pester: remover os casos exclusivos de `Build-AppCommand`/`--ui` (`:159-165`, `:249`), manter/ajustar o resto (verificar `:849`). |
-| P3G-1f | testes Python | Remover: `ui/test_launcher.py`, `ui/tui/test_parity_wizard.py`, `test_launcher_exposes_version` (`ui/test_version.py:24`), smoke de `render_choice_menu` (`ui/test_components.py:9`) se `ui/prompts.py` for apagado. Reescrever em `ui/tui/test_main.py` os testes de fallback (`:29-56`) para o novo contrato (erro + código 1, sem `RE.main`) e `test_terminal_ok_rules` (100×30 e 80×24 ok; 79×24, 80×23, sem TTY, legado → falso). Atualizar `ui/tui/test_forms.py:23` e `enhance/test_output_dir_and_pipeline_tag.py:212-213` (monkeypatch de `run_launcher`) para o novo ponto. `ui/test_tui_driver.py:596` (`_call_main`) continua válido (CLI com input). Novo: `main()` sem input/batch chama a TUI (monkeypatch). Novos testes P3G-1d: teclas ignoradas em HOME abaixo de 120×40 (estado inalterado), C continua cancelando com encode rodando pequeno, texto de `_small` com/sem "encode continua". |
-| P3G-1g | `README.md` | Trocar menções ao wizard/`--ui`/`-Tui` pela TUI (`:87-104`, `:219-226`, `:360`, `:468`, `:682`, `:688-689`). Só o necessário; manter exemplos de CLI com input. |
-| P3G-2 | `ui/tui/app.py`, `ui/tui/state.py`, `ui/tui/screens.py`, testes | **R-04 + R-05.** Ver desenho. |
-| P3G-3 | — | Rodar `python -m pytest ui/tui -q --timeout=60`; depois `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`; `python -m ruff check .`; Pester se `pwsh` disponível; `git diff --check`. Registrar números reais em STATE.md; problemas fora do escopo em FINDINGS.md. |
+| P3H-1 | `ui/tui/app.py`, `ui/tui_capture.py` (se precisar) | **R-06 stdout.** Ver desenho §1. |
+| P3H-2 | `ebu_meter.py`, `enhance_visualizer.py` | **R-06 processos filhos.** Ver desenho §2. |
+| P3H-3 | `ui/tui/state.py`, `ui/tui/app.py`, `ui/tui/screens.py` | **R-07 NOVO ENCODE.** Ver desenho §3. |
+| P3H-4 | `ui/tui/state.py`, `ui/tui/app.py` | **R-10 WARNING no `_tick`.** Ver desenho §4. |
+| P3H-5 | testes | Ver § Testes. |
+| P3H-6 | — | `python -m pytest ui/tui -q --timeout=60`; `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=120`; `python -m ruff check .`; `git diff --check`. Números reais em STATE.md (§ Ciclo P3H); VALIDATION.md com o item "R-06 — verificação manual no Windows (FFplay + MCTF + preflight enhance-ai) PENDENTE". |
 
-### Desenho P3G-2
+### Desenho
 
-Causa do congelamento: `_check_source` (`app.py:224-237`) roda dentro de `_session`, entre `_until`; enquanto ele bloqueia (join de 0,3 s + `_probe` até 10 s) nada é desenhado nem drenado.
+**§1 — R-06 stdout (P3H-1).** Hoje só `sys.stderr` vai para `_Sink`; `print()` de `enhance_visualizer.run_preflight` (`:322-395`) e `enhance/profile.py` (`:598+`) escreve direto no terminal durante o `Live`. Além disso o `Live` padrão (`app.py:78`) usa `redirect_stdout/redirect_stderr=True`, que joga prints dentro da tela alternativa.
+- **Armadilha:** `get_console()` cria `Console` sem `file`; o Rich resolve `sys.stdout` a cada escrita. Trocar `sys.stdout` sem fixar o console manda os próprios frames da TUI para o LOG (tela em branco + laço). Portanto, em `run()`: guardar `orig_stdout = sys.stdout` **antes** do `Live`; se o console da TUI não tiver arquivo explícito (`self._console._file is None`), fixá-lo em `orig_stdout` e restaurar (`None`) no fim.
+- Default do `live_factory`: `Live(console=c, screen=True, auto_refresh=False, redirect_stdout=False, redirect_stderr=False)`.
+- `sys.stdout = _Sink(self._queue.put)` em todo ponto onde hoje `sys.stderr` é trocado/restaurado: o set em `run()`, os dois `finally` de `run()` e a sequência de parar/retomar em `_run_tools` (stdout real durante `_tools`, `_Sink` de volta depois).
+- MCTF: `RE:4157` já passa `show_progress=False` com `reporter`. **Não mexer**; só fixar com teste.
 
-1. `_check_source` não bloqueia: o atalho UNC parcial continua síncrono (sem disco); o resto vai para uma thread `daemon` que faz o check de disco e publica `S.SourceChecked` em `self._queue` (canal existente, drenado por `_drain` → `S.apply`). Sem `join`, sem caixa de entrada nova. O estado fica em `CHECKING` até o resultado chegar (R-05: disco lento termina sozinho em VALID/NOT_FOUND, sem nova tecla).
-2. Arquivo `VALID` → publica `SourceChecked(path, "PROBING")` e roda `_probe` (mesma thread ou outra); ao fim publica `SourceChecked(path, "VALID", dims)`. Probe que falha/retorna `None` → `VALID` com `dims=None` (comportamento atual de dims desconhecidas). Pasta: sem probe (como hoje).
-3. Novo status `PROBING`: rótulo "lendo dimensões…" (muted) em `_SOURCE_STATUS` (`screens.py:884-888`); ENTER do SOURCE já exige `VALID` (`state.py:651`) — não muda.
-4. Caminho antigo: o redutor já descarta (`state.py:269`). Além disso a thread não inicia o probe se o caminho já não é o atual (leitura de `W.clean_path(self.state.source.text)`); manter o cache `_probed` por caminho.
-5. Qualquer exceção na thread → publicar `NOT_FOUND` (disco) ou `VALID` com `dims=None` (probe); o loop nunca cai.
-6. `_disk_check`/`PATH_CHECK_S` saem se ficarem sem uso.
+**§2 — R-06 processos filhos (P3H-2).** `sys.stdout` só captura escrita Python; filho com stdio herdado escreve no console.
+- `enhance_visualizer.py` `_open_ffmpeg_writer` (`:465`): acrescentar `stdout=subprocess.DEVNULL`.
+- `ebu_meter.launch_meter_window` (`:312`): no Windows, `creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` (ffplay sem console herdado; a janela SDL continua abrindo). Fora do Windows, inalterado. O medidor continua abrindo durante a sessão (necessário para R-07 — abrir só na saída da TUI deixaria o 1º de dois encodes sem medidor).
 
-Testes P3G-2: disco com atraso controlado por `Event` → `_check_source` retorna imediatamente, estado `CHECKING`, liberado o `Event` e drenada a fila → `VALID` sem tecla; probe bloqueado em `Event` → status `PROBING`, ENTER não avança, render mostra "lendo dimensões…", liberado → `VALID` com dims; caminho trocado antes do fim → resultado descartado; exceção no probe → `VALID`/`None`; exceção no disco → `NOT_FOUND`. Atualizar `test_check_source_slow_disk_does_not_freeze` (`test_app.py:1067`) e `test_check_source_probe_runs_on_caller_thread` (`:1076`), que pinam o comportamento síncrono, e os testes de `_check_source` que esperam resultado imediato (drenar a fila / aguardar evento).
+**§3 — R-07 NOVO ENCODE (P3H-3).**
+- `state.py`: `ACTIONS` ganha `"new"`. Novo campo `worker_stuck: bool = False`, ligado no ramo `R.Info` quando o texto começa com `"O encoder não encerrou"` (mensagem `WORKER_STUCK_MSG`, `tui_driver.py:92`).
+- `final_actions(s)`: acrescentar `"NOVO ENCODE"` **no fim** da tupla (índices atuais ficam válidos) quando `s.preset` (sessão aberta pela HOME) e `not s.worker_stuck`. ENTER sobre ela → `action="new"`. Atalho `N`: tecla chega como `k == "CHAR"` com `ch in "nN"` (`keys.py:15-26`), vale nas telas finais e no `REPORT` (que hoje só trata UP/DOWN/ENTER/ESC, `state.py:705-711`) com as mesmas condições.
+- Nova função pública `new_session(s) -> UIState` em `state.py`: **construtor novo** `UIState(config={}, screen=HOME, ...)` carregando **só** `drafts`, `focus`, `home_focus`, `system`, `size`, `now`, `cpu`, `ram`, `ram_used_gb`. Proibido `replace` com lista de campos (sobra de `cancel_phase` descarta Stage/Pass/Progress do 2º encode em `state.py:397`; sobra de `exit_code == 0` pula o QC em `_tick`; `is_batch`, `back`, `seal_reveal_start` também vazam).
+- `screens.py`: barra de ações das telas finais já itera `final_actions` (`:701`) — confirmar. `REPORT`: incluir a dica `N novo encode` no rodapé quando disponível.
+- `app.py` `_session`: vira laço externo. Após `Finished`, `_until(lambda s: s.action in ("exit", "new"))`; em `"new"`: guardar a linha de resumo deste encode (ver abaixo), descartar tudo da fila (`get_nowait` até vazio, **mesmo objeto de fila** — `ConsoleCapture` e os `_Sink` estão ligados a `self._queue.put`), `self._control = R.CancelControl(terminate=self._terminate)` (o `cancelled` é pegajoso), zerar `_ready_at`/`_last_key_at`, `self.state = S.new_session(self.state)` e voltar ao início do laço.
+- Resumo/código de saída: `_summary` hoje olha só a tela final. Acumular uma linha por encode (mesmo texto atual de REPORT/COMPLETED/ERROR/CANCELLED, incluindo o `partial_wording`) e imprimir todas na saída. Sair pela HOME após ≥1 encode **não** imprime "Cancelado pelo usuário." e retorna o código do último encode; sem encode, comportamento atual (0 + mensagem). O launcher não consome o código (`launcher.ps1:731-740` abre aba).
+
+**§4 — R-10 (P3H-4).** `_tick` (`app.py:314-323`) engole exceção do bloco `Tick`/`S.apply` e do `_drain`.
+- Nova função pública em `state.py` (padrão de `cancel_unavailable`, `:360`): `internal_warning(s, text)` → linha `WARNING` via `_log`.
+- Em cada `except` desses dois blocos: registrar `f"erro interno na TUI: {type(exc).__name__}: {exc}"` **uma vez por `repr(exc)` distinto** (guardar conjunto em `self`), com a própria chamada de registro protegida por `try/except` (o loop nunca cai). O bloco de `render` e o `live.update` ficam como estão.
+
+## Testes (P3H-5)
+
+- **R-06:** (a) `App.run` com console **sem `file` injetado** (`Console(file=None)` + fake live que grava frames): durante a sessão `print("x")` vira `Info("x")` no LOG, `sys.stdout` volta ao original após `run()`, e o console da TUI escreve no stdout original (não no `_Sink`); (b) `_run_tools`: stdout real durante `_tools`, `_Sink` depois; (c) live default construído com `redirect_stdout=False, redirect_stderr=False`; (d) `launch_meter_window` no Windows passa `DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` e stdio DEVNULL (monkeypatch `subprocess.Popen`); (e) `_open_ffmpeg_writer` com `stdout=DEVNULL`; (f) `_encode_single_file` com `reporter` chama `generate_mctf_mask_video(..., show_progress=False)` (monkeypatch, sem encode real) — se inviável sem rodar o motor, registrar como `blocked` só este subitem.
+- **R-07:** redutor — `final_actions` com/sem `preset`, com `worker_stuck`; ENTER em NOVO ENCODE e `N` em COMPLETED/ERROR/CANCELLED/REPORT → `action="new"`; `new_session` não carrega nenhum campo de encode (comparar com `UIState(config={}, screen=HOME, ...)` campo a campo) e preserva `drafts`. **Fluxo de dois encodes na mesma `App`** (fakes de `run_single`/`run_batch`): 1º encode termina **cancelado (130)**, `N`, HOME → mesmo preset → SOURCE pré-preenchido → … → 2º encode emite `Stage`/`Pass`/`Progress` e termina 0 com QC → estado mostra progresso do 2º (não descartado), chega a QC/COMPLETED na ordem certa, `CancelControl` é outro objeto, resumo final tem as duas linhas, código de saída = 0. Variante batch→single se barata.
+- **R-10:** `S.apply` monkeypatchado para lançar no `Tick` → após `_tick` o LOG tem uma linha `WARNING` com o tipo da exceção; dois `_tick` com a mesma exceção → uma linha só; exceção no `_drain` também registra; o loop segue (render chamado).
+
+## Depois do executor
+
+`ui-flow-reviewer` sobre `ui/tui/` (nova ação/atalho em telas finais), conforme CLAUDE.md.
 
 ## Fora do escopo
 
-Layouts compactos para 80×24, R-06/R-07/R-10, `ui/probe.py`, CLI não interativa do motor, `CLAUDE.md` e `.claude/agents/ui-flow-reviewer.md` (registrar em FINDINGS como pendência do usuário).
+`-nostdin` nos FFmpeg do motor (registrar em FINDINGS: `RE:2061` herda stdin do console e pode ler teclas da TUI), layouts 80×24, P3GF2–P3GF8, motor.
 
-## Adendo P3G-4 (aprovado pelo usuário em 2026-11-16) — agente alvo: `executor`
+## Adendo P3H-7 (aprovado pelo usuário em 2026-11-16) — agente alvo: `executor`
 
-Mesmas regras do ciclo (sem commit/add/push). Arquivos permitidos: `ui/tui/app.py`, `ui/tui/state.py`, `ui/tui/test_app.py`, `ui/tui/test_state.py`, `ui/tui/test_state_config.py`.
+Mesmas regras do ciclo (sem commit/add/push). Arquivos permitidos: `ui/tui/state.py`, `ui/tui/screens.py`, `ui/tui/test_state.py`, `ui/tui/test_screens.py`, `ui/tui/test_app.py`, `.claude/memory/{STATE,FINDINGS,VALIDATION}.md`.
 
 | ID | tarefa |
 | --- | --- |
-| P3G-4a | **P3GF5.** Em `App._tick` aplicar o `Tick` (tamanho real) **antes** de `_drain`, para que a primeira tecla já veja o tamanho real e seja ignorada abaixo de 120×40. Manter os `try/except` atuais. Teste: terminal pequeno + tecla na fila antes do 1º tick → estado inalterado após `_tick`. |
-| P3G-4b | **P3GF6.** O evento `SourceChecked` passa a carregar o tipo verificado (`folder: bool`, default compatível) preenchido pela thread de `_source_worker` conforme o tipo no momento do disparo; o redutor descarta o evento se o caminho **ou** o tipo (`F.is_folder(draft(s))`) não bater com o estado atual. Teste: preset 5, mesmo caminho, alternar TIPO com check do tipo antigo terminando depois → status do tipo atual prevalece. |
-| P3G-4c | Rodar `python -m pytest ui/tui -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Atualizar STATE.md (§ Ciclo P3G, adendo) e marcar P3GF5/P3GF6 como resolvidos em FINDINGS.md. |
+| P3H-7a | **UF1.** Nas telas finais, o ENTER indexa `final_actions` com `min(s.action_focus, len(actions) - 1)`. Além disso, quando `worker_stuck` liga (ramo `R.Info`), o `action_focus` é reclampado ao novo tamanho de `final_actions`. Teste: COMPLETED com QC, foco em NOVO ENCODE, chega o Info de stuck → foco válido; ENTER não lança exceção e executa a ação focada. |
+| P3H-7b | **UF4.** O rodapé (`FOOTER_KEYS` / `screens.py`) de COMPLETED, ERROR e CANCELLED cita `[N] Novo encode` **só quando** NOVO ENCODE está em `final_actions` (mesma condição do REPORT). Teste de render com e sem a ação (sem `preset`; com `worker_stuck`). |
+| P3H-7c | **Testes que faltam:** `N` ignorado em QC e LOG abertos a partir de tela final (`action` continua `None`, tela inalterada). Cancelamento no **2º** encode da mesma `App`: o 1º termina 0, NOVO ENCODE, o 2º é cancelado via modal (C → confirmar), o `CancelControl` novo recebe o pedido (`request_cancel` verdadeiro, evento `Cancel` na fila) e o estado termina CANCELLED. |
+| P3H-7d | Rodar `python -m pytest ui/tui -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Registrar em STATE.md (§ Ciclo P3H, adendo P3H-7) e marcar UF1/UF4 como resolvidos em VALIDATION.md. UF2/UF3 vão para FINDINGS.md (P3HF6/P3HF7) como latentes não tratados. |
+
+## Adendo P3H-8 (decisão do usuário em 2026-11-16) — agente alvo: `executor`
+
+Contexto: no teste manual (VALIDATION § P3H manual), o B2 falhou: o C foi confirmado no modal e o 2º encode não parou. O usuário decidiu **remover o cancelamento pela tecla C da TUI** (modal CANCEL incluído). A interrupção passa a ser só por Ctrl+C (`KeyboardInterrupt` → `App._interrupted_code` / `tui_driver._run_one`), que **não muda**. O backend de cancelamento (`reporter.CancelControl`, `tui_driver._cancel_cleanup` etc.) **fica** porque o Ctrl+C usa.
+
+Mesmas regras do ciclo (sem commit/add/push). Arquivos permitidos: `ui/tui/state.py`, `ui/tui/screens.py`, `ui/tui/app.py`, testes em `ui/tui/`, `.claude/memory/{STATE,FINDINGS,VALIDATION}.md`.
+
+| ID | tarefa |
+| --- | --- |
+| P3H-8a | `state.py`: remover a abertura do modal por `C` em ENCODING/QUEUE, o ramo `s.modal == "CANCEL"` e a ação `"cancel"`. Remover o que ficar sem uso por causa disso (ex.: `cancel_blocked`, se só servir a isso; `cancel_unavailable` e `CANCEL_UNAVAILABLE`, se só servirem ao C). Os campos de estado usados pelo Ctrl+C e pelos eventos `R.Cancel` (`cancel_phase`, `partial_removed`, `master_kept` …) **ficam**. |
+| P3H-8b | `app.py`: remover o tratamento de `action == "cancel"` em `_drain` (`request_cancel` / `cancel_unavailable`). `self._control` continua sendo passado ao driver (Ctrl+C). |
+| P3H-8c | `screens.py`: remover o render do modal CANCEL e as dicas `[C]` de rodapé/telas. Onde fizer sentido mostrar como interromper, usar `Ctrl+C interromper`. Não mudar nada mais. |
+| P3H-8d | Testes: remover os que existem **só** para C/modal (inclusive o de cancelamento no 2º encode do P3H-7c) e listar cada um em STATE.md. Ajustar os que só citam a dica `[C]`. Novo: `C` em ENCODING/QUEUE não muda o estado nem gera ação. O fluxo de dois encodes com o 1º terminando em 130 (fake) continua. |
+| P3H-8e | Rodar `python -m pytest ui/tui -q --timeout=60`, `python -m ruff check .`, `git diff --check`. Registrar em STATE.md (adendo P3H-8). |

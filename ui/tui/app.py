@@ -75,7 +75,8 @@ class App:
         self._run_single = run_single or D.run_single
         self._run_batch = run_batch or D.run_batch
         self._reader_factory = reader_factory or KeyReader
-        self._live_factory = live_factory or (lambda c: Live(console=c, screen=True, auto_refresh=False))
+        self._live_factory = live_factory or (lambda c: Live(console=c, screen=True, auto_refresh=False,
+                                                              redirect_stdout=False, redirect_stderr=False))
         self._clock = clock
         self._sleep = sleep
         self._perf = perf or _default_perf
@@ -99,6 +100,10 @@ class App:
         self._reader = None
         self._capture = None
         self._orig_stderr = None
+        self._orig_stdout = None
+        self._lines: list = []
+        self._last_code: int | None = None
+        self._internal_seen: set = set()
 
     @staticmethod
     def _system_rows() -> tuple:
@@ -114,12 +119,17 @@ class App:
     def run(self) -> int:
         self._reader = self._reader_factory(self._emit)
         self._orig_stderr = sys.stderr
+        self._orig_stdout = sys.stdout
+        pinned = self._console._file is None
+        if pinned:
+            self._console.file = self._orig_stdout
         self._capture = ConsoleCapture(RE.console, self._queue.put)
         code = 1
         try:
             with self._live_factory(self._console) as live, self._capture:
                 self._live = live
                 sys.stderr = _Sink(self._queue.put)
+                sys.stdout = _Sink(self._queue.put)
                 try:
                     self._reader.start()
                     code = self._session()
@@ -128,8 +138,12 @@ class App:
                 finally:
                     self._reader.stop()
                     sys.stderr = self._orig_stderr
+                    sys.stdout = self._orig_stdout
         finally:
             sys.stderr = self._orig_stderr
+            sys.stdout = self._orig_stdout
+            if pinned:
+                self._console.file = None
             self._reader.restore()
         self._summary(code)
         return code
@@ -142,53 +156,68 @@ class App:
             self.state = S.apply(s, S.Finished(130))
         return 130
 
-    def _summary(self, code: int) -> None:
-        s = self.state
+    @staticmethod
+    def _final_line(s: S.UIState, code: int) -> Text | None:
         if s.screen == S.REPORT:
-            line = queue_summary(s, code)
-        elif s.screen == S.COMPLETED:
-            line = Text(f"✓ entregue: {s.output_path}", style="ok")
-        elif s.screen == S.ERROR:
-            line = Text(f"✗ erro (código {code}): {error_message(s)}", style="err")
-        elif s.screen == S.CANCELLED:
-            line = Text(f"⚠ cancelado: {partial_wording(s)}", style="warn")
-        elif code == 0 and s.screen == S.HOME:
+            return queue_summary(s, code)
+        if s.screen == S.COMPLETED:
+            return Text(f"✓ entregue: {s.output_path}", style="ok")
+        if s.screen == S.ERROR:
+            return Text(f"✗ erro (código {code}): {error_message(s)}", style="err")
+        if s.screen == S.CANCELLED:
+            return Text(f"⚠ cancelado: {partial_wording(s)}", style="warn")
+        return None
+
+    def _summary(self, code: int) -> None:
+        line = self._final_line(self.state, code)
+        if line is None and not self._lines and code == 0 and self.state.screen == S.HOME:
             self._console.print("[warn]Cancelado pelo usuário.[/warn]")
             return
-        else:
-            return
-        self._console.print(line)
+        for out in self._lines + ([line] if line is not None else []):
+            self._console.print(out)
 
     def _session(self) -> int:
         while True:
-            self._until(lambda s: s.action in S.ACTIONS)
-            act = self.state.action
-            self.state = replace(self.state, action=None)
-            if act == "exit":
-                return 0
-            if act == "tools":
-                self._run_tools()
-                continue
-            if act == "arm":
-                self._arm()
-                continue
-            if act == "check_source":
-                self._check_source()
-                continue
-            blocked = self._start_blocked()
-            if blocked:
-                self.state = S.apply(self.state, S.ReadyBlocked(blocked))
-                continue
-            break
-        ns = self._ns if self._ns is not None else argparse.Namespace(**self.state.config)
-        if self.state.is_batch:
-            code = self._start_batch(ns)
-        else:
-            code = self._run_single(ns, self._queue, self._control, self._tick)
-        self._drain()
-        self.state = S.apply(self.state, S.Finished(code))
-        self._until(lambda s: s.action == "exit")
-        return code
+            while True:
+                self._until(lambda s: s.action in S.ACTIONS)
+                act = self.state.action
+                self.state = replace(self.state, action=None)
+                if act == "exit":
+                    return self._last_code if self._last_code is not None else 0
+                if act == "tools":
+                    self._run_tools()
+                    continue
+                if act == "arm":
+                    self._arm()
+                    continue
+                if act == "check_source":
+                    self._check_source()
+                    continue
+                blocked = self._start_blocked()
+                if blocked:
+                    self.state = S.apply(self.state, S.ReadyBlocked(blocked))
+                    continue
+                break
+            ns = self._ns if self._ns is not None else argparse.Namespace(**self.state.config)
+            if self.state.is_batch:
+                code = self._start_batch(ns)
+            else:
+                code = self._run_single(ns, self._queue, self._control, self._tick)
+            self._drain()
+            self.state = S.apply(self.state, S.Finished(code))
+            self._last_code = code
+            self._until(lambda s: s.action in ("exit", "new"))
+            if self.state.action == "exit":
+                return code
+            self._lines.append(self._final_line(self.state, code))
+            while True:
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    break
+            self._control = R.CancelControl(terminate=self._terminate)
+            self._ready_at = self._last_key_at = None
+            self.state = S.new_session(self.state)
 
     def _start_blocked(self) -> str | None:
         cfg = self.state.config
@@ -294,6 +323,7 @@ class App:
         self._reader.stop()
         self._reader.restore()
         sys.stderr = self._orig_stderr
+        sys.stdout = self._orig_stdout
         self._capture.__exit__(None, None, None)
         self._live.stop()
         try:
@@ -302,6 +332,7 @@ class App:
             self._live.start()
             self._capture.__enter__()
             sys.stderr = _Sink(self._queue.put)
+            sys.stdout = _Sink(self._queue.put)
             self._reader = self._reader_factory(self._emit)
             self._reader.start()
 
@@ -315,18 +346,28 @@ class App:
         try:
             cpu, ram, used = self._perf()
             self.state = S.apply(self.state, S.Tick(self._clock(), tuple(self._size()), cpu, ram, used))
-        except Exception:
-            pass
+        except Exception as exc:
+            self._internal_error(exc)
         try:
             self._drain()
-        except Exception:
-            pass
+        except Exception as exc:
+            self._internal_error(exc)
         try:
             frame = render(self.state)
         except Exception as exc:
             frame = Panel(Text(f"erro ao desenhar a tela: {exc!r}\no encode continua", style="err"))
         try:
             self._live.update(frame, refresh=True)
+        except Exception:
+            pass
+
+    def _internal_error(self, exc: Exception) -> None:
+        try:
+            key = repr(exc)
+            if key in self._internal_seen:
+                return
+            self._internal_seen.add(key)
+            self.state = S.internal_warning(self.state, f"erro interno na TUI: {type(exc).__name__}: {exc}")
         except Exception:
             pass
 
@@ -354,11 +395,5 @@ class App:
             if isinstance(ev, S.Key) and not self._key_accepted(ev, ts):
                 continue
             self.state = S.apply(self.state, ev)
-            if self.state.action == "cancel":
-                self.state = replace(self.state, action=None)
-                if self._control.request_cancel():
-                    self._queue.put(R.Cancel("requested"))
-                elif self.state.is_batch:
-                    self.state = S.cancel_unavailable(self.state)
-            elif self.state.action in S.ACTIONS:
+            if self.state.action in S.ACTIONS:
                 break

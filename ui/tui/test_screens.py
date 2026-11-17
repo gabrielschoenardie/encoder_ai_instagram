@@ -96,24 +96,11 @@ def test_encoding_dashboard():
     out = text_of(encoding_state())
     for txt in ("ENCODING", "PASS 1 / 2", "ANÁLISE", "PASS 2 / 2", "ENCODE FINAL", "100.0%", "ETA 00:00:41",
                 "PROGRAM", "TIMELINE", "PERFORMANCE", "LOG", "1152 / 1800", "0.95x", "tier", "high",
-                "⚠ 1", "[D] Details", "[C] Cancel"):
+                "⚠ 1", "[D] Details", "[Ctrl+C] Interrupt"):
         assert txt in out, txt
     assert "✓ 00:01:12" in out
     assert_fits(out)
     assert_no_emoji(out)
-
-
-def test_encoding_blocked_c_shows_disabled():
-    s = S.apply(encoding_state(), R.Stage(R.ANALYZING, "mctf_mask", ts=201.0))
-    assert "░[C]" in text_of(s)
-
-
-def test_cancel_modal_over_dashboard():
-    s = S.apply(encoding_state(), S.Key("C"))
-    out = text_of(s)
-    assert "CANCELAR ENCODE?" in out and "CONTINUAR ENCODE" in out and "CANCELAR ENCODE ]" in out
-    assert "⚠ CANCEL?" in out and "PASS 2 / 2" in out and "LOG" in out
-    assert_fits(out)
 
 
 def test_details_screen():
@@ -173,7 +160,7 @@ def test_qc_before_and_after_reveal():
     assert "-14.0" in before and "-20.1" in before
     after = text_of(qc_state(True))
     assert "D E L I V E R Y   R E A D Y" in after
-    assert "░[C]" in after
+    assert "[Ctrl+C] Interrupt" in after
     assert_fits(after)
     assert_no_emoji(after)
 
@@ -306,19 +293,13 @@ def test_cancel_requested_header_status_and_footer():
     s = S.apply(encoding_state(), R.Cancel("requested", ts=250.0))
     out = text_of(s)
     assert "⚠ CANCELAMENTO SOLICITADO · encerrando FFmpeg…" in out
-    assert "⚠ CANCELANDO" in out and "░[C] Cancel" in out
+    assert "⚠ CANCELANDO" in out and "[Ctrl+C] Interrupt" in out
     assert_fits(out)
     assert_no_emoji(out)
 
 
 def footer_of(out):
     return "\n".join(out.splitlines()[-3:])
-
-
-def test_footer_modal_keys():
-    foot = footer_of(text_of(S.apply(encoding_state(), S.Key("C"))))
-    assert "[←→] Choose   [ENTER] Confirm   [ESC] Keep encoding   [Ctrl+C] Interrupt" in foot
-    assert "[D] Details" not in foot
 
 
 def test_footer_overlays_from_final_screen():
@@ -397,3 +378,25 @@ def test_log_screen_rows_have_left_margin():
     rows = [ln for ln in out.splitlines() if "PROBING" in ln or "ffprobe falhou" in ln]
     assert len(rows) == 2
     assert all(ln.startswith(" ") for ln in rows)
+
+
+def test_completed_action_bar_shows_new_encode_last_for_home_session():
+    s = S.apply(S.apply(qc_state(True), S.Finished(0)), S.Tick(400.0, (120, 40)))
+    out = text_of(replace(s, preset=1))
+    assert "[ SAIR ]" in out and "[ NOVO ENCODE ]" in out
+    assert out.index("[ VER LOG ]") < out.index("[ NOVO ENCODE ]")
+    assert_fits(out)
+    assert "NOVO ENCODE" not in text_of(s)
+
+
+def _footer_line(s):
+    return [ln for ln in text_of(s).splitlines() if ln.strip()][-1]
+
+
+def test_final_footers_cite_new_encode_only_when_action_available():
+    base = S.apply(S.apply(qc_state(True), S.Finished(0)), S.Tick(400.0, (120, 40)))
+    for screen, code in ((S.COMPLETED, 0), (S.ERROR, 1), (S.CANCELLED, 130)):
+        s = replace(base, screen=screen, exit_code=code, preset=1)
+        assert "[N] Novo encode" in _footer_line(s)
+        assert "[N]" not in _footer_line(replace(s, preset=0))
+        assert "[N]" not in _footer_line(replace(s, worker_stuck=True))
