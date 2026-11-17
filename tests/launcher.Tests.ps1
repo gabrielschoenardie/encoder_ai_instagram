@@ -1,9 +1,9 @@
 <#
     Testes das funcoes de launcher.ps1.
 
-    O arquivo e carregado por dot-source. launcher.ps1:513 tem o guard
+    O arquivo e carregado por dot-source. launcher.ps1:738 tem o guard
     "if ($MyInvocation.InvocationName -ne '.')": sob dot-source a condicao e
-    falsa, entao as 21 funcoes sao definidas e NADA do bootstrap roda (nenhum
+    falsa, entao as 26 funcoes sao definidas e NADA do bootstrap roda (nenhum
     venv criado, nenhum pip, nenhuma janela aberta).
 
     Superficies deliberadamente NAO cobertas aqui (ver o spec
@@ -63,7 +63,9 @@ Describe 'Contrato de dot-source' {
         'Test-RequiredBinary'
         'Test-ExecutableRuns'
         'Test-FfmpegCapabilities'
+        'Find-FfmpegBinary'
         'Resolve-Binaries'
+        'Ensure-WindowsTerminalPortable'
         'Protect-PSLiteral'
         'Build-SetupCommand'
         'Build-TuiCommand'
@@ -689,6 +691,9 @@ Describe 'Resolve-Binaries' {
 
         BeforeAll {
             Mock Write-LauncherLog { }
+            # Sem este mock, um ffmpeg no PATH da maquina (dev ou runner)
+            # satisfaria o resolver e o fetch nunca seria tentado.
+            Mock Get-Command { } -ParameterFilter { $Name -eq 'ffmpeg' -or $Name -eq 'ffprobe' }
             $script:EmptyRoot = Join-Path $TestDrive 'empty-repo'
             New-Item -ItemType Directory -Path $script:EmptyRoot -Force | Out-Null
         }
@@ -698,6 +703,265 @@ Describe 'Resolve-Binaries' {
             { Resolve-Binaries -RepoRoot $script:EmptyRoot -VenvPython 'PY' -Config $script:Config } |
                 Should -Throw '*Script de instalacao do FFmpeg nao encontrado*'
         }
+    }
+
+    Context 'ffmpeg e ffprobe so no PATH (sem bin\)' {
+
+        BeforeAll {
+            $script:PathRoot = Join-Path $TestDrive 'repo-pathonly'
+            New-Item -ItemType Directory -Path (Join-Path $script:PathRoot 'tools') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:PathRoot 'tools/fetch_ffmpeg.ps1') `
+                -Value "Set-Content -LiteralPath (Join-Path `$PSScriptRoot 'fetch-ran.txt') -Value x"
+            $script:PathMarker = Join-Path $script:PathRoot 'tools/fetch-ran.txt'
+            Mock Get-Command { [PSCustomObject]@{ Source = 'PATHBIN/ffmpeg.exe' } } -ParameterFilter { $Name -eq 'ffmpeg' }
+            Mock Get-Command { [PSCustomObject]@{ Source = 'PATHBIN/ffprobe.exe' } } -ParameterFilter { $Name -eq 'ffprobe' }
+            Mock Test-RequiredBinary { return $Path }
+            Mock Test-ExecutableRuns { }
+            Mock Test-FfmpegCapabilities { }
+            Mock Write-LauncherLog { }
+        }
+
+        It 'nao roda o fetch' {
+            Resolve-Binaries -RepoRoot $script:PathRoot -VenvPython 'PY' -Config $script:Config | Out-Null
+            Test-Path -LiteralPath $script:PathMarker | Should -BeFalse
+        }
+
+        It 'devolve os caminhos do PATH' {
+            $r = Resolve-Binaries -RepoRoot $script:PathRoot -VenvPython 'PY' -Config $script:Config
+            $r.Ffmpeg  | Should -Be 'PATHBIN/ffmpeg.exe'
+            $r.Ffprobe | Should -Be 'PATHBIN/ffprobe.exe'
+        }
+
+        It 'valida e checa capacidades no binario do PATH' {
+            Resolve-Binaries -RepoRoot $script:PathRoot -VenvPython 'PY' -Config $script:Config | Out-Null
+            Should -Invoke Test-ExecutableRuns -Times 1 -Exactly -ParameterFilter { $Path -eq 'PATHBIN/ffmpeg.exe' }
+            Should -Invoke Test-ExecutableRuns -Times 1 -Exactly -ParameterFilter { $Path -eq 'PATHBIN/ffprobe.exe' }
+            Should -Invoke Test-FfmpegCapabilities -Times 1 -Exactly -ParameterFilter { $Ffmpeg -eq 'PATHBIN/ffmpeg.exe' }
+        }
+
+        It 'loga a origem PATH com o caminho' {
+            Resolve-Binaries -RepoRoot $script:PathRoot -VenvPython 'PY' -Config $script:Config | Out-Null
+            Should -Invoke Write-LauncherLog -ParameterFilter { $Message -match 'PATH: PATHBIN/ffmpeg\.exe' }
+        }
+    }
+
+    Context 'ffmpeg ausente com -NoDownload' {
+
+        BeforeAll {
+            $script:NoDlRoot = Join-Path $TestDrive 'repo-nodl'
+            New-Item -ItemType Directory -Path (Join-Path $script:NoDlRoot 'tools') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:NoDlRoot 'tools/fetch_ffmpeg.ps1') `
+                -Value "Set-Content -LiteralPath (Join-Path `$PSScriptRoot 'fetch-ran.txt') -Value x"
+            $script:NoDlMarker = Join-Path $script:NoDlRoot 'tools/fetch-ran.txt'
+            Mock Get-Command { } -ParameterFilter { $Name -eq 'ffmpeg' -or $Name -eq 'ffprobe' }
+            Mock Test-RequiredBinary { return $Path }
+            Mock Test-ExecutableRuns { }
+            Mock Test-FfmpegCapabilities { }
+            Mock Write-LauncherLog { }
+        }
+
+        It 'lanca com a orientacao de instalacao' {
+            $captured = $null
+            try {
+                Resolve-Binaries -RepoRoot $script:NoDlRoot -VenvPython 'PY' -Config $script:Config -NoDownload | Out-Null
+            }
+            catch {
+                $captured = $_.Exception.Message
+            }
+            $captured | Should -Match 'winget install --id BtbN\.FFmpeg\.GPL\.6\.1'
+            $captured | Should -Match 'fetch_ffmpeg\.ps1'
+            $captured | Should -Match '-NoDownload'
+        }
+
+        It 'nao roda o fetch' {
+            try {
+                Resolve-Binaries -RepoRoot $script:NoDlRoot -VenvPython 'PY' -Config $script:Config -NoDownload | Out-Null
+            }
+            catch { $null = $_ }
+            Test-Path -LiteralPath $script:NoDlMarker | Should -BeFalse
+        }
+    }
+
+    Context 'ffmpeg ausente sem -NoDownload' {
+
+        BeforeAll {
+            $script:DlRoot = Join-Path $TestDrive 'repo-dl'
+            New-Item -ItemType Directory -Path (Join-Path $script:DlRoot 'tools') -Force | Out-Null
+            # Fetch falso: grava o marcador e cria os binarios em bin\, como o
+            # real faria depois do winget.
+            Set-Content -LiteralPath (Join-Path $script:DlRoot 'tools/fetch_ffmpeg.ps1') -Value @'
+$root = Split-Path -Parent $PSScriptRoot
+Set-Content -LiteralPath (Join-Path $PSScriptRoot 'fetch-ran.txt') -Value x
+$bin = Join-Path $root 'bin'
+New-Item -ItemType Directory -Path $bin -Force | Out-Null
+foreach ($n in @('ffmpeg.exe', 'ffprobe.exe')) {
+    New-Item -ItemType File -Path (Join-Path $bin $n) -Force | Out-Null
+}
+'@
+            $script:DlMarker = Join-Path $script:DlRoot 'tools/fetch-ran.txt'
+            Mock Get-Command { } -ParameterFilter { $Name -eq 'ffmpeg' -or $Name -eq 'ffprobe' }
+            Mock Test-RequiredBinary { return $Path }
+            Mock Test-ExecutableRuns { }
+            Mock Test-FfmpegCapabilities { }
+            Mock Write-LauncherLog { }
+        }
+
+        BeforeEach {
+            Remove-Item -LiteralPath (Join-Path $script:DlRoot 'bin') -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $script:DlMarker -Force -ErrorAction SilentlyContinue
+        }
+
+        It 'roda o fetch' {
+            Resolve-Binaries -RepoRoot $script:DlRoot -VenvPython 'PY' -Config $script:Config | Out-Null
+            Test-Path -LiteralPath $script:DlMarker | Should -BeTrue
+        }
+
+        It 'resolve de novo depois do fetch e devolve os binarios de bin\' {
+            $r = Resolve-Binaries -RepoRoot $script:DlRoot -VenvPython 'PY' -Config $script:Config
+            Test-Path -LiteralPath $r.Ffmpeg -PathType Leaf | Should -BeTrue
+            Test-Path -LiteralPath $r.Ffprobe -PathType Leaf | Should -BeTrue
+        }
+
+        It 'loga Info antes do fetch dizendo o que baixa e para onde' {
+            Resolve-Binaries -RepoRoot $script:DlRoot -VenvPython 'PY' -Config $script:Config | Out-Null
+            Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Info' -and $Message -match 'winget' -and $Message -match 'BtbN\.FFmpeg\.GPL\.6\.1' -and $Message -match 'bin'
+            }
+        }
+    }
+}
+
+Describe 'Find-FfmpegBinary' {
+
+    It 'prefere o arquivo local quando existe' {
+        $local = Join-Path $TestDrive 'find-local/ffmpeg.exe'
+        New-Item -ItemType File -Path $local -Force | Out-Null
+        Mock Get-Command { [PSCustomObject]@{ Source = 'PATHBIN/ffmpeg.exe' } } -ParameterFilter { $Name -eq 'ffmpeg' }
+        Find-FfmpegBinary -LocalPath $local -Name 'ffmpeg' | Should -Be $local
+    }
+
+    It 'cai para o PATH quando o local nao existe' {
+        Mock Get-Command { [PSCustomObject]@{ Source = 'PATHBIN/ffmpeg.exe' } } -ParameterFilter { $Name -eq 'ffmpeg' }
+        Find-FfmpegBinary -LocalPath (Join-Path $TestDrive 'nao-existe/ffmpeg.exe') -Name 'ffmpeg' |
+            Should -Be 'PATHBIN/ffmpeg.exe'
+    }
+
+    It 'devolve $null quando nao ha local nem PATH' {
+        Mock Get-Command { } -ParameterFilter { $Name -eq 'ffmpeg' }
+        Find-FfmpegBinary -LocalPath (Join-Path $TestDrive 'nao-existe/ffmpeg.exe') -Name 'ffmpeg' |
+            Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Ensure-WindowsTerminalPortable' {
+
+    Context 'wt ausente com -NoDownload' {
+
+        BeforeAll {
+            $script:WtRoot = Join-Path $TestDrive 'repo-wt-nodl'
+            New-Item -ItemType Directory -Path (Join-Path $script:WtRoot 'tools') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:WtRoot 'tools/fetch_wt_portable.ps1') `
+                -Value "Set-Content -LiteralPath (Join-Path `$PSScriptRoot 'fetch-ran.txt') -Value x"
+            $script:WtMarker = Join-Path $script:WtRoot 'tools/fetch-ran.txt'
+            Mock Write-LauncherLog { }
+        }
+
+        It 'devolve $false' {
+            Ensure-WindowsTerminalPortable -RepoRoot $script:WtRoot -Config $script:Config -NoDownload |
+                Should -BeFalse
+        }
+
+        It 'nao roda o fetch' {
+            Ensure-WindowsTerminalPortable -RepoRoot $script:WtRoot -Config $script:Config -NoDownload | Out-Null
+            Test-Path -LiteralPath $script:WtMarker | Should -BeFalse
+        }
+
+        It 'avisa como instalar' {
+            Ensure-WindowsTerminalPortable -RepoRoot $script:WtRoot -Config $script:Config -NoDownload | Out-Null
+            Should -Invoke Write-LauncherLog -ParameterFilter {
+                $Level -eq 'Warn' -and $Message -match 'fetch_wt_portable\.ps1'
+            }
+        }
+    }
+
+    Context 'wt ausente sem -NoDownload' {
+
+        BeforeAll {
+            $script:WtDlRoot = Join-Path $TestDrive 'repo-wt-dl'
+            New-Item -ItemType Directory -Path (Join-Path $script:WtDlRoot 'tools') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:WtDlRoot 'tools/fetch_wt_portable.ps1') -Value @'
+$root = Split-Path -Parent $PSScriptRoot
+Set-Content -LiteralPath (Join-Path $PSScriptRoot 'fetch-ran.txt') -Value x
+$dir = Join-Path $root 'bin/WindowsTerminal'
+New-Item -ItemType Directory -Path $dir -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path $dir 'wt.exe') -Force | Out-Null
+'@
+            $script:WtDlMarker = Join-Path $script:WtDlRoot 'tools/fetch-ran.txt'
+            Mock Write-LauncherLog { }
+        }
+
+        It 'loga Info com tamanho e destino antes de baixar' {
+            Ensure-WindowsTerminalPortable -RepoRoot $script:WtDlRoot -Config $script:Config | Should -BeTrue
+            Test-Path -LiteralPath $script:WtDlMarker | Should -BeTrue
+            Should -Invoke Write-LauncherLog -Times 1 -Exactly -ParameterFilter {
+                $Level -eq 'Info' -and $Message -match '90 MB' -and $Message -match 'WindowsTerminal'
+            }
+        }
+    }
+}
+
+Describe 'Set-WtDefaultSettings (tools/fetch_wt_portable.ps1)' {
+
+    BeforeAll {
+        $fetchWt = Join-Path $script:RepoRootDir 'tools/fetch_wt_portable.ps1'
+        # Sem o guard, o dot-source baixaria o Windows Terminal de verdade.
+        if ((Get-Content -LiteralPath $fetchWt -Raw) -notmatch "MyInvocation\.InvocationName -ne '\.'") {
+            throw 'fetch_wt_portable.ps1 sem guard de dot-source: recusando carregar (baixaria o WT).'
+        }
+        $prevEap = $ErrorActionPreference
+        $prevProgress = $ProgressPreference
+        . $fetchWt
+        $ErrorActionPreference = $prevEap
+        $ProgressPreference = $prevProgress
+    }
+
+    It 'preserva byte a byte um settings.json existente' {
+        $dir = Join-Path $TestDrive 'wt-settings-existente'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $file = Join-Path $dir 'settings.json'
+        $original = [byte[]](0x7B, 0x22, 0x78, 0x22, 0x3A, 0x31, 0x7D, 0x0A)
+        [System.IO.File]::WriteAllBytes($file, $original)
+        Set-WtDefaultSettings -SettingsDir $dir
+        $after = [System.IO.File]::ReadAllBytes($file)
+        ($after -join ',') | Should -Be ($original -join ',')
+    }
+
+    It 'cria settings.json com fonte 10 quando ausente' {
+        $dir = Join-Path $TestDrive 'wt-settings-novo/settings'
+        Set-WtDefaultSettings -SettingsDir $dir
+        Get-Content -LiteralPath (Join-Path $dir 'settings.json') -Raw | Should -Match '"size": 10'
+    }
+}
+
+Describe 'launcher.ps1 aceita -NoDownload' {
+
+    It 'declara o parametro NoDownload' {
+        $params = (Get-Command (Join-Path $script:RepoRootDir 'launcher.ps1')).Parameters
+        $params.Keys | Should -Contain 'NoDownload'
+    }
+}
+
+Describe 'Sem tabulacao nos scripts do launcher' {
+
+    It 'nenhum TAB em launcher.ps1, launcher.cmd e tools/*.ps1' {
+        $files = @(
+            (Join-Path $script:RepoRootDir 'launcher.ps1')
+            (Join-Path $script:RepoRootDir 'launcher.cmd')
+        ) + @(Get-ChildItem -Path (Join-Path $script:RepoRootDir 'tools') -Filter '*.ps1' | ForEach-Object { $_.FullName })
+        $offenders = foreach ($f in $files) {
+            if ((Get-Content -LiteralPath $f -Raw) -match "`t") { $f }
+        }
+        $offenders | Should -BeNullOrEmpty
     }
 }
 

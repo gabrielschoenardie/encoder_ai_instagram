@@ -16,78 +16,24 @@
 #>
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
 
-$WtVersion = "1.24.11911.0"
-$WtAssetName = "Microsoft.WindowsTerminal_${WtVersion}_x64.zip"
-$WtUrl = "https://github.com/microsoft/terminal/releases/download/v$WtVersion/$WtAssetName"
-$WtSha256 = "7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383BD"
+function Set-WtDefaultSettings {
+    param([Parameter(Mandatory)][string]$SettingsDir)
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$BinDir = Join-Path $ProjectRoot "bin"
-$DestDir = Join-Path $BinDir "WindowsTerminal"
-$TempZip = Join-Path $env:TEMP $WtAssetName
+    New-Item -ItemType Directory -Path $SettingsDir -Force |
+        Out-Null
 
-if (-not (Test-Path $BinDir)) {
-    New-Item -ItemType Directory -Path $BinDir | Out-Null
-}
+    $settingsPath = Join-Path $SettingsDir "settings.json"
 
-Write-Host "Baixando Windows Terminal $WtVersion (distribuicao portatil oficial) ..." -ForegroundColor Cyan
-Invoke-WebRequest -Uri $WtUrl -OutFile $TempZip
-
-Write-Host "Verificando SHA256 ..." -ForegroundColor Cyan
-$actualHash = (Get-FileHash -Path $TempZip -Algorithm SHA256).Hash
-if ($actualHash -ne $WtSha256) {
-    Remove-Item $TempZip -Force
-    Write-Host "ERRO checksum nao confere:" -ForegroundColor Red
-    Write-Host "  esperado: $WtSha256" -ForegroundColor Red
-    Write-Host "  obtido:   $actualHash" -ForegroundColor Red
-    throw "Download corrompido ou adulterado - abortando (arquivo removido)."
-}
-Write-Host "OK    checksum confere ($actualHash)" -ForegroundColor Green
-
-$extractTemp = Join-Path $env:TEMP "wt_portable_extract_$([guid]::NewGuid().ToString('N'))"
-try {
-    Write-Host "Extraindo para $extractTemp ..." -ForegroundColor Cyan
-    Expand-Archive -Path $TempZip -DestinationPath $extractTemp -Force
-
-    $innerFolder = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
-    if (-not $innerFolder) {
-        throw "ZIP extraido nao contem a pasta esperada (formato do release mudou?)."
+    if (Test-Path -LiteralPath $settingsPath) {
+        Write-Host "OK    settings.json existente preservado ($settingsPath)." `
+            -ForegroundColor Green
+        return
     }
 
-    $extractedWtExe = Join-Path $innerFolder.FullName "wt.exe"
-    if (-not (Test-Path $extractedWtExe)) {
-        throw "wt.exe nao encontrado no ZIP extraido - conteudo do release pode ter mudado."
-    }
-
-    if (Test-Path $DestDir) {
-        Write-Host "Removendo instalacao portatil anterior em $DestDir ..." -ForegroundColor Yellow
-        Remove-Item $DestDir -Recurse -Force
-    }
-    Move-Item -Path $innerFolder.FullName -Destination $DestDir
-}
-finally {
-    Remove-Item $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item $TempZip -Force -ErrorAction SilentlyContinue
-}
-
-$wtExe = Join-Path $DestDir "wt.exe"
-if (-not (Test-Path $wtExe)) {
-    throw "wt.exe nao encontrado apos extracao em $DestDir - conteudo do ZIP pode ter mudado."
-}
-
-New-Item -ItemType File -Path (Join-Path $DestDir ".portable") -Force | Out-Null
-
-
-# Configurar fonte padrao para a TUI do Reels Encoder AI.
-$settingsDir = Join-Path $DestDir "settings"
-
-New-Item -ItemType Directory -Path $settingsDir -Force |
-    Out-Null
-
-$settingsPath = Join-Path $settingsDir "settings.json"
-
-$settingsJson = @'
+    # Configurar fonte padrao para a TUI do Reels Encoder AI.
+    $settingsJson = @'
 {
   "$schema": "https://aka.ms/terminal-profiles-schema",
   "profiles": {
@@ -100,12 +46,89 @@ $settingsJson = @'
 }
 '@
 
-Set-Content -LiteralPath $settingsPath `
-    -Value $settingsJson `
-    -Encoding UTF8
+    Set-Content -LiteralPath $settingsPath `
+        -Value $settingsJson `
+        -Encoding UTF8
 
-Write-Host "OK    Fonte padrao configurada para 10 pontos." `
-    -ForegroundColor Green
+    Write-Host "OK    Fonte padrao configurada para 10 pontos." `
+        -ForegroundColor Green
+}
 
-Write-Host "OK    Windows Terminal portatil instalado em: $DestDir" -ForegroundColor Green
-Write-Host "      wt.exe: $wtExe" -ForegroundColor Green
+if ($MyInvocation.InvocationName -ne '.') {
+    $WtVersion = "1.24.11911.0"
+    $WtAssetName = "Microsoft.WindowsTerminal_${WtVersion}_x64.zip"
+    $WtUrl = "https://github.com/microsoft/terminal/releases/download/v$WtVersion/$WtAssetName"
+    $WtSha256 = "7691EFEB71C8DD0B95536C84E366FA4CF809A42C534912F9CEFA1056534383BD"
+
+    $ProjectRoot = Split-Path -Parent $PSScriptRoot
+    $BinDir = Join-Path $ProjectRoot "bin"
+    $DestDir = Join-Path $BinDir "WindowsTerminal"
+    $TempZip = Join-Path $env:TEMP $WtAssetName
+
+    if (-not (Test-Path $BinDir)) {
+        New-Item -ItemType Directory -Path $BinDir | Out-Null
+    }
+
+    Write-Host "Baixando Windows Terminal $WtVersion (distribuicao portatil oficial) ..." -ForegroundColor Cyan
+    Invoke-WebRequest -Uri $WtUrl -OutFile $TempZip
+
+    Write-Host "Verificando SHA256 ..." -ForegroundColor Cyan
+    $actualHash = (Get-FileHash -Path $TempZip -Algorithm SHA256).Hash
+    if ($actualHash -ne $WtSha256) {
+        Remove-Item $TempZip -Force
+        Write-Host "ERRO checksum nao confere:" -ForegroundColor Red
+        Write-Host "  esperado: $WtSha256" -ForegroundColor Red
+        Write-Host "  obtido:   $actualHash" -ForegroundColor Red
+        throw "Download corrompido ou adulterado - abortando (arquivo removido)."
+    }
+    Write-Host "OK    checksum confere ($actualHash)" -ForegroundColor Green
+
+    $extractTemp = Join-Path $env:TEMP "wt_portable_extract_$([guid]::NewGuid().ToString('N'))"
+    try {
+        Write-Host "Extraindo para $extractTemp ..." -ForegroundColor Cyan
+        Expand-Archive -Path $TempZip -DestinationPath $extractTemp -Force
+
+        $innerFolder = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
+        if (-not $innerFolder) {
+            throw "ZIP extraido nao contem a pasta esperada (formato do release mudou?)."
+        }
+
+        $extractedWtExe = Join-Path $innerFolder.FullName "wt.exe"
+        if (-not (Test-Path $extractedWtExe)) {
+            throw "wt.exe nao encontrado no ZIP extraido - conteudo do release pode ter mudado."
+        }
+
+        $savedSettings = $null
+        if (Test-Path $DestDir) {
+            $existingSettings = Join-Path $DestDir "settings\settings.json"
+            if (Test-Path -LiteralPath $existingSettings -PathType Leaf) {
+                $savedSettings = Join-Path $env:TEMP "wt_settings_$([guid]::NewGuid().ToString('N')).json"
+                Copy-Item -LiteralPath $existingSettings -Destination $savedSettings
+            }
+            Write-Host "Removendo instalacao portatil anterior em $DestDir ..." -ForegroundColor Yellow
+            Remove-Item $DestDir -Recurse -Force
+        }
+        Move-Item -Path $innerFolder.FullName -Destination $DestDir
+        if ($savedSettings) {
+            $restoredDir = Join-Path $DestDir "settings"
+            New-Item -ItemType Directory -Path $restoredDir -Force | Out-Null
+            Move-Item -LiteralPath $savedSettings -Destination (Join-Path $restoredDir "settings.json") -Force
+        }
+    }
+    finally {
+        Remove-Item $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $TempZip -Force -ErrorAction SilentlyContinue
+    }
+
+    $wtExe = Join-Path $DestDir "wt.exe"
+    if (-not (Test-Path $wtExe)) {
+        throw "wt.exe nao encontrado apos extracao em $DestDir - conteudo do ZIP pode ter mudado."
+    }
+
+    New-Item -ItemType File -Path (Join-Path $DestDir ".portable") -Force | Out-Null
+
+    Set-WtDefaultSettings -SettingsDir (Join-Path $DestDir "settings")
+
+    Write-Host "OK    Windows Terminal portatil instalado em: $DestDir" -ForegroundColor Green
+    Write-Host "      wt.exe: $wtExe" -ForegroundColor Green
+}

@@ -10,6 +10,7 @@
 #>
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
 
 # Raiz do projeto = pasta pai do diretorio deste script (tools/ -> raiz).
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
