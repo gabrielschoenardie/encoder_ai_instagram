@@ -103,7 +103,7 @@ def test_cancel_marks_active_job_interrupted_and_keeps_waiting_jobs():
     s = run(in_queue(), R.JobStart(0, ts=10.0), R.Cancel("requested", ts=12.0),
             R.JobDone(0, "falha", "cancelado pelo usuário", ts=13.0), R.Cancel("terminated", ts=13.0),
             R.Cancel("cleaned", True, ts=14.0), R.QueueDone(130, ts=14.0))
-    assert s.screen == S.REPORT and s.exit_code == 130 and s.modal is None
+    assert s.screen == S.REPORT and s.exit_code == 130
     assert (s.queue[0].status, s.queue[0].reason) == ("interrompido", "interrompido")
     assert [j.status for j in s.queue[1:]] == ["aguardando", "aguardando"]
 

@@ -948,7 +948,7 @@ def test_batch_ctrl_c_with_overlay_open_finishes_queue(tmp_path, key):
     assert s.screen in (S.DETAILS, S.LOG)
     app.state = s
     assert app._interrupted_code() == 130
-    assert app.state.screen == S.REPORT and app.state.exit_code == 130 and app.state.modal is None
+    assert app.state.screen == S.REPORT and app.state.exit_code == 130
     assert [j.status for j in app.state.queue] == ["interrompido", "aguardando"]
 
 
@@ -1421,3 +1421,63 @@ def test_internal_warning_logging_failure_does_not_escape(tmp_path, monkeypatch)
 def test_internal_warning_reducer_adds_warning_row():
     s = S.internal_warning(S.UIState(config={}), "erro interno na TUI: X: y")
     assert s.log == (S.LogRow("WARNING", "erro interno na TUI: X: y"),) and s.warnings == 1
+
+
+@pytest.mark.timeout(30)
+def test_new_action_at_home_is_noop_and_never_starts_encode(tmp_path):
+    src = tmp_path / "clip.mov"
+    src.write_bytes(b"x")
+    ran, screens = [], []
+
+    def sleep(_):
+        screens.append(app.state.screen)
+        app._queue.put(S.Key("ESC"))
+
+    app = A.App(run_single=lambda *a: ran.append(a) or 0, reader_factory=CharReader([]),
+                live_factory=lambda c: FakeLive(), clock=Clock(), sleep=sleep, perf=lambda: (None, None, None),
+                size=lambda: (120, 40), system=(), probe=lambda p: None)
+    app.state = replace(app.state, config={"input": str(src)}, action="new")
+    assert app.run() == 0
+    assert ran == []
+    assert set(screens) == {S.HOME} and app.state.screen == S.HOME and app.state.ready_error is None
+
+
+@pytest.mark.timeout(30)
+@pytest.mark.parametrize("stuck", [True, False])
+def test_new_on_report_before_batch_returns_applies_late_events(tmp_path, stuck):
+    from ui import tui_driver as D
+    folder = batch_folder(tmp_path)
+    msg = D.WORKER_STUCK_MSG.format(n=D.WORKER_WAIT_S, name="b.mov")
+    calls, screens = [], []
+
+    def run(ns_, q, control, on_tick):
+        calls.append(ns_)
+        jobs = tuple((p, p + ".mp4") for p in RE.find_video_files(ns_.batch))
+        for ev in (R.QueueInit(jobs), R.JobStart(0), R.JobDone(0, "ok", None), R.QueueDone(0)):
+            q.put(ev)
+        on_tick()
+        assert app.state.screen == S.REPORT
+        q.put(S.Key("CHAR", "N"))
+        if stuck:
+            q.put(R.Info(msg))
+        return 0
+
+    def sleep(_):
+        screens.append(app.state.screen)
+        if app.state.screen == S.HOME:
+            app._queue.put(S.Key("ESC"))
+        else:
+            advance_with_enter(app)
+
+    keys = [("CHAR", "3")] + keys_for(str(folder))
+    app = A.App(run_batch=run, reader_factory=CharReader(keys), live_factory=lambda c: FakeLive(), clock=Clock(),
+                sleep=sleep, perf=lambda: (None, None, None), size=lambda: (120, 40), system=(),
+                probe=lambda p: None)
+    assert app.run() == 0
+    assert len(calls) == 1
+    if stuck:
+        assert app.state.worker_stuck is True and app.state.screen == S.REPORT
+        assert any(r.text == msg for r in app.state.log)
+        assert S.REPORT in screens and S.HOME not in screens[screens.index(S.REPORT):]
+    else:
+        assert app.state.screen == S.HOME and not app.state.worker_stuck

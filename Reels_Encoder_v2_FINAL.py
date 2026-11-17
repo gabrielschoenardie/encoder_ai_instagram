@@ -235,6 +235,7 @@ def _run_ffmpeg_tracked(
 
     proc = popen(
         cmd,
+        stdin=subprocess.DEVNULL,
         stdout=stdout,
         stderr=stderr,
         cwd=cwd,
@@ -1318,7 +1319,7 @@ def _build_derotate_cmd(input_file: str, tmp_file: str) -> list:
     e copia os streams sem reencodar. -display_rotation é opção de INPUT, então
     precede o -i; o stream-copy preserva os pixels (já em pé) byte a byte."""
     return [
-        FFMPEG, "-y", "-v", "error",
+        FFMPEG, "-nostdin", "-y", "-v", "error",
         "-display_rotation", "0",
         "-i", input_file,
         "-map", "0", "-c", "copy",
@@ -1420,6 +1421,7 @@ def analyze_audio_loudness(
 
     cmd = [
         FFMPEG,
+        "-nostdin",
         "-hide_banner",
         "-i",
         input_file,
@@ -2060,6 +2062,7 @@ def _run_encoding(ffmpeg_cmd, total_frames: int, cwd: Optional[str] = None, fps:
         hud = ResolveProgressHUD(total_frames, source_fps=fps)
     process = subprocess.Popen(
         ffmpeg_cmd,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
@@ -2774,7 +2777,7 @@ def run_ffmpeg(
         metadata_args = _build_metadata_args(duration, video_bitrate, "crf", lut_enabled=lut_enabled)
 
         ffmpeg_cmd = [
-            FFMPEG, "-y",
+            FFMPEG, "-nostdin", "-y",
             "-threads", str(decoder_threads),
             "-filter_threads", str(filter_threads),
             "-filter_complex_threads", str(filter_threads),
@@ -2840,7 +2843,7 @@ def run_ffmpeg(
     console.print("[cyan]📊 Pass 1: Analisando complexidade...[/cyan]")
 
     pass1_cmd = [
-        FFMPEG, "-y",
+        FFMPEG, "-nostdin", "-y",
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
@@ -2909,7 +2912,7 @@ def run_ffmpeg(
     )
 
     pass2_cmd = [
-        FFMPEG, "-y",
+        FFMPEG, "-nostdin", "-y",
         "-threads", str(decoder_threads),
         "-filter_threads", str(filter_threads),
         "-filter_complex_threads", str(filter_threads),
@@ -3905,6 +3908,7 @@ def run_ffmpeg_with_cineon(
             # Comando de remux (stream copy, sem re-encode)
             remux_cmd = [
                 FFMPEG,
+                "-nostdin",
                 "-y",
                 "-i",
                 output_temp,

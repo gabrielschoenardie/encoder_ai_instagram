@@ -44,7 +44,7 @@ def test_source_typing_hotkey_letters_inserts_chars():
     s = S.apply(home(), key("ENTER"))
     s = type_text(s, "C:\\dlc.mov")
     assert s.source.text == "C:\\dlc.mov"
-    assert s.screen == S.SOURCE and s.modal is None
+    assert s.screen == S.SOURCE
     assert s.action == "check_source" and s.source_status == "CHECKING"
 
 
@@ -406,7 +406,7 @@ def test_outdir_empty_blocks_with_inline_error_cleared_on_focus_change():
 def test_outdir_typing_hotkey_letters_and_commit():
     s = S.apply(S.apply(at_folder(3), key("SPACE")), key("DOWN"))
     s = type_text(s, "D:/clips/lote")
-    assert s.edit.text == "D:/clips/lote" and s.modal is None and s.screen == S.CONFIGURATION
+    assert s.edit.text == "D:/clips/lote" and s.screen == S.CONFIGURATION
     s = S.apply(s, key("ENTER"))
     assert S.draft(s)["output_dir"] == "D:/clips/lote" and s.edit is None and focused(s).name == "cineon_pipeline"
     assert F.to_config(S.draft(s))["output_dir"] == "D:/clips/lote"

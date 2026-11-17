@@ -112,8 +112,6 @@ class UIState:
     output_path: str = ""
     screen: str = READY
     back: str = ENCODING
-    modal: str | None = None
-    modal_focus: int = 0
     action_focus: int = 0
     log_filter: int = 0
     error_scroll: int = 0
@@ -365,7 +363,7 @@ def internal_warning(s: UIState, text: str) -> UIState:
 
 
 def _to_report(s: UIState) -> UIState:
-    return replace(s, screen=REPORT, modal=None, modal_focus=0, action_focus=0, queue_scroll=0)
+    return replace(s, screen=REPORT, action_focus=0, queue_scroll=0)
 
 
 def _queue_event(s: UIState, ev) -> UIState:
@@ -408,9 +406,9 @@ def _engine(s: UIState, ev) -> UIState:
         s = _log(s, "SYSTEM", ev.name + (f" · {ev.substep}" if ev.substep else ""))
         if ev.name == R.QC and not s.is_batch:
             if s.screen == ENCODING:
-                s = replace(s, screen=QC, modal=None)
+                s = replace(s, screen=QC)
             elif s.screen in OVERLAYS:
-                s = replace(s, back=QC, modal=None)
+                s = replace(s, back=QC)
         return s
     if isinstance(ev, R.Hardware):
         return replace(s, hardware=dict(ev.fields))
@@ -455,7 +453,7 @@ def _engine(s: UIState, ev) -> UIState:
         return _log(replace(s, error=ev), "WARNING", f"{ev.kind}: {ev.message}")
     if isinstance(ev, R.Cancel):
         repeated = s.cancel_phase == ev.phase
-        s = replace(s, cancel_phase=ev.phase, modal=None)
+        s = replace(s, cancel_phase=ev.phase)
         if ev.partial_removed is not None:
             s = replace(s, partial_removed=ev.partial_removed)
         return s if repeated else _log(s, "SYSTEM", f"CANCEL · {ev.phase}")
@@ -483,7 +481,7 @@ def _finished(s: UIState, code: int) -> UIState:
             s = _fail_active(s, s.now)
         finished = s.queue_finished if s.queue_finished is not None else s.now
         return _to_report(replace(s, queue_finished=finished))
-    s = replace(s, exit_code=code, modal=None, action_focus=0)
+    s = replace(s, exit_code=code, action_focus=0)
     if s.screen in OVERLAYS:
         s = replace(s, screen=s.back)
     if code == 0:

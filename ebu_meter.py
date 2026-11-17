@@ -52,6 +52,7 @@ def build_ebur128_measure_cmd(input_file: str) -> list:
     """
     return [
         FFMPEG,
+        "-nostdin",
         "-hide_banner",
         "-nostats",
         "-i", input_file,
@@ -251,6 +252,7 @@ def measure_loudness(input_file: str) -> Optional[dict]:
     try:
         result = subprocess.run(
             build_ebur128_measure_cmd(input_file),
+            stdin=subprocess.DEVNULL,
             capture_output=True, text=True, encoding="utf-8", errors="ignore",
         )
     except (FileNotFoundError, OSError):

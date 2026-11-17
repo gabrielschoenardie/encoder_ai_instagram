@@ -184,6 +184,8 @@ class App:
                 self.state = replace(self.state, action=None)
                 if act == "exit":
                     return self._last_code if self._last_code is not None else 0
+                if act == "new":
+                    continue
                 if act == "tools":
                     self._run_tools()
                     continue
@@ -204,11 +206,17 @@ class App:
             else:
                 code = self._run_single(ns, self._queue, self._control, self._tick)
             self._drain()
+            while not self._queue.empty():
+                self._drain()
             self.state = S.apply(self.state, S.Finished(code))
             self._last_code = code
-            self._until(lambda s: s.action in ("exit", "new"))
-            if self.state.action == "exit":
-                return code
+            while True:
+                self._until(lambda s: s.action in ("exit", "new"))
+                if self.state.action == "exit":
+                    return code
+                if not self.state.worker_stuck:
+                    break
+                self.state = replace(self.state, action=None)
             self._lines.append(self._final_line(self.state, code))
             while True:
                 try:

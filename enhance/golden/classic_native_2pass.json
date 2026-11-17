@@ -55,6 +55,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-y",
    "-threads",
    "1",
@@ -107,6 +108,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-y",
    "-threads",
    "1",
@@ -182,6 +184,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -194,6 +197,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -206,6 +210,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -218,6 +223,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
