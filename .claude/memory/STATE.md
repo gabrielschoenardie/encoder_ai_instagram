@@ -4000,3 +4000,34 @@ Arquivos alterados: ui/tui/app.py, ui/tui/state.py, ui/tui/screens.py, ebu_meter
 | P3H-8c | done | ui/tui/screens.py | removidos `cancel_modal`, `MODAL_KEYS`, status "⚠ CANCEL?", ramos de modal em footer/_encoding/_queue, dica `[C]` (rodapés ENCODING/QC/QUEUE agora "[Ctrl+C] Interrupt"), `░[C]` |
 | P3H-8d | done | ui/tui/test_app.py, test_screens.py, test_screens_batch.py, test_state.py, test_state_batch.py | removidos: test_app: test_c_confirm_calls_request_cancel, test_confirmed_cancel_draws_cancel_requested_and_c_does_not_reopen, test_batch_cancel_in_blocked_stage_warns_in_log, test_cancel_in_second_encode_reaches_new_control; test_screens: test_encoding_blocked_c_shows_disabled, test_cancel_modal_over_dashboard, test_footer_modal_keys; test_screens_batch: test_queue_cancel_modal_and_blocked_footer; test_state: test_c_opens_modal_and_confirm_requests_cancel_once, test_double_enter_in_modal_single_cancel, test_esc_closes_modal_without_cancel, test_c_ignored_when_blocked (x2), test_c_still_cancels_running_encode_below_min_size (x2); test_state_batch: test_cancel_unavailable_logs_warning_and_closes_modal. Ajustados: test_encoding_dashboard, test_qc_before_and_after_reveal, test_cancel_requested_header_status_and_footer, test_queue_screen_three_jobs, test_batch_footers_say_queue (dica agora Ctrl+C), test_batch_cancel_from_queue_code_130 (sem teclas C; evento Cancel("requested") explícito; sem `rec[-1]`), test_queue_keys_overlays_and_cancel_modal -> test_queue_keys_overlays_and_c_is_ignored. Novo: test_c_in_encoding_and_queue_changes_nothing (ENCODING/QUEUE). Fluxo de 2 encodes com 1º em 130 mantido |
 | P3H-8e | done | — | `pytest ui/tui` 383 passed; ruff All checks passed; `git diff --check` sem avisos além de LF/CRLF |
+
+## Limpeza P3H — P3HF1, P3HF6, P3HF7 + campos mortos do modal (2026-11-17)
+
+| ID | status | arquivos | resultado |
+| --- | --- | --- | --- |
+| C-1 | done | Reels_Encoder_v2_FINAL.py, ebu_meter.py, enhance/golden/classic_{native,cineon}_{crf,2pass}.json, enhance/test_ffmpeg_nostdin.py (novo) | 7 comandos (a) em 3 pontos de execução ganham `-nostdin` logo após o binário + `stdin=DEVNULL`; 2 chamadas (b) intocadas. RED (cmd[1] != -nostdin) → GREEN; 5 testes novos (CRF, 2-pass, derotate, ebur128, Cineon pipe/remux+loudnorm) |
+| C-2 | done | ui/tui/app.py, ui/tui/test_app.py | `act == "new"` no laço interno de `_session` → `continue`. RED (run_single chamado com config de input real) → GREEN |
+| C-3 | done | ui/tui/app.py, ui/tui/test_app.py | após o worker: `_drain()` repetido até a fila esvaziar antes do `Finished`; laço em `_until(exit/new)`: `new` com `worker_stuck` limpa a ação e continua esperando. Teste parametrizado stuck/sem stuck; RED (stuck) → GREEN; mutação de cada uma das duas partes derruba o teste |
+| C-4 | done | ui/tui/state.py, ui/tui/test_state.py, ui/tui/test_state_batch.py, ui/tui/test_state_config.py, ui/tui/test_app.py | `modal`/`modal_focus` removidos do `UIState` e de 5 `replace` (`_to_report`, Stage QC x2, Cancel, `_finished`); `test_stage_qc_switches_screen_and_closes_modal` → `test_stage_qc_switches_screen` (sem `modal="CANCEL"`); asserts `modal is None` removidos (test_state:74, test_state_batch:106, test_state_config:47/:409, test_app:951). screens.py não cita modal. `R.Cancel`/`cancel_phase`/`CancelControl` intocados |
+| C-5 | done | .claude/memory/STATE.md, .claude/memory/FINDINGS.md | números abaixo; P3HF1/P3HF6/P3HF7 marcados resolvidos |
+
+Inventário C-1 (convenção: comando = argv de ffmpeg montado; ponto de execução = Popen/run que o recebe):
+- (a) pontos de execução, `stdin=subprocess.DEVNULL`: RE:236 `_run_ffmpeg_tracked` (popen), RE:2063 `_run_encoding` (Popen), ebu_meter:253 `measure_loudness` (run).
+- (a) comandos, `-nostdin` após `FFMPEG`: RE:1322 derotate (`_build_derotate_cmd`, via tracked), RE:1424 loudnorm Pass 1 (`analyze_audio_loudness`, via tracked), RE:2780 CRF, RE:2846 2-pass Pass 1, RE:2915 2-pass Pass 2 (os três via `_run_encoding`), RE:3911 remux `colr` do Cineon (via tracked), ebu_meter:55 ebur128 (`build_ebur128_measure_cmd`, via `measure_loudness`).
+- (b) stdin é pipe de dados, sem `-nostdin`: RE:3613 Popen do Cineon (`stdin=PIPE`, `-i -`; comandos de `_build_pipe_cmd` RE:3509 para CRF/Pass 1/Pass 2), enhance_visualizer:465 `_open_ffmpeg_writer` (`stdin=PIPE`, `pipe:0`).
+- Não ffmpeg (fora da regra): ffprobe (RE:667, 838, 863, 920, 970, 1065, 1375, 3996; ebu_meter:184, 209), wmic (RE:445), ffplay (ebu_meter:335). `enhance/*.py` não-teste: nenhuma chamada de subprocesso.
+- Fora da lista de arquivos do C-1 (não tocados, sem FINDINGS): `tools/*.py`, `ui/probe.py` (ffprobe), `ui/tui/tools.py` — as ferramentas rodam com a TUI suspensa.
+
+Notas:
+- Goldens não regravados: `-nostdin` inserido à mão em 19 argv (a) (native_crf 5, native_2pass 6, cineon_crf 4, cineon_2pass 4; entradas rawvideo do Cineon intocadas). Rodada forçada ignorando a impressão digital de ambiente (numpy 2.5.2 vs 2.5.3 gravado), FFmpeg real: 4/4 `test_classic_path_matches_golden` passaram (argv e console) em 297 s — `-nostdin` não muda parâmetro de encode.
+- O remux `colr` do Cineon não aparece nos goldens (`_run_ffmpeg_tracked` liga `Popen` no import); coberto pelo teste novo.
+- Mantidos de propósito: `test_screens.py:310` (`"[C]" not in foot`) e `test_screens_batch.py:203` (`"[C] Cancel" not in foot`) — guardas de ausência, não restos da tecla C. `git grep` de `modal`, `CANCEL_UNAVAILABLE`, `cancel_modal`, `cancel_unavailable`, `cancel_blocked` em arquivos rastreados (fora de docs/superpowers e .claude): sem ocorrências; `[C]` só nesses dois asserts. Docs rastreadas ativas sem `[C]`.
+
+Comandos (venv\Scripts\python.exe, 2026-11-16/17):
+- `python -m pytest ui/tui -q --timeout=60` → 386 passed, 0 failed (9,4 s)
+- `python -m pytest enhance/test_ffmpeg_nostdin.py enhance/test_ffmpeg_tracked.py enhance/test_ebu_meter.py enhance/test_rotation_strip.py enhance/test_cineon_cancel.py enhance/test_classic_golden.py enhance/test_loudnorm.py enhance/test_mctf_tui_quiet.py ui/test_tui_driver.py -q --timeout=300` → 133 passed, 4 skipped (goldens: numpy 2.5.2 vs 2.5.3), 0 failed
+- `python -m pytest test_render_queue.py enhance/ ui/ tools/ -q --timeout=300` → 1053 passed, 4 skipped (mesmos goldens), 0 failed (17 min 43 s)
+- `python -m ruff check .` → All checks passed!
+- `git diff --check` → exit 0 (só avisos LF/CRLF em PLAN.md e nos 4 goldens); `git diff --no-index --check /dev/null enhance/test_ffmpeg_nostdin.py` → sem avisos
+
+Arquivos alterados: Reels_Encoder_v2_FINAL.py, ebu_meter.py, enhance/golden/classic_cineon_2pass.json, enhance/golden/classic_cineon_crf.json, enhance/golden/classic_native_2pass.json, enhance/golden/classic_native_crf.json, ui/tui/app.py, ui/tui/state.py, ui/tui/test_app.py, ui/tui/test_state.py, ui/tui/test_state_batch.py, ui/tui/test_state_config.py, .claude/memory/STATE.md, .claude/memory/FINDINGS.md; novo: enhance/test_ffmpeg_nostdin.py. Nada em stage/commit.

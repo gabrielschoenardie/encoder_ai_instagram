@@ -45,10 +45,10 @@ def test_stage_flow_marks_done_and_logs_system():
     assert [r.kind for r in s.log] == ["SYSTEM"] * 3
 
 
-def test_stage_qc_switches_screen_and_closes_modal():
-    s = _s(screen=S.ENCODING, modal="CANCEL")
+def test_stage_qc_switches_screen():
+    s = _s(screen=S.ENCODING)
     s = S.apply(s, R.Stage(R.QC, ts=5.0))
-    assert s.screen == S.QC and s.modal is None
+    assert s.screen == S.QC
 
 
 def test_pass_tracks_keep_pass1_and_end_is_100():
@@ -71,7 +71,7 @@ def test_c_in_encoding_and_queue_changes_nothing(screen):
         s2 = S.apply(s, S.Key("CHAR", ch))
         assert s2 == s and s2.action is None
     s2 = S.apply(s, S.Key("C"))
-    assert s2 == s and s2.action is None and s2.modal is None
+    assert s2 == s and s2.action is None
 
 
 def test_events_after_cancel_ignored():

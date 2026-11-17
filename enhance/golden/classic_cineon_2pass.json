@@ -214,6 +214,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -226,6 +227,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -238,6 +240,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
@@ -250,6 +253,7 @@
   ],
   [
    "<FFMPEG>",
+   "-nostdin",
    "-hide_banner",
    "-nostats",
    "-i",
