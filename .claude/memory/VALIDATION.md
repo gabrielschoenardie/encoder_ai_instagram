@@ -348,7 +348,7 @@ Veredito: FLOW OK. Nenhum modal preso, nenhuma transição morta, nenhuma dica `
 - PENDENTE (CI): leg ubuntu do Pester, que não foi verificado localmente. Os 4 testes que executam o fetch falso dependem de `tools\fetch_*.ps1` com `\` resolver no pwsh/Linux.
 - CI (PR #81, head `fa26f8f`, squash `7920e07`): 8 checks SUCCESS — run 44013773672 (Lint ruff; Tests windows 3.11/3.12; Pester ubuntu-latest, windows-latest e Windows PowerShell 5.1) e run 44013767509 (build 3.11/3.12). Resolve o PENDENTE (CI) acima.
 - Manual (relato do usuário, mensagem de 2026-11-17 ~00:59, com o CI do PR #81 verde e antes do merge): "o CI ficou verde e ja fiz o teste manual aqui e funcionou" — relato genérico, **não especifica o modo** (padrão ou `-NoDownload`). A execução do `launcher.cmd` no modo padrão foi confirmada explicitamente depois, no M0 do R-03 (relato do usuário, 2026-11-17).
-- RESOLVIDO em 2026-11-18 (S1 com binários locais; S1b sem binários, com controle sem a flag): `launcher.cmd -NoDownload` executado e observado. Condição: `PSModulePath` limpo no processo filho. Com `PSModulePath` herdado de uma sessão pwsh 7 o launcher falha antes de qualquer verificação de binário (L2F5, achado separado, reproduzido na rodada seguinte; corrigido na branch `fix/l2f5-psmodulepath`, não publicada — § 6).
+- RESOLVIDO em 2026-11-18 (S1 com binários locais; S1b sem binários, com controle sem a flag): `launcher.cmd -NoDownload` executado e observado. Condição: `PSModulePath` limpo no processo filho. Com `PSModulePath` herdado de uma sessão pwsh 7 o launcher falha antes de qualquer verificação de binário (L2F5, achado separado, reproduzido na rodada seguinte; Resolvido — PR #86, integrado em f622ee0 em 18/11/2026 — § 6).
 - RESOLVIDO em 2026-11-18 (S2 modo padrão; S3 `-NoDownload`): smoke com FFmpeg/FFprobe **somente no PATH** (sem os binários em `bin\`), em pasta com espaços; `PSModulePath` limpo no processo filho. Contexto original: `bin\ffmpeg.exe` e `bin\ffprobe.exe` existem neste checkout e o launcher os prefere ao PATH; o M0 do R-03 não cobria esse cenário.
 
 ## R-03 — layout compacto 80×24 (2026-11-17, branch `fix/tui-review-r03-polish`) — resolvido
@@ -413,10 +413,10 @@ Observação por leitura do buffer do console, não por inspeção visual humana
 ### 5. Veredito dos PENDENTE do Ciclo L2
 
 - Smoke modo padrão **e** `-NoDownload` com FFmpeg só no PATH → S2 + S3: **resolvido**.
-- `launcher.cmd -NoDownload` → S1 + S1b: **resolvido**, na condição de `PSModulePath` limpo; com `PSModulePath` herdado de pwsh 7 o launcher falha (L2F5, aberto, fora do critério original).
+- `launcher.cmd -NoDownload` → S1 + S1b: **resolvido**, na condição de `PSModulePath` limpo; com `PSModulePath` herdado de pwsh 7 o launcher falhava antes da correção (L2F5: Resolvido — PR #86, integrado em f622ee0 em 18/11/2026; fora do critério original).
 - Smoke com FFmpeg/FFprobe somente no PATH → S2 + S3: **resolvido**.
 
-### 6. L2F5 — correção A aplicada e validada (branch `fix/l2f5-psmodulepath`, base `ab478cf`; não publicada)
+### 6. L2F5 — correção A aplicada e validada (branch `fix/l2f5-psmodulepath`, base `ab478cf`; Resolvido — PR #86, integrado em f622ee0 em 18/11/2026)
 
 **Mudança.** `launcher.cmd`: `set "PSModulePath="` entre `cd /d "%~dp0"` e a chamada `powershell.exe`, mais 3 linhas `REM`. O `setlocal` já existente no topo escopa a mudança ao `cmd.exe` do launcher e aos seus filhos; `%*`, `RC`, `pause`, `exit /b` e a linha do `powershell.exe` ficaram inalterados. Nenhuma variável permanente do Windows foi alterada. `launcher.ps1` e `tools\` não foram tocados.
 
