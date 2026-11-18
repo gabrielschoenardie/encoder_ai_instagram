@@ -403,6 +403,14 @@ _MCTF_SCENE_FLOW_THR = 2.0    # magnitude média de flow (px a 1/4 res) → scen
                                # equivale a ~8px na resolução original
 
 
+def _ffmpeg_bin() -> str:
+    try:
+        from ui.binaries import resolve_binary
+    except ImportError:
+        return "ffmpeg"
+    return resolve_binary("ffmpeg")
+
+
 def generate_mctf_mask_video(
     video_path: str,
     out_dir: str = "enhance_maps",
@@ -460,11 +468,13 @@ def generate_mctf_mask_video(
     deband_path  = os.path.abspath(os.path.join(out_dir, "mctf_deband_mask.mp4"))
     sharpen_path = os.path.abspath(os.path.join(out_dir, "mctf_sharpen_mask.mp4"))
 
+    ffmpeg_bin = _ffmpeg_bin()
+
     def _open_ffmpeg_writer(out_path: str) -> subprocess.Popen:
         """Abre subprocess FFmpeg para receber frames raw grayscale via stdin."""
         return subprocess.Popen(
             [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-f", "rawvideo", "-pix_fmt", "gray",
                 "-video_size", f"{w}x{h}",
                 "-r", str(fps),
