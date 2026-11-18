@@ -346,3 +346,13 @@ Veredito: FLOW OK. Nenhum modal preso, nenhuma transição morta, nenhuma dica `
 - Pester 5.7.1: pwsh 7 com 156 passed / 0 failed e Windows PowerShell 5.1 com 156 passed / 0 failed, conferidos pelo Orquestrador. ruff e `git diff --check` limpos. Zero tabs em `launcher.ps1`, `launcher.cmd` e `tools/*.ps1`.
 - PENDENTE (usuário): smoke manual do `launcher.cmd`, no modo padrão e com `-NoDownload`, tendo o FFmpeg só no PATH.
 - PENDENTE (CI): leg ubuntu do Pester, que não foi verificado localmente. Os 4 testes que executam o fetch falso dependem de `tools\fetch_*.ps1` com `\` resolver no pwsh/Linux.
+
+## R-03 — layout compacto 80×24 (2026-11-17, branch `fix/tui-review-r03-polish`) — resolvido
+
+- Suíte completa **anterior ao último ajuste** (sobre R03-10, antes do R03-11): 1459 passed / 4 skipped. Os 4 skips: goldens `enhance/test_classic_golden.py:176` (numpy gravado 2.5.3, atual 2.5.2).
+- Verificação **posterior aos ajustes finais** (R03-11 tocou só `ui/tui/screens.py` + `ui/tui/test_screens_compact.py`): `pytest ui` 1012 passed; `enhance/test_output_dir_and_pipeline_tag.py` (único teste fora de `ui/` que importa `ui.tui`) 17 passed; `ruff check .` e `git diff --check` limpos. Suíte completa não repetida.
+- Captura real via ConPTY (`tests/screens/capture.py`, clipes de `videos/` copiados para pasta descartável; valida fluxo, não qualidade): ✓ HOME 80×24/100×30/119×39/120×40; ✓ 70×20 na entrada sai com mensagem 80×24; ✓ resize 80×24→70×20→80×24 com a TUI aberta; ✓ HOME→SOURCE→CONFIGURATION→PREVIEW→READY→ENCODING→LOG→DETAILS→QC→COMPLETED; ✓ ADVANCED 5 abas + CONTINUAR; ✓ NOVO ENCODE + 2ª sessão até COMPLETED; ✓ ERROR (saída ocupada por diretório) com rolagem do STDERR até a causa, VER LOG, resize 120×40 e volta com rolagem preservada; ✓ batch 2 e 16 jobs até REPORT, rolagem e resize compacto↔cheio.
+- Só estado simulado: READY com erro longo (R03-10a).
+- Não exercitado pelo harness: Ctrl+C no PASS e no QC — o ConPTY não entrega o sinal (R03F6); coberto pela validação manual abaixo. Cobertura determinística: `ui/test_tui_driver.py::test_ctrl_c_during_qc_keeps_new_master`.
+- Validação manual (relato do usuário, 2026-11-17, Windows Terminal real; sem logs, hashes ou horários fornecidos): M0 launcher em 120×40 ✓; M1 80×24 medido + resize abaixo do mínimo durante encode ✓; M2 Ctrl+C no PASS ✓; M3 Ctrl+C no QC ✓; M4 Ctrl+C no QC com relatórios preexistentes ✓. Roteiro: master mantido e certificados novos removidos no QC, parcial novo removido no PASS, relatórios preexistentes preservados, sem subprocessos remanescentes.
+- Veredito: R-03 resolvido (automatizado + harness + manual do usuário).
