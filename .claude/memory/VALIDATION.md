@@ -346,6 +346,10 @@ Veredito: FLOW OK. Nenhum modal preso, nenhuma transição morta, nenhuma dica `
 - Pester 5.7.1: pwsh 7 com 156 passed / 0 failed e Windows PowerShell 5.1 com 156 passed / 0 failed, conferidos pelo Orquestrador. ruff e `git diff --check` limpos. Zero tabs em `launcher.ps1`, `launcher.cmd` e `tools/*.ps1`.
 - PENDENTE (usuário): smoke manual do `launcher.cmd`, no modo padrão e com `-NoDownload`, tendo o FFmpeg só no PATH.
 - PENDENTE (CI): leg ubuntu do Pester, que não foi verificado localmente. Os 4 testes que executam o fetch falso dependem de `tools\fetch_*.ps1` com `\` resolver no pwsh/Linux.
+- CI (PR #81, head `fa26f8f`, squash `7920e07`): 8 checks SUCCESS — run 44013773672 (Lint ruff; Tests windows 3.11/3.12; Pester ubuntu-latest, windows-latest e Windows PowerShell 5.1) e run 44013767509 (build 3.11/3.12). Resolve o PENDENTE (CI) acima.
+- Manual (relato do usuário, mensagem de 2026-11-17 ~00:59, com o CI do PR #81 verde e antes do merge): "o CI ficou verde e ja fiz o teste manual aqui e funcionou" — relato genérico, **não especifica o modo** (padrão ou `-NoDownload`). A execução do `launcher.cmd` no modo padrão foi confirmada explicitamente depois, no M0 do R-03 (relato do usuário, 2026-11-17).
+- PENDENTE (usuário): `launcher.cmd -NoDownload` — sem confirmação explícita de execução; não deduzir do M0 do R-03.
+- PENDENTE (usuário): smoke com FFmpeg/FFprobe **somente no PATH** (sem os binários em `bin\`); `bin\ffmpeg.exe` e `bin\ffprobe.exe` existem neste checkout e o launcher os prefere ao PATH. O M0 do R-03 não cobre esse cenário.
 
 ## R-03 — layout compacto 80×24 (2026-11-17, branch `fix/tui-review-r03-polish`) — resolvido
 
