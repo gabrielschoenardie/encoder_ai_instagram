@@ -4120,3 +4120,13 @@ Nota L2 (leg ubuntu do CI, NÃO verificado localmente — WSL sem distro/pwsh): 
 | R03-11a | done | ui/tui/screens.py, ui/tui/test_screens_compact.py | `log_rows` ganhou `text_width` (padrão 104); `_log_screen` compacto passa `min(104, w−12)` e a coluna de nível tem `min_width=8`. Só `min_width` não bastava: Rich reduz proporcionalmente as colunas `no_wrap` quando o total excede a largura, então o texto passou a caber em w−12. RED: 4 falhas (`SY…`/`IN…`/`WA…`/`FF…`); GREEN: nível inteiro com texto de 200 caracteres. |
 | R03-11b | done | ui/tui/screens.py, ui/tui/test_screens_compact.py | `_details` compacto monta 3 linhas de grid (SOURCE\|HARDWARE, ENCODING\|CONFIG, OUTPUT\|PROGRESS); títulos alinhados, corpo ≤ h−2 em 80×24. RED antes, GREEN depois. |
 | R03-11c | done | — | `pytest ui/tui -q` 797 passed; `ruff check .` ok; `git diff --check` sem erro nos arquivos de código (só o aviso LF→CRLF de PLAN.md). Hash MD5 do render estilizado (log, details, encoding, overlay_log_final) em 120×40 e 150×50 idêntico antes/depois. |
+
+## P3HF2 (2026-11-18)
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| P3HF2-1 | done | enhance/test_mctf_ffmpeg_resolution.py | 9 testes (casos a-g; writers deband/sharpen parametrizados). RED contra o literal "ffmpeg": 7 failed, 2 passed (os 2 de preservação de args/kwargs) |
+| P3HF2-2 | done | enhance_visualizer.py | `_ffmpeg_bin()` (import local de `ui.binaries.resolve_binary`, fallback "ffmpeg" em ImportError); `generate_mctf_mask_video` chama uma vez e usa no lugar do literal |
+| P3HF2-3 | done | — | alvo: 26 passed; suíte inteira 1473 passed, 4 skipped (1043 s); `ruff check .` All checks passed; `git diff --check` rc=0 (só aviso LF→CRLF de PLAN.md) |
+| P3HF2-4 | done | .claude/memory/FINDINGS.md, docs/reviews/tui-review.md | status P3HF2 → "corrigido (fix/p3hf2-mctf-ffmpeg, pendente de merge)" e "Corrigido na branch (aguarda merge)" (§ 4.1 linha 97; o plano citava § 5.2, a linha P3HF2 com célula de status está em § 4.1) |
+| P3HF2-V | verificado (Orquestrador) | — | alvo 26 passed; ruff OK; suíte inteira reexecutada pelo Orquestrador: 1473 passed, 4 skipped (1027 s). Limitação: os testes simulam `cv2.VideoCapture` e `subprocess.Popen` e usam binários falsos em `tmp_path`; nenhum FFmpeg real é executado e nenhuma máscara é gerada de fato. |
