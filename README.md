@@ -127,7 +127,7 @@ python Reels_Encoder_v2_FINAL.py            # sem input/--batch: abre a TUI
 python -m ui.tui                            # abre a TUI direto
 ```
 
-> Conceito visual e plano completo: [`docs/terminal-ui-masterplan.md`](docs/terminal-ui-masterplan.md).
+> Guia de uso da TUI (tamanhos, teclas, Ctrl+C, NOVO ENCODE, erros): [`docs/tui.md`](docs/tui.md).
 > Para a melhor renderização (cores truecolor + glyphs), use o **Windows Terminal**.
 
 ### Exemplos mais usados (referência de flags CLI)
@@ -477,7 +477,9 @@ encoder_ai_instagram/
 │
 ├── docs/
 │   ├── assets/*.svg               # Capturas reais da UI (geradas)
-│   └── terminal-ui-masterplan.md  # Plano/rationale da UI
+│   ├── tui.md                     # Guia de uso da TUI
+│   ├── reviews/tui-review.md      # Revisão de conformidade da TUI
+│   └── Phase_*.md                 # Histórico de design da TUI (Fases 1–2)
 │
 └── tools/
     ├── verificador_instalacao.py  # Valida todas as dependências
