@@ -94,7 +94,7 @@ Os testes manuais da seção 6 devem acompanhar o ciclo de correção, com aten�
 | ID | Estado atual | Descrição e encaminhamento |
 |---|---|---|
 | **N-1** | **Aberto — adiado por decisão do usuário (17/11/2026); era a prioridade 1 desta revisão** | `ui/tui_driver.py::_temp_path` e o remux Cineon em `Reels_Encoder_v2_FINAL.py:3897` usam `replace(".mp4", "_temp.mp4")`. Corrigir os dois pontos de forma consistente. |
-| P3HF2 | Corrigido na branch (aguarda merge) | `enhance_visualizer.py:463–479` executa o literal `ffmpeg` na máscara MCTF. Adotar resolvedor comum. |
+| P3HF2 | Resolvido (PR #84, `53d6f10`, 18/11/2026) | `enhance_visualizer.py:463–479` executa o literal `ffmpeg` na máscara MCTF. Adotar resolvedor comum. |
 | P3HF3 | Aberto | `state.py::_fail_active` usa a última WARNING. A fragilidade está no fallback de `Finished` com falha; o fluxo normal de `JobDone` já usa `ev.error`. |
 | P3HF4 | Aberto, baixo impacto | `_internal_seen` é criado por App e não é zerado ao iniciar nova sessão. O mesmo erro pode não aparecer no novo LOG. |
 | P3HF5 | Decisão de contrato | Ctrl+C na HOME após um encode retorna 130; ESC retorna o código do último encode. 130 é coerente com interrupção. Recomenda-se documentar e testar antes de mudar. |
