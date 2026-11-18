@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from dataclasses import dataclass, replace
 
 import reporter as R
@@ -27,8 +28,8 @@ ACTIONS = ("start", "exit", "tools", "arm", "check_source", "new")
 FINAL_SCREENS = frozenset({COMPLETED, ERROR, CANCELLED, REPORT})
 OVERLAYS = frozenset({DETAILS, LOG})
 SEAL_REVEAL_S = 1.2
-MIN_SIZE = (120, 40)
-FALLBACK_SIZE = (80, 24)
+MIN_SIZE = (80, 24)
+FULL_SIZE = (120, 40)
 LOG_CAP = 500
 REPORT_ROWS = 21
 ERROR_ROWS = 17
@@ -122,7 +123,7 @@ class UIState:
     progress: R.Progress | None = None
     job_started: float | None = None
     now: float = 0.0
-    size: tuple = MIN_SIZE
+    size: tuple = FULL_SIZE
     cpu: float | None = None
     ram: float | None = None
     ram_used_gb: float | None = None
@@ -170,6 +171,34 @@ class UIState:
 
 def too_small(s: UIState) -> bool:
     return s.size[0] < MIN_SIZE[0] or s.size[1] < MIN_SIZE[1]
+
+
+def compact(s: UIState) -> bool:
+    return s.size[0] < FULL_SIZE[0] or s.size[1] < FULL_SIZE[1]
+
+
+def report_rows(s: UIState) -> int:
+    if not compact(s):
+        return REPORT_ROWS
+    return max(1, s.size[1] - 9 - (2 if s.removal_failed else 0))
+
+
+def error_message(s: UIState) -> str:
+    err = s.error
+    if err is None:
+        return f"Encode terminou com erro (código {s.exit_code})"
+    if err.returncode is not None:
+        return f"{err.kind}: ffmpeg saiu com código {err.returncode}"
+    first = next(iter((err.message or "").splitlines()), "")
+    return f"{err.kind}: {first[:200] + '…' if len(first) > 200 else first}"
+
+
+def error_lines(s: UIState) -> list:
+    return textwrap.wrap(error_message(s), max(10, s.size[0] - 5)) or [""]
+
+
+def error_rows(s: UIState) -> int:
+    return max(1, s.size[1] - 12 - len(error_lines(s))) if compact(s) else ERROR_ROWS
 
 
 def encode_running(s: UIState) -> bool:
@@ -702,7 +731,7 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         return replace(s, action="new")
     if s.screen == REPORT:
         if k in ("UP", "DOWN"):
-            top = max(0, len(s.queue) - REPORT_ROWS)
+            top = max(0, len(s.queue) - report_rows(s))
             return replace(s, queue_scroll=max(0, min(top, s.queue_scroll + (1 if k == "DOWN" else -1))))
         if k in ("ENTER", "ESC"):
             return replace(s, action="exit")
@@ -714,7 +743,7 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         if k == "RIGHT":
             return replace(s, action_focus=min(len(actions) - 1, s.action_focus + 1))
         if s.screen == ERROR and k in ("UP", "DOWN"):
-            top = max(0, len(stderr_lines(s.error, s.log)) - ERROR_ROWS)
+            top = max(0, len(stderr_lines(s.error, s.log)) - error_rows(s))
             return replace(s, error_scroll=max(0, min(top, s.error_scroll + (1 if k == "DOWN" else -1))))
         if k == "ESC":
             return replace(s, action="exit")

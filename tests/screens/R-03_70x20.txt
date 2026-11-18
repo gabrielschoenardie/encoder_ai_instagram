@@ -1,0 +1,3 @@
+# 70x20 steps=down alive=False
+Erro: a TUI precisa de um terminal interativo com VT e pelo menos
+80×24.

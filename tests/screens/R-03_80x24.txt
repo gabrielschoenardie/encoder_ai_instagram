@@ -1,0 +1,25 @@
+# 80x24 steps=down alive=True
+ REELS ENCODER  v2.1.0                                                    ● HOME
+╭─ FLUXOS ─────────────────────────────────────────────────────────────────────╮
+│    1  Encode rápido (FFmpeg)                                                 │
+│ ▎▸ 2  Film look (Cineon)                                                     │
+│    3  Batch de pasta                                                         │
+│    4  Tools (utilitários)                                                    │
+│    5  Configurar avançado…                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ O QUE FAZ ──────────────────────────────────────────────────────────────────╮
+│ Pipeline Cineon (film look). Você ajusta exposição, saturação e              │
+│ enquadramento.                                                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ SYSTEM ─────────────────────────────────────────────────────────────────────╮
+│ FFmpeg   ffmpeg.exe                   ffplay    ok                           │
+│ ffprobe  ffprobe.exe                  hardware  detectado no início do enco… │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+ [↑↓] Navegar [1-5] Abrir [ENTER] Abrir [ESC] Sair

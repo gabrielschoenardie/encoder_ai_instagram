@@ -4059,3 +4059,64 @@ Smoke manual do launcher.cmd (padrão e `-NoDownload` com FFmpeg só no PATH) PE
 Arquivos alterados: launcher.ps1, launcher.cmd, tools/fetch_wt_portable.ps1, tools/fetch_ffmpeg.ps1, tests/launcher.Tests.ps1, .github/workflows/ci.yml, .claude/memory/STATE.md, .claude/memory/FINDINGS.md. Nada em stage/commit.
 
 Nota L2 (leg ubuntu do CI, NÃO verificado localmente — WSL sem distro/pwsh): os contextos novos "ffmpeg ausente sem -NoDownload" (Resolve-Binaries) e "wt ausente sem -NoDownload" (Ensure-WindowsTerminalPortable) são os primeiros a exigir que o fetch script seja ENCONTRADO e EXECUTADO; dependem de o pwsh no Linux aceitar `\` em `Join-Path $RepoRoot "tools\fetch_*.ps1"` com `Test-Path -LiteralPath` e `& $fetchScript` (caminhos de produção, não alterados). Se não aceitar, esses 4 testes falham só no leg ubuntu-latest do job `pester`.
+
+## Ciclo R-03 — layout compacto 80×24 (2026-11-17)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| R03-1 | done | ui/tui/state.py | `MIN_SIZE=(80,24)` (gate `too_small` + `_small`), `FULL_SIZE=(120,40)` (default de `UIState.size`, limiar), `compact(s)`; `FALLBACK_SIZE` removido (único uso era `__main__`) |
+| R03-2 | done | ui/tui/state.py, ui/tui/screens.py | `report_rows(s)`/`error_rows(s)` (21/17 em ≥120×40; compacto `h−9−2·removal_failed` / `h−14`) usados no clamp de `queue_scroll`/`error_scroll` e nos renderers REPORT/ERROR |
+| R03-3 | done | ui/tui/screens.py | `render()`: compacto = header 1 / corpo `h−2` / rodapé 1; ≥120×40 mantém 3/34/3 |
+| R03-4 | done | ui/tui/screens.py | ramo `S.compact(s)` nos 15 renderers, sem `height=` fixo que corte conteúdo; listas (LOG, QUEUE, REPORT, ERROR, CANCELLED, log do ENCODING) derivam de `h` |
+| R03-5 | done | ui/tui/screens.py | rodapé compacto = mesma string com `"   "→" "`, `Ctrl+C→^C`, `Próximo→Próx`, `no_wrap`+ellipsis; maior variante 79 col (SOURCE preset 5) |
+| R03-6 | done | ui/tui/screens.py | `_small` cita `S.MIN_SIZE` → "amplie para 80×24"; "o encode continua rodando" mantido |
+| R03-7 | done | ui/tui/__main__.py | `terminal_ok` e mensagem de erro usam `MIN_SIZE` (80×24) |
+| R03-8 | done | ui/tui/test_screens_compact.py | 388 testes novos: 33 estados × 11 tamanhos (W 80/100/119 × H 24/30/39 + 130×30 + 80×45) medem corpo/rodapé/header sem Layout; conteúdo funcional em 80×24; gate 80×24/79×24/80×23; DOWN na HOME; rolagem REPORT/ERROR até a última linha; 21/17 em tamanho cheio |
+| R03-9 | done | — | pytest suíte inteira 1441 passed, 4 skipped (antes 1053 passed, 4 skipped); ruff `ui/` limpo; `git diff --check` limpo; 120×40 e 150×50 idênticos byte a byte (com estilos) em 22 estados |
+
+### R-03 — detalhe
+
+- **Asserções existentes alteradas, exigidas pela mudança do mínimo** (100×30 passou a ser compacto, não "pequeno"):
+  - `test_screens.py::test_small_terminal_notice` e `::test_small_terminal_notice_mentions_running_encode_only_while_running`: 100×30 → 79×24; "120×40" → "80×24".
+  - `test_state.py`: `SMALL = (100, 30)` → `(79, 24)` (4 testes de teclas ignoradas).
+  - `test_app.py::test_first_tick_applies_real_size_before_draining_queued_key`: 80×24 → 79×24 (a intenção é tick antes da tecla; em 80×24 a tecla agora é processada).
+- **Regressão em ≥120×40**: script de snapshot (scratchpad, fora do repo) renderizou 22 estados (READY×3, ENCODING, DETAILS, LOG, QC×2, COMPLETED, ERROR, CANCELLED, QUEUE, REPORT×2, HOME, SOURCE×2, CONFIG×3, ADVANCED, PREVIEW) a 120×40 e 150×50 com `export_text(styles=True)` antes e depois. Diferença só na chave "small" (estado fixo em 100×30, agora compacto, mudança pretendida).
+- **Omitido no compacto** (decorativo/redundante): banners `hero` (READY, COMPLETED, HOME, REPORT viram linhas de texto), viewer PROGRAM (SOURCE, PREVIEW, ENCODING), faixa de abas do header, linhas em branco decorativas, `Rule` entre abas e campos no ADVANCED, linha "10 checks no master · Container · …" do QC/DELIVERY do READY (fica certificado + monitor EBU), linha MODO do READY (fundida em PIPELINE: "… · crf · 1 passe").
+- **Reorganizado no compacto**: PADRÕES/SETTINGS/SYSTEM em 2 colunas; DETAILS em 2 colunas sem bordas (títulos de seção como linha); TIMELINE+PERFORMANCE lado a lado; selo MASTER QC com `padding=(0,1)` e chips em 2 colunas antes do reveal; DELIVERY sem painel; trilho de etapas com separador de 1 espaço; barra de passe `min(48, w−58)`; coluna ARQUIVO da fila `max(12, min(40, w−54))`.
+- **`kv_table(rows, fit=False)`**: novo parâmetro; `fit=True` (só no compacto) usa grid `expand` com valor `ratio=1`, para que valor longo seja cortado com "…" em vez de espremer o rótulo. No modo cheio o grid é idêntico ao anterior.
+- **Captura ConPTY real** (`tests/screens/capture.py`, saídas só no scratchpad): HOME 80×24 com DOWN move o foco; ENTER abre SOURCE compacta; 120×40 → resize 79×24 → DOWN ignorado → resize 119×39 abre HOME compacta. Nenhuma captura gravada em `tests/screens/`.
+- **Preexistente, não tocado**: `ruff check .` acusa 8 erros só em `tests/screens/capture.py` (não rastreado, ferramenta do Orquestrador: E401/I001/E702). Fora da lista de arquivos do item.
+- Nada em stage/commit. Arquivos alterados: ui/tui/state.py, ui/tui/screens.py, ui/tui/__main__.py, ui/tui/test_screens_compact.py (novo), ui/tui/test_screens.py, ui/tui/test_state.py, ui/tui/test_app.py, .claude/memory/STATE.md.
+
+### R-03, adendo (2026-11-17)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| R03-8 | done | ui/tui/test_app.py | +1 teste `test_resize_below_min_mid_encode_keeps_running` (App loop: 120×40 → 70×20 → 120×40 durante encode, `run()==0`); repõe a cobertura que `test_resize_mid_encode_keeps_running` (90×30, agora compacto) deixou de exercer; teste existente intocado |
+| R03-9 | done | — | `pytest ui/tui/` 775 passed; ruff `ui/` limpo; `git diff --check` limpo. Suíte inteira NÃO re-rodada após o +1 teste (última: 1441 passed, 4 skipped). Sanidade da medição natural: renderers cheios a 80 col medem READY 34, ENCODING 34, ERROR 30 linhas (> 22), logo `render_lines(height=None)` não é vácuo |
+
+- Nota: no compacto ENCODING (`h−22`) e CANCELLED (`h−12`) deixam 2 linhas livres em 80×24 (reserva para aviso de cancelamento/2 passes e wrap do texto parcial); cabe sem corte, não ajustado.
+- FINDINGS R03F1 (info): spec `docs/Phase_2_TUI_Specification.md` ainda cita guard < 120×40.
+
+### R-03, adendo R03-10 (2026-11-17)
+
+| ID | status | arquivo tocado | resultado |
+|----|--------|----------------|-----------|
+| R03-10a | done | ui/tui/screens.py | READY compacto: `ready_error` quebrado com `textwrap` em `w−5` e mostrado inteiro em linhas próprias; para caber em `h−2` cede, nesta ordem, certificado/monitor EBU (2), depois PIPELINE PLAN (8). Se passar de `h−13` linhas (cerca de 800 caracteres a 80 col), a última recebe "…". Em 80×24 o erro de 196 caracteres ocupa 4 linhas e o PIPELINE PLAN sai |
+| R03-10b | done | ui/tui/state.py, ui/tui/screens.py | `error_message` passou de screens para state (`screens.error_message = S.error_message`, mantém o import de app.py e os testes); novo `S.error_lines(s)` (`textwrap` em `w−5`); o card do ERROR compacto tem `len(linhas)+2` de altura; `error_rows(s) = h−12−len(error_lines)` (com 2 linhas de mensagem dá o `h−14` de antes) |
+| R03-10c | done | ui/tui/test_screens_compact.py | +17 testes: READY com `ready_error` de 196 caracteres e ERROR com mensagem de 200+ caracteres em 80×24, 100×30 e 119×39 (texto inteiro, corpo ≤ h−2, STDERR rola até a última linha); 9 guardas de formulário no pior caso + `field_error` (CONFIGURATION presets 1/2/3/5, ADVANCED abas 0–4: corpo ≤ 22 e CONTINUAR visível); resize cheio↔compacto com `queue_scroll`/`error_scroll` ≠ 0 |
+| R03-9 | done | — | suíte inteira 1459 passed, 4 skipped; `ruff check .` sem erros; `git diff --check` limpo; 120×40 e 150×50 idênticos byte a byte (só muda a chave "small", como antes) |
+
+- O teste do ERROR compara com `error_message(s)`, que já corta a primeira linha em 200 caracteres + "…" (mesma regra do layout cheio; não alterada).
+- Os testes de resize mostram que, ao reduzir de 120×40 para 80×24, `queue_scroll`/`error_scroll` não são reajustados: o item na posição do scroll fica visível e DOWN chega à última linha. Ao voltar para 120×40, `queue_start`/`min()` limitam a janela e a última linha aparece.
+- RED antes da correção em 10a/10b (6 falhas: mensagem cortada). Os guardas do 10c passaram de primeira, porque descrevem o comportamento atual.
+- Nota de teste: `get_console(width=W)` usado em `text_of` no Windows rende em W−1 (legacy_windows). Por isso a quebra usa `w−5` (1 coluna de folga).
+- Correção do adendo R03-10: o `ready_error` do teste tem 200 caracteres (não 196) e a mensagem do ERROR tem 229 caracteres (exibida cortada em 200 + "…" por `error_message`).
+
+### R-03, adendo R03-11 (2026-11-17)
+
+| ID | status | arquivo | resultado |
+| --- | --- | --- | --- |
+| R03-11a | done | ui/tui/screens.py, ui/tui/test_screens_compact.py | `log_rows` ganhou `text_width` (padrão 104); `_log_screen` compacto passa `min(104, w−12)` e a coluna de nível tem `min_width=8`. Só `min_width` não bastava: Rich reduz proporcionalmente as colunas `no_wrap` quando o total excede a largura, então o texto passou a caber em w−12. RED: 4 falhas (`SY…`/`IN…`/`WA…`/`FF…`); GREEN: nível inteiro com texto de 200 caracteres. |
+| R03-11b | done | ui/tui/screens.py, ui/tui/test_screens_compact.py | `_details` compacto monta 3 linhas de grid (SOURCE\|HARDWARE, ENCODING\|CONFIG, OUTPUT\|PROGRESS); títulos alinhados, corpo ≤ h−2 em 80×24. RED antes, GREEN depois. |
+| R03-11c | done | — | `pytest ui/tui -q` 797 passed; `ruff check .` ok; `git diff --check` sem erro nos arquivos de código (só o aviso LF→CRLF de PLAN.md). Hash MD5 do render estilizado (log, details, encoding, overlay_log_final) em 120×40 e 150×50 idêntico antes/depois. |

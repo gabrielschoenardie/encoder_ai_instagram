@@ -175,6 +175,14 @@ def test_resize_mid_encode_keeps_running(tmp_path):
     assert app.run() == 0
 
 
+def test_resize_below_min_mid_encode_keeps_running(tmp_path):
+    sizes = iter([(120, 40), (70, 20), (70, 20), (120, 40)] + [(120, 40)] * 50)
+    evs = [R.Stage(R.PASS, "1", ts=1.0), R.Stage(R.DONE, ts=2.0)]
+    app, live, _ = make(tmp_path, ["ENTER"], fake_success(evs))
+    app._size = lambda: next(sizes)
+    assert app.run() == 0
+
+
 def test_stderr_writes_become_log_rows(tmp_path):
     def run(ns_, q, control, on_tick):
         sys.stderr.write("Traceback (most recent call last):\n  oops\n")
@@ -1144,10 +1152,10 @@ def test_ready_blocks_unreadable_folder(tmp_path, monkeypatch):
 
 def test_first_tick_applies_real_size_before_draining_queued_key(tmp_path):
     app, _, _ = make_home(tmp_path, [])
-    app._size = lambda: (80, 24)
+    app._size = lambda: (79, 24)
     app._queue.put(S.Key("CHAR", "1"))
     app._tick()
-    assert app.state.screen == S.HOME and app.state.size == (80, 24) and app.state.preset == 0
+    assert app.state.screen == S.HOME and app.state.size == (79, 24) and app.state.preset == 0
 
 
 def test_source_worker_tags_events_with_checked_kind(tmp_path):

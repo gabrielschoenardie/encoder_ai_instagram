@@ -222,7 +222,7 @@ def test_seal_reveal_tolerates_float_error():
     assert not S.seal_revealed(dataclasses.replace(s, now=301.5))
 
 
-SMALL = (100, 30)
+SMALL = (79, 24)
 
 
 @pytest.mark.parametrize("screen", [S.HOME, S.SOURCE, S.CONFIGURATION, S.ADVANCED, S.PREVIEW, S.READY])

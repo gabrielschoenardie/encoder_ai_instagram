@@ -6,14 +6,14 @@ import sys
 from ui import components as C
 from ui.theme import get_console
 from ui.tui.app import App
-from ui.tui.state import FALLBACK_SIZE
+from ui.tui.state import MIN_SIZE
 
 
 def terminal_ok(console, stdin=None, stdout=None) -> bool:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     return (stdin.isatty() and stdout.isatty() and console.is_terminal and not console.legacy_windows
-            and console.size.width >= FALLBACK_SIZE[0] and console.size.height >= FALLBACK_SIZE[1])
+            and console.size.width >= MIN_SIZE[0] and console.size.height >= MIN_SIZE[1])
 
 
 def _missing_binaries() -> list:
@@ -30,7 +30,7 @@ def main() -> int:
     if not terminal_ok(console):
         hint = (" Console legado detectado: abra o launcher no Windows Terminal (wt)."
                 if getattr(console, "legacy_windows", False) else "")
-        w, h = FALLBACK_SIZE
+        w, h = MIN_SIZE
         console.print(f"[err]Erro: a TUI precisa de um terminal interativo com VT e pelo menos {w}×{h}.{hint}[/err]")
         return 1
     missing = _missing_binaries()
