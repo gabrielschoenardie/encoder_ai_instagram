@@ -4130,3 +4130,37 @@ Nota L2 (leg ubuntu do CI, NÃO verificado localmente — WSL sem distro/pwsh): 
 | P3HF2-3 | done | — | alvo: 26 passed; suíte inteira 1473 passed, 4 skipped (1043 s); `ruff check .` All checks passed; `git diff --check` rc=0 (só aviso LF→CRLF de PLAN.md) |
 | P3HF2-4 | done | .claude/memory/FINDINGS.md, docs/reviews/tui-review.md | status P3HF2 → "corrigido (fix/p3hf2-mctf-ffmpeg, pendente de merge)" e "Corrigido na branch (aguarda merge)" (§ 4.1 linha 97; o plano citava § 5.2, a linha P3HF2 com célula de status está em § 4.1) |
 | P3HF2-V | verificado (Orquestrador) | — | alvo 26 passed; ruff OK; suíte inteira reexecutada pelo Orquestrador: 1473 passed, 4 skipped (1027 s). Limitação: os testes simulam `cv2.VideoCapture` e `subprocess.Popen` e usam binários falsos em `tmp_path`; nenhum FFmpeg real é executado e nenhuma máscara é gerada de fato. |
+
+## L2 smokes do launcher (2026-11-18)
+
+| ID | status | `PSModulePath` | resultado |
+| --- | --- | --- | --- |
+| L2-S1 | aprovado | limpo | `launcher.cmd -NoDownload` com binários em `bin\`: exit 0, TUI HOME observada no console real, ESC → exit 0; sem download. |
+| L2-S1b | aprovado | limpo | `-NoDownload` sem binários: exit 1 com a mensagem prevista; sentinelas de `fetch_*` não chamados (controle sem a flag: chamados). |
+| L2-S2 | aprovado | limpo | modo padrão, FFmpeg/FFprobe só no PATH (pasta com espaços): resolvidos e pinados em `REELS_*`, TUI HOME, ESC → exit 0. |
+| L2-S3 | aprovado | limpo | `-NoDownload` + FFmpeg/FFprobe só no PATH (pasta com espaços): mesmos critérios do S2, sem download. |
+| L2F5-a | reprovado | **herdado** | `launcher.cmd -NoDownload` de pwsh 7: exit 1, `Get-FileHash` não reconhecido em `Get-RequirementsStamp` (`launcher.ps1:300`). |
+| L2F5-b | aprovado | limpo | mesma execução com `PSModulePath` limpo só no filho: exit 0. |
+
+Detalhe, causa, correções avaliadas (nenhuma aplicada) e limites em `VALIDATION.md` § Smokes do launcher (L2); achado L2F5 em `FINDINGS.md`. Base `ab478cf`; temporários removidos; checkout principal inalterado.
+
+## L2F5 - correcao A (2026-11-18)
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| L2F5-1 | done | tests/launcher-cmd.Tests.ps1 | 8 testes; vermelho antes da correcao: 4 falham (a: entrada custom-mods propagada; b: Get-FileHash=False no filho; c: modulos != baseline; g: sem set "PSModulePath=") e 4 passam (d, e0, e7, f) |
+| L2F5-2 | done | launcher.cmd | REM L2F5 + set "PSModulePath=" entre cd /d e powershell.exe; CRLF/ASCII preservados |
+| L2F5-3 | done | - | Pester launcher-cmd 8/8 verde; suite ./tests 164 passed, 0 failed; git diff --check limpo |
+| L2F5-4 | done | .claude/memory/STATE.md | este bloco |
+
+Notas: (f) usa cmd /d /v:on e !PSModulePath! (com %..% a expansao ocorre antes do call e o teste seria vazio); (f) passa no vermelho porque o setlocal ja restaurava. testResults.xml gerado pelo -CI foi removido. Legs 5.1 e launcher completo: Orquestrador.
+
+### L2F5-V (Orquestrador, 2026-11-18)
+
+| ID | status | resultado |
+| --- | --- | --- |
+| L2F5-V1 | verificado | RED independente: 4 testes falham contra o `launcher.cmd` do HEAD; GREEN 8/8 em pwsh 7 e em 5.1; `./tests` 164/164 nas duas engines; `git diff --check` rc=0. |
+| L2F5-V2 | verificado | Sonda do 5.1 na cadeia pwsh → cmd, sem limpar `PSModulePath` no runner: original → `Get-FileHash` ausente (96 módulos); corrigido → presente (83 módulos, hash = baseline); entrada customizada não propagada. |
+| L2F5-V3 | verificado | `launcher.cmd -NoDownload` completo com `PSModulePath` herdado: exit 0, TUI na HOME, ESC → exit 0; `PSModulePath` do chamador inalterado (hash igual). |
+
+Limites: `fetch_wt_portable.ps1` segue como inferência (não executado); sem teste por atalho/aba pwsh do Windows Terminal do usuário; CI ainda não rodou. Detalhe em `VALIDATION.md` § Smokes do launcher (L2), § 6. Nada publicado.
