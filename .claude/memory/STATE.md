@@ -4164,3 +4164,19 @@ Notas: (f) usa cmd /d /v:on e !PSModulePath! (com %..% a expansao ocorre antes d
 | L2F5-V3 | verificado | `launcher.cmd -NoDownload` completo com `PSModulePath` herdado: exit 0, TUI na HOME, ESC → exit 0; `PSModulePath` do chamador inalterado (hash igual). |
 
 Limites: `fetch_wt_portable.ps1` segue como inferência (não executado); sem teste por atalho/aba pwsh do Windows Terminal do usuário; CI ainda não rodou. Detalhe em `VALIDATION.md` § Smokes do launcher (L2), § 6. Nada publicado.
+
+## L2F4 — ffplay no painel SYSTEM (2026-11-18)
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| L2F4-1 | done | ui/tui/test_system_rows.py | 8 testes; VERMELHO medido pelo Orquestrador contra o app.py original: 4 falham (test_ffplay_only_in_bundled_bin, test_ffplay_only_via_env, test_ffplay_path_with_spaces[bin], test_ffplay_path_with_spaces[env]) e 4 passam (only_on_path, absent, spaces[path], other_rows); minha corrida pre-correcao deu o mesmo (4 failed, 4 passed) |
+| L2F4-2 | done | ui/tui/app.py | has_ffplay = available("ffplay"); import de ui.binaries.available; side e import shutil removidos (shutil so era usado ali) |
+| L2F4-3 | done | - | (b) test_system_rows.py 8 passed; (c) ui/tui + test_binaries + test_preflight + test_tui_driver 858 passed; (d) `ruff check .` (comando do CI) e nos 2 arquivos: All checks passed; (e) suite do job Tests: 1481 passed, 4 skipped em 17m26s; (f) git diff --check rc=0 (so aviso LF/CRLF do PLAN.md) |
+| L2F4-4 | done | .claude/memory/STATE.md, .claude/memory/FINDINGS.md | este bloco (append em bytes); FINDINGS L2F4: aberto -> corrigido na branch fix/l2f4-ffplay-status; aguarda integracao, 1 ocorrencia, CRLF preservado |
+
+### L2F4-V (Orquestrador, 2026-11-18)
+
+- Revisado o diff de produção: `ui/tui/app.py` troca a checagem por `available("ffplay")` (+2/−3, import `shutil` removido). Reexecutado por mim: `test_system_rows.py` + `ui/test_binaries.py` + `ui/tui/test_app.py` = 110 passed; `ruff check .` limpo; `git diff --check` rc=0. Vermelho medido por mim em worktree temporário do HEAD (removido): 4 falham, 4 passam.
+- **Simulado:** os 8 testes usam o resolvedor real com `_proj_dir`, `PATH`, `REELS_FFPLAY` e `RE.FFMPEG` controlados em pasta temporária; não usam o ffplay do PC.
+- **Execução real, fora da TUI:** `App._system_rows()` chamado no checkout com `PATH` reduzido a `System32` (sem ffplay no PATH; `bin\ffplay.exe` presente) devolveu `('ffplay', 'ok')`. Não é observação da TUI renderizada; a TUI não foi aberta neste ciclo e o cenário exato do smoke S2 (FFmpeg só no PATH, ffplay só em `bin\`) não foi repetido fora dos testes simulados.
+- Mudança de comportamento: um ffplay ao lado de um `REELS_FFMPEG` fora de `bin\` e do PATH deixa de contar como disponível, alinhando o painel ao `ebu_meter` (que usa o mesmo resolvedor).
