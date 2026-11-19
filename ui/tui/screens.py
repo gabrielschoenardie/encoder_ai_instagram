@@ -876,7 +876,6 @@ error_message = S.error_message
 
 
 def _error(s: S.UIState) -> RenderableType:
-    err = s.error
     if S.compact(s):
         msg = S.error_lines(s)
         card = C.error_card("\n".join(msg))
@@ -884,10 +883,10 @@ def _error(s: S.UIState) -> RenderableType:
     else:
         card = C.error_card(error_message(s))
         card.height, card.padding = 5, (0, 2)
-    lines = S.stderr_lines(err, s.log)
+    lines = S.stderr_visual_lines(s)
     rows = S.error_rows(s)
     start = min(s.error_scroll, max(0, len(lines) - rows))
-    body = Group(*[Text(ln, overflow="ellipsis", no_wrap=True) for ln in lines[start:start + rows]]) if lines \
+    body = Group(*[Text(ln, overflow="crop", no_wrap=True) for ln in lines[start:start + rows]]) if lines \
         else Text("—", style="muted")
     p = s.progress
     state = panel(kv_table([

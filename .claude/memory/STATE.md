@@ -4180,3 +4180,36 @@ Limites: `fetch_wt_portable.ps1` segue como inferência (não executado); sem te
 - **Simulado:** os 8 testes usam o resolvedor real com `_proj_dir`, `PATH`, `REELS_FFPLAY` e `RE.FFMPEG` controlados em pasta temporária; não usam o ffplay do PC.
 - **Execução real, fora da TUI:** `App._system_rows()` chamado no checkout com `PATH` reduzido a `System32` (sem ffplay no PATH; `bin\ffplay.exe` presente) devolveu `('ffplay', 'ok')`. Não é observação da TUI renderizada; a TUI não foi aberta neste ciclo e o cenário exato do smoke S2 (FFmpeg só no PATH, ffplay só em `bin\`) não foi repetido fora dos testes simulados.
 - Mudança de comportamento: um ffplay ao lado de um `REELS_FFMPEG` fora de `bin\` e do PATH deixa de contar como disponível, alinhando o painel ao `ebu_meter` (que usa o mesmo resolvedor).
+
+## R03F2 — STDERR na tela ERROR (2026-11-19)
+
+| ID | status | arquivo tocado | resultado |
+| --- | --- | --- | --- |
+| R03F2-1 | done | ui/tui/test_error_stderr_wrap.py | 15 testes (80x24 e 120x40); vermelho antes da correcao: 13 falharam (AttributeError: sem stderr_visual_lines), 2 passaram (assert_fits) |
+| R03F2-2 | done | ui/tui/state.py, ui/tui/screens.py | stderr_width (size[0]-4, min 10, confirmado empiricamente com Console legacy_windows=False, que e o modo real do TUI) e stderr_visual_lines (expandtabs + chop_cells); _error usa Text(overflow=crop); teto de rolagem e _tick (resize) usam a mesma funcao; _tick mantem a rolagem no fim se ja estava no fim (necessario ao caso f); removido `err` morto em _error (ruff F841) |
+| R03F2-3 | done | - | verde: test_error_stderr_wrap 15 passed; ui/tui 820 passed; ruff check . All checks passed (apos corrigir F841 e I001); suite do job Tests (test_render_queue.py enhance/ ui/ tools/) 1496 passed, 4 skipped em 17m51s (rodada antes dos 2 ajustes de lint; ui/tui re-rodado depois: 820 passed); git diff --check sem erros |
+| R03F2-4 | done | .claude/memory/STATE.md, FINDINGS.md | STATE anexado; FINDINGS R03F2 com status atualizado |
+
+Notas: o text_of de test_screens usa Console legacy no Windows (largura de render = size-1); o teste novo define o proprio text_of com legacy_windows=False. Nenhum teste existente foi alterado.
+
+### R03F2-V (Orquestrador, 2026-11-19)
+
+- Diff de produção revisado: `ui/tui/state.py` (`stderr_width`, `stderr_visual_lines`, teto de rolagem e `_tick`) e `ui/tui/screens.py` (`_error`, +2/-3); fora do escopo nada tocado (LOG, motor, driver, código de saída, R03F5, launcher, N-1). Revisão de fluxo (`ui-flow-reviewer`): FLOW OK, sem defeito; ressalva cosmética: um resize feito dentro de LOG/DETAILS não reclampa o `error_scroll` no ERROR (o clamp do render e do reducer mantém o estado válido; DOWN recupera). Hipóteses não confirmadas: `chop_cells` com combinantes em rich 13/14 (o venv usa 15.0.0; `pyproject` declara `rich>=13`) e sequências ANSI no stderr (contariam como células).
+- **Vermelho comportamental** (render do HEAD, mesma linha longa com espaços e `Permission denied` no fim): 80x24 e 120x40 mostram `…` e **não** mostram `Permission denied`; com a correção, sem `…` e com `Permission denied` visível. O vermelho dos testes novos no HEAD é 13 falhas (AttributeError, a função nova não existe) e 2 passes; reexecutado por mim: 15 passed com a correção.
+- Reexecutado por mim: `ruff check .` limpo; `pytest ui/` 1035 passed (9m24s); `git diff --check` rc=0. A suíte completa do job Tests (1496 passed, 4 skipped) é do executor e rodou antes de 2 ajustes de lint (F841, I001); depois só `ui/` foi reexecutado.
+- **Observação real (harness `tests/screens/capture.py`, TUI real via ConPTY, não simulada):** arquivo temporário isolado em pasta com espaços e um diretório criado no caminho de saída padrão; FFmpeg real falhou sem desativar proteção alguma (R03F5: o READY não avisa). Em 120x40 e em 80x24 a tela ERROR mostrou, rolando até o fim, `Error opening output <caminho completo com espaços>: Permission denied`, `Error opening output file <caminho completo>.` e `Error opening output files: Permission denied`, quebrados em várias linhas e sem `…`. Resize 120x40 -> 80x24 com a rolagem no fim manteve o fim; UP/DOWN respeitaram os limites; voltar a 120x40 manteve a janela válida. Capturas só no scratchpad local, fora do repositório; pasta temporária removida; nenhum processo restante.
+- Observação por leitura do buffer do console, não por inspeção visual humana. Não coberto: Windows Terminal do usuário; LOG (truncamento permanece); o cabeçalho da tela ainda mostra o código de saída sem sinal (R03F4, fora do escopo).
+
+### R03F2-red-comportamental
+
+Testes de comportamento acrescentados em ui/tui/test_error_stderr_wrap.py (5 casos: long_line_reachable x2 tamanhos, last_logical_markers_reachable x2, resize_at_end), usando so API existente (V.render via text_of, S.apply, S.Key, S.Tick, err_state).
+
+- Vermelho por helper inexistente (13): AttributeError em S.stderr_visual_lines/stderr_width; nao demonstra o defeito.
+- Vermelho de comportamento no HEAD 8f09f2d (worktree detached temporario, ja removido): 5 falharam de 5, por truncamento, sem AttributeError. long_line_reachable[80x24 e 120x40]: assert any('Permission denied' in janela) falso (linha cortada com reticencias, sem rolagem horizontal). last_logical_markers_reachable[80x24 e 120x40]: marcador FIM-00 ausente em todas as janelas. resize_at_end: 'Permission denied' ausente apos 120x40 para 80x24.
+- Verde na branch: arquivo inteiro 20 passed; ruff check . All checks passed; git diff --check sem erros. Suite completa nao rodada (a cargo do Orquestrador).
+
+### R03F2-V2 (Orquestrador, 2026-11-19) — verificação final antes da publicação
+
+- **Vermelho, distinção precisa:** (a) 13 dos 15 testes iniciais falhavam no HEAD por AttributeError (helper `stderr_visual_lines` inexistente) — isso **não** demonstra o defeito; (b) 5 testes de comportamento acrescentados depois usam só API já existente no HEAD (`V.render`, `S.apply`, `S.Key`, `S.Tick`) e falham no HEAD `8f09f2d` por truncamento: `Permission denied` ausente em todas as janelas de rolagem (2, em 80x24 e 120x40), marcadores `FIM-00` ausentes (2) e `Permission denied` ausente após resize no fim (1); sem AttributeError. Verificado por mim em worktree temporário detached do HEAD (removido). Com a correção: 20 passed.
+- **Checks locais do projeto, na árvore final** (Python 3.13.3 local; o CI usa 3.11 e 3.12): `ruff check . --output-format=github` rc=0; `python -m pytest test_render_queue.py enhance/ ui/ tools/ -v --timeout=60` = **1501 passed, 4 skipped** em 17m25s (comando do job Tests); `git diff --check` limpo. O job Pylint (`pylint --fail-under=8.0`) **não foi executado localmente** (pylint não está no venv; sem instalações) e os jobs Pester do launcher não são afetados pela mudança.
+- Linhas em branco do STDERR já eram descartadas por `stderr_lines` antes da mudança e continuam sendo (preservado, não alterado); o teste de linhas curtas cobre ordem, conteúdo e recuo.
