@@ -4,6 +4,8 @@ import re
 import textwrap
 from dataclasses import dataclass, replace
 
+from rich.cells import cell_len, chop_cells
+
 import reporter as R
 from ui.tui import forms as F
 from ui.tui import widgets as W
@@ -242,6 +244,19 @@ def stderr_lines(err, log) -> list:
     if raw:
         return [ln for ln in raw.replace("\r", "\n").split("\n") if ln.strip()]
     return [r.text for r in log if r.kind == "FFMPEG"][-40:]
+
+
+def stderr_width(s: UIState) -> int:
+    return max(10, s.size[0] - 4)
+
+
+def stderr_visual_lines(s: UIState) -> list:
+    width = stderr_width(s)
+    out = []
+    for ln in stderr_lines(s.error, s.log):
+        ln = ln.expandtabs()
+        out.extend([ln] if cell_len(ln) <= width else chop_cells(ln, width))
+    return out
 
 
 def filtered_log(s: UIState) -> tuple:
@@ -490,12 +505,19 @@ def _engine(s: UIState, ev) -> UIState:
 
 
 def _tick(s: UIState, ev: Tick) -> UIState:
+    at_end = False
+    if s.screen == ERROR and tuple(ev.size) != tuple(s.size):
+        old_top = max(0, len(stderr_visual_lines(s)) - error_rows(s))
+        at_end = old_top > 0 and s.error_scroll >= old_top
     s = replace(s, now=ev.ts, size=tuple(ev.size), cpu=ev.cpu, ram=ev.ram, ram_used_gb=ev.ram_used_gb)
     if s.screen == QC and s.qc is not None and s.seal_reveal_start is None:
         s = replace(s, seal_reveal_start=ev.ts)
     if s.exit_code == 0 and s.screen == QC and s.back != COMPLETED:
         if s.qc is None or seal_revealed(s):
             s = replace(s, screen=COMPLETED, action_focus=0)
+    if s.screen == ERROR:
+        top = max(0, len(stderr_visual_lines(s)) - error_rows(s))
+        s = replace(s, error_scroll=top if at_end else max(0, min(top, s.error_scroll)))
     return s
 
 
@@ -743,7 +765,7 @@ def _key(s: UIState, k: str, ch: str | None = None) -> UIState:
         if k == "RIGHT":
             return replace(s, action_focus=min(len(actions) - 1, s.action_focus + 1))
         if s.screen == ERROR and k in ("UP", "DOWN"):
-            top = max(0, len(stderr_lines(s.error, s.log)) - error_rows(s))
+            top = max(0, len(stderr_visual_lines(s)) - error_rows(s))
             return replace(s, error_scroll=max(0, min(top, s.error_scroll + (1 if k == "DOWN" else -1))))
         if k == "ESC":
             return replace(s, action="exit")
