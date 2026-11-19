@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import os
 import queue
-import shutil
 import sys
 import threading
 import time
@@ -19,6 +18,7 @@ from rich.text import Text
 import Reels_Encoder_v2_FINAL as RE
 import reporter as R
 from ui import tui_driver as D
+from ui.binaries import available
 from ui.config import EncodeConfig
 from ui.theme import get_console
 from ui.tui import forms as F
@@ -107,8 +107,7 @@ class App:
 
     @staticmethod
     def _system_rows() -> tuple:
-        side = os.path.join(os.path.dirname(RE.FFMPEG), "ffplay")
-        has_ffplay = bool(shutil.which("ffplay")) or os.path.exists(side) or os.path.exists(side + ".exe")
+        has_ffplay = available("ffplay")
         return (
             ("FFmpeg", os.path.basename(RE.FFMPEG)),
             ("ffprobe", os.path.basename(RE.FFPROBE)),
